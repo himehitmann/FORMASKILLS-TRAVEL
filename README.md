@@ -32,7 +32,7 @@ mettre le fichier dans un dossier, créer un marque-page.
 | **T2 Projets** | Chaque mobilité + sa **conformité Erasmus R1→R8** (cases à cocher « prêt pour l'audit »). |
 | **T3 Participants** | Apprenants, mineurs, assurances, statut de dossier. |
 | **Finances** | Calculateur de marge séjour (FLE €/h, autres coûts) + lignes budgétaires. |
-| **Devis & documents** | 🧾 **Devis** numérotés, pré-remplis depuis un partenaire (T1), lignes + totaux + marge, **imprimables en PDF** · 📄 **Modèles** (attestation de présence, email de prospection, conditions de prise en charge…) remplis en un clic, variables `{{…}}` personnalisables · 🏢 **Fiche société** unique (SIRET, adresse, IBAN…) qui alimente automatiquement tous les documents — **fini la ressaisie**. |
+| **Devis & documents** | 🧾 **Devis** numérotés, pré-remplis depuis un partenaire (T1), lignes + totaux + marge, **imprimables en PDF** · 📄 **Modèles** (attestation de présence, email de prospection, conditions de prise en charge…) tous **modifiables** — même ceux fournis — remplis en un clic, variables `{{…}}` personnalisables · 🏢 **Fiche société** unique (SIRET, adresse, IBAN…) qui alimente automatiquement tous les documents · 🎨 **Mise en page** : logo, couleur d'accent, en-tête et pied de page **modifiables à tout moment**, appliqués partout. **Fini la ressaisie.** |
 | **T6 Prestataires** | Hôtels, guides, transporteurs, contrats. |
 | **T7 Tâches** | Échéances, priorités, rappels ; les retards remontent au tableau de bord. |
 | **Automatisations** | Règles **QUAND … ALORS …** qui tournent dans l'outil (remplace Make). |
