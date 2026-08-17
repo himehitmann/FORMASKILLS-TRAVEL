@@ -563,8 +563,49 @@ function go(id){
 
 const VIEWS={};
 
+/* ---------- Assistant : moteur « À faire maintenant » ----------
+   Traduit les données en actions concrètes et priorisées. C'est la couche
+   que l'Airtable/Make n'avait pas : au lieu de tables à lire, l'outil DIT
+   quoi faire. Chaque règle correspond à une friction réelle du process. */
+const DAY=864e5;
+function nextActions(){
+  const now=Date.now(), A=[];
+  const add=(pri,icon,title,detail,act)=>A.push({pri,icon,title,detail,act});
+  // 1. Prospects à contacter
+  DB.partners.filter(p=>["À contacter","Non catégorisée",""].includes(p.status||"")).forEach(p=>
+    add(2,"🤝",`Contacter ${p.name}`,`Prospect ${p.type||""} sans premier contact`,{l:"Ouvrir",fn:`openRec('partners','${p.id}')`}));
+  // 2. Devis envoyés sans réponse depuis > 7 j -> relancer
+  DB.quotes.filter(q=>(q.kind||"devis")==="devis" && q.status==="Envoyé" && (now-(q.date||now))>7*DAY).forEach(q=>
+    add(2,"📤",`Relancer le devis ${q.number}`,`${q.clientName||""} · envoyé il y a ${Math.round((now-q.date)/DAY)} j`,{l:"Relancer",fn:`relanceDevis('${q.id}')`}));
+  // 3. Factures en retard
+  DB.quotes.filter(q=>q.kind==="facture" && q.status==="Émise" && q.due && q.due<now).forEach(q=>
+    add(3,"💶",`Facture ${q.number} en retard`,`${q.clientName||""} · échéance ${fmtDate(q.due)}`,{l:"Ouvrir",fn:`openQuoteRec('${q.id}')`}));
+  // 4. Conventions AVANT départ (R2) — départ proche
+  DB.projects.filter(p=>p.start && p.start>now && (p.start-now)<21*DAY && !((p.R||{}).R2)).forEach(p=>
+    add(3,"⚠️",`Conventions à signer AVANT le départ`,`${p.name} · départ le ${fmtDate(p.start)} — R2 non validé`,{l:"Ouvrir",fn:`openRec('projects','${p.id}')`}));
+  // 5. Assurances (R5) — départ dans 6 semaines
+  DB.projects.filter(p=>p.start && p.start>now && (p.start-now)<42*DAY && !((p.R||{}).R5)).forEach(p=>
+    add(2,"🛡️",`Vérifier assurances / CEAM`,`${p.name} · départ le ${fmtDate(p.start)}`,{l:"Ouvrir",fn:`openRec('projects','${p.id}')`}));
+  // 6. Dossiers participants incomplets
+  DB.participants.filter(p=>["Incomplet","En cours",""].includes(p.status||"")).forEach(p=>
+    add(1,"🧑‍🎓",`Compléter le dossier de ${p.name}`,`Statut : ${p.status||"Incomplet"}`,{l:"Ouvrir",fn:`openRec('participants','${p.id}')`}));
+  // 7. Tâches en retard
+  DB.tasks.filter(t=>t.status!=="Fait" && t.due && t.due<now).forEach(t=>
+    add(3,"⏰",`Tâche en retard : ${t.title}`,`Échéance ${fmtDate(t.due)}`,{l:"Ouvrir",fn:`openRec('tasks','${t.id}')`}));
+  // 8. Amorçage si vide
+  if(!DB.partners.length) add(1,"✨","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
+  return A.sort((a,b)=>b.pri-a.pri);
+}
+window.openRec=(entity,id)=>{ go(entity); if(id||id===null) editEntity(entity,id==="null"?null:id); };
+window.openQuoteRec=id=>{ go("docs"); DOCS_KIND="facture"; VIEWS.docs(); editQuote(id); };
+window.relanceDevis=id=>{ const q=DB.quotes.find(x=>x.id===id); if(!q)return;
+  DB.tasks.unshift({id:uid(),title:`Relancer ${q.clientName||""} — devis ${q.number}`,status:"À faire",priority:"Haute",due:Date.now()+2*DAY,linked:q.number,auto:true});
+  logAct(`Relance planifiée : devis ${q.number}`); save(); renderNav(); VIEWS.dash(); toast("Relance ajoutée aux tâches"); };
+const priColor=p=>p>=3?"var(--bad)":p>=2?"var(--warn)":"var(--brand)";
+
 /* ---------- Dashboard ---------- */
 VIEWS.dash=()=>{
+  const acts=nextActions();
   const P=DB.partners, prj=DB.projects, part=DB.participants;
   const marge = DB.budget.reduce((s,b)=>s+(Number(b.margin)||0),0)
     + DB.projects.reduce((s,p)=>s+(Number(p.margin)||0),0);
@@ -589,6 +630,20 @@ VIEWS.dash=()=>{
   const nbProspects=Math.ceil(nbRdv/(s.convContact||.35));
 
   $("#view").innerHTML=`
+  <div class="card" style="margin-bottom:18px;border-left:4px solid var(--brand)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:${acts.length?'14px':'0'}">
+      <div class="section-title" style="margin:0">À faire maintenant</div>
+      <span class="tag ${acts.length?'b':'g'}">${acts.length||"0"} action${acts.length>1?'s':''}</span>
+      <div class="spacer"></div><span class="muted" style="font-size:12px;font-weight:600">Mis à jour en direct depuis vos données</span>
+    </div>
+    ${acts.length? acts.slice(0,8).map(a=>`<div class="result-row" style="border-color:var(--line)">
+      <span style="font-size:18px">${a.icon}</span>
+      <span class="meter-dot" style="background:${priColor(a.pri)}"></span>
+      <div style="flex:1;min-width:0"><div class="cell-strong">${esc(a.title)}</div><div class="muted" style="font-size:12.5px">${esc(a.detail)}</div></div>
+      <button class="btn sm primary" onclick="${a.act.fn}">${esc(a.act.l)}</button></div>`).join("")
+      + (acts.length>8?`<div class="muted" style="font-size:12px;font-weight:600;margin-top:8px">+ ${acts.length-8} autre(s) action(s)…</div>`:"")
+      : `<div class="muted" style="font-weight:600">🎉 Tout est à jour — aucune action urgente. Continuez la prospection ou préparez vos prochains séjours.</div>`}
+  </div>
   <div class="grid cards">
     ${kpi("Marge totale", eur(marge), "money", "var(--ok)")}
     ${kpi("Projets en cours", enCours, "proj", "var(--brand)")}
