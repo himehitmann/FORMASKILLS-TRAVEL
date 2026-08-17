@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Formaskills Travel OS",
+  "version": "1.0.0",
+  "description": "Outil de gestion autonome Formaskills Travel : CRM, devis, conformite Erasmus, et recherche de contacts (emails, telephones) sur LinkedIn et le web.",
+  "permissions": ["tabs", "scripting", "storage", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Ouvrir Formaskills Travel OS" },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+}

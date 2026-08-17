@@ -1,66 +1,83 @@
 # Formaskills Travel OS
 
-Outil de gestion **100 % autonome** pour Formaskills Travel : un seul fichier HTML
-qui remplace **Airtable** (tables T1→T9 + conformité R1→R8) et **Make**
-(moteur d'automatisations), et qui embarque un **chercheur de contacts / emails**
-hors-ligne inspiré des extensions type Skrapp / Hunter / Snov.
+Outil de gestion **100 % autonome** pour Formaskills Travel. Un seul dossier,
+aucune dépendance, aucun abonnement, aucun serveur : il fonctionne pour
+toujours, même hors-ligne, et tout ce que vous faites se sauvegarde tout seul.
 
-## Pourquoi c'est fait comme ça
+Il remplace **Airtable** (données T1→T9 + conformité Erasmus R1→R8), **Make**
+(automatisations) et les **extensions d'email-finder** (Skrapp, Hunter, Snov…)
+par un seul outil, plus simple et mieux guidé.
 
-Le cahier des charges était clair : **rien à payer, aucune dépendance à un
-autre outil ou service, ça doit fonctionner toujours, même hors-ligne, même
-sans Claude, et tout doit se sauvegarder.**
+## Deux façons de l'utiliser
 
-La seule architecture qui respecte réellement tout ça est un **fichier HTML
-unique, sans serveur, sans CDN, sans API**. Il ne peut donc pas « tomber en
-panne » à cause d'un service tiers. Les données vivent dans le navigateur
-(`localStorage`) et s'exportent en un fichier JSON de sauvegarde.
+### 1. Application simple (le plus rapide)
+Ouvrez `app/index.html` dans n'importe quel navigateur (double-clic). Tout
+fonctionne, sauf le scraping direct sur LinkedIn/le web (qui a besoin du mode
+extension ci-dessous). Le bookmarklet et « Extraire d'une page » couvrent déjà
+la récupération de contacts sans rien installer.
 
-## Lancer l'outil
+### 2. Extension Chrome (débloque le scraping LinkedIn & web)
+1. Téléchargez le dépôt (bouton **Code → Download ZIP** sur GitHub) et
+   décompressez-le.
+2. Ouvrez Chrome → `chrome://extensions` → activez **Mode développeur**.
+3. Cliquez **Charger l'extension non empaquetée** et sélectionnez le dossier
+   **`app`** (celui qui contient `manifest.json`).
+4. Cliquez l'icône de l'extension : l'outil s'ouvre, onglet « Scraper » actif.
 
-Ouvrir `app/index.html` dans n'importe quel navigateur (double-clic).
-C'est tout — aucune installation. Pour l'avoir toujours sous la main :
-mettre le fichier dans un dossier, créer un marque-page.
+Le `manifest.json`, le service worker et les icônes sont tous dans `app/`.
 
 ## Ce que fait l'outil
 
 | Écran | Rôle |
 |---|---|
-| **Tableau de bord** | 🧭 **Assistant « À faire maintenant »** : au lieu de tables à lire, l'outil analyse vos données et vous dit quoi faire, priorisé, avec un bouton par action (contacter un prospect, relancer un devis, facture en retard, conventions à signer avant un départ, dossier incomplet, tâche en retard…). Puis KPI (marge, projets, participants), entonnoir de prospection, calcul inverse « objectif de CA → nombre de prospects ». |
-| **Chercheur de contacts** | 🔎 **Par nom** : devine les emails (nom + domaine, 12 modèles classés par probabilité) · 🌐 **Par domaine** : liste les adresses de service (contact@, sales@, rh@…) par département, façon Hunter Domain Search · 📚 **En masse** : colle une liste (Prénom, Nom, Domaine) → email de chacun → export CSV · 📋 **Extraire d'une page** : tous les emails, téléphones, sites, réseaux d'un texte collé — hors LinkedIn, site par site · 👤 **Profil / LinkedIn** : colle un profil → nom, poste, société, email, téléphone (équivalent hors-ligne d'un scraper) · 🧠 **Modèle** : apprend le format d'une boîte depuis un seul email connu · ✔️ **Vérifier** (syntaxe, jetable, générique, format pro) · 💾 **Contacts** : listes/étiquettes, import & export CSV, déduplication · 📌 **Bookmarklet** « sur toute page » : extrait les contacts de n'importe quel site sans installer d'extension, 100 % local. |
-| **T1 Partenaires** | CRM de prospection (Kanban glisser-déposer + tableau) : CFA, écoles, OPCO, entreprises. |
-| **T2 Projets** | Chaque mobilité + sa **conformité Erasmus R1→R8** (cases à cocher « prêt pour l'audit »). |
-| **T3 Participants** | Apprenants, mineurs, assurances, statut de dossier. |
-| **Finances** | Calculateur de marge séjour (FLE €/h, autres coûts) + lignes budgétaires. |
-| **Devis & documents** | 🧾 **Devis & 🧾 Factures** numérotés (D-2026-… / F-2026-…), un devis se **convertit en facture** en un clic, pré-remplis depuis un partenaire (T1), lignes + totaux + marge, statuts (Envoyé/Accepté, Émise/Payée/En retard), **imprimables en PDF** · 📄 **Modèles** (attestation de présence, email de prospection, conditions de prise en charge…) tous **modifiables** — même ceux fournis — remplis en un clic, variables `{{…}}` personnalisables · 🏢 **Fiche société** unique (SIRET, adresse, IBAN…) qui alimente automatiquement tous les documents · 🎨 **Mise en page** : logo, couleur d'accent, en-tête et pied de page **modifiables à tout moment**, appliqués partout. **Fini la ressaisie.** |
+| **Tableau de bord** | Assistant **« À faire maintenant »** : l'outil analyse vos données et vous dit quoi faire, priorisé, avec un bouton par action (contacter un prospect, relancer un devis, facture en retard, conventions à signer avant un départ, dossier incomplet…). Puis KPI, entonnoir de prospection, calcul inverse « objectif de CA → nombre de prospects ». |
+| **Chercheur de contacts** | **Scraper LinkedIn / Web** (mode extension) : récupère emails, téléphones et noms depuis un profil LinkedIn (onglet actif) ou en lançant une **recherche web multi-pages** (choisissez le nombre de pages et de sites à visiter). Plus, hors-ligne : deviner un email par nom, par domaine, en masse (CSV), extraire d'une page collée, parser un profil, apprendre un modèle, vérifier, bookmarklet « sur toute page ». |
+| **T1 Partenaires** | CRM de prospection (Kanban + tableau). |
+| **T2 Projets** | Mobilités + conformité Erasmus R1→R8. |
+| **T3 Participants** | Apprenants, mineurs, assurances, dossiers. |
+| **Finances** | Calculateur de marge séjour + lignes budgétaires + **enveloppe Erasmus** (déduction automatique par projet). |
+| **Devis & documents** | **Devis & factures** (conversion en 1 clic), **modèles** de documents personnalisables, **fiche société** unique, **mise en page** (logo, couleurs, en-tête/pied de page) modifiable à tout moment. Tout imprimable en PDF. |
 | **T6 Prestataires** | Hôtels, guides, transporteurs, contrats. |
-| **T7 Tâches** | Échéances, priorités, rappels ; les retards remontent au tableau de bord. |
-| **Automatisations** | Règles **QUAND … ALORS …** qui tournent dans l'outil (remplace Make). |
-| **Réglages** | Objectifs, thème clair/sombre, **export / import JSON**, réinitialisation. |
+| **T7 Tâches** | Échéances, priorités, rappels ; retards remontés au tableau de bord. |
+| **Automatisations** | Règles QUAND … ALORS … (remplace Make). |
+| **Réglages** | Objectifs, thème clair/sombre, **export / import** de sauvegarde. |
 
-## Chercheur de contacts — ce qui est possible hors-ligne (et ce qui ne l'est pas)
+## Tableaux : puissants et libres
 
-Les extensions payantes (Skrapp, Hunter, Snov…) reposent sur **deux** briques :
-1. des **algorithmes** (permutation de patterns, apprentissage de modèle,
-   extraction, classification) — **entièrement reproduits ici, hors-ligne** ;
-2. un **serveur** qui confirme qu'une boîte mail existe vraiment (SMTP) et
-   interroge des bases de données propriétaires — **impossible sans réseau**,
-   donc volontairement écarté pour garder l'autonomie et la gratuité totales.
+Chaque tableau (T1, T2, T3, T6, T7) offre :
+- **Recherche** + **filtre par statut** ;
+- **Sélection multiple** (cases à cocher) → **suppression** ou **modification en
+  masse** ;
+- **Colonnes personnalisées** : ajoutez vos propres colonnes (texte, nombre,
+  date, texte long) quand vous voulez, via le bouton « Colonnes » ;
+- vues **Kanban** (glisser-déposer) et **Tableau** ;
+- **export CSV**.
 
-Résultat : l'outil génère des adresses **probables** classées par confiance, et
-l'onglet « Apprendre un modèle » donne une fiabilité quasi certaine dès qu'un
-seul email de l'entreprise est connu. La vérification est honnête sur ses
-limites (elle ne prétend jamais confirmer une boîte réelle).
+## Le scraper — ce qui est possible, honnêtement
 
-## Sauvegarde
+- **Mode extension** : lit la page que **vous** consultez (LinkedIn, annuaires,
+  sites) et extrait les contacts visibles ; le mode « recherche web » ouvre les
+  résultats et visite les sites pour vous. Aucune donnée n'est envoyée ailleurs.
+- **Ce qui n'est volontairement pas fait** : la vérification SMTP « boîte réelle »
+  et les bases de données propriétaires des services payants — elles exigent un
+  serveur, ce qui casserait l'autonomie et la gratuité. Les emails devinés sont
+  donnés en **probabilité** (quasi certains via « Apprendre un modèle »).
 
-Tout est enregistré en continu dans le navigateur. **Exportez régulièrement**
-un fichier de sauvegarde (bouton `⤓` dans la barre latérale ou Réglages) pour
-archiver ou transférer vos données sur un autre ordinateur.
+## Sauvegarde & autonomie
 
-## Structure
+Tout est enregistré en continu dans le navigateur (localStorage), en simple
+fichier comme en extension. **Exportez régulièrement** une sauvegarde (bouton
+« Sauvegarde ») pour archiver ou transférer vos données. L'outil ne dépend
+d'aucun service tiers : il ne peut pas « tomber en panne » à cause d'un autre
+logiciel.
+
+## Structure du dépôt
 
 ```
-app/index.html   ← l'application complète (HTML + CSS + JS, sans dépendance)
+app/
+  index.html      ← l'application complète (HTML + CSS + JS, sans dépendance)
+  manifest.json   ← extension Chrome (Manifest V3)
+  background.js   ← service worker (ouvre l'app au clic sur l'icône)
+  icons/          ← icônes de l'extension
 README.md
 ```

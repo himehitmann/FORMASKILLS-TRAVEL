@@ -98,6 +98,8 @@ td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
 tbody tr{transition:background .14s}
 tbody tr:hover{background:var(--panel-2)}
 tbody tr:last-child td{border-bottom:0}
+tbody tr.selrow{background:var(--brand-soft)}
+.chk.on svg{opacity:1}
 .cell-strong{font-weight:700}
 .muted{color:var(--muted)}
 .rowact{opacity:0;transition:opacity .16s}
@@ -194,13 +196,13 @@ code.k{background:var(--panel-2);border:1px solid var(--line);padding:1px 6px;bo
     </div>
     <nav id="nav"></nav>
     <div class="foot">
-      <button class="btn ghost sm" id="themeBtn" title="Thème clair/sombre" style="flex:1">🌙 Thème</button>
-      <button class="btn ghost sm icon" id="backupBtn" title="Sauvegarder / Restaurer">⤓</button>
+      <button class="btn ghost sm" id="themeBtn" title="Thème clair/sombre" style="flex:1">Thème sombre</button>
+      <button class="btn ghost sm" id="backupBtn" title="Exporter une sauvegarde">Sauvegarde</button>
     </div>
   </aside>
   <main>
     <header class="top">
-      <button class="btn ghost icon" id="menuBtn">☰</button>
+      <button class="btn ghost icon" id="menuBtn" aria-label="Menu"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <div>
         <h1 id="viewTitle">Tableau de bord</h1>
         <div class="sub" id="viewSub">Vue d'ensemble de l'activité</div>
@@ -239,7 +241,8 @@ const DEFAULT_DB = {
     docStyle:{ logo:"", accent:"#1d5fd6", headerExtra:"", footerMode:"auto", footerText:"", showBank:true }
   },
   partners:[], projects:[], participants:[], providers:[],
-  budget:[], tasks:[], contacts:[], automations:[], quotes:[], docs:[], activity:[]
+  budget:[], tasks:[], contacts:[], automations:[], quotes:[], docs:[], activity:[],
+  customFields:{ partners:[], projects:[], participants:[], providers:[], tasks:[] }
 };
 function loadDB(){
   try{ const raw=localStorage.getItem(KEY); if(raw){ return migrate(JSON.parse(raw)); } }
@@ -272,7 +275,7 @@ const eur = n => (Number(n)||0).toLocaleString("fr-FR",{style:"currency",currenc
 const fmtDate = t => t? new Date(t).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"}):"—";
 function toast(msg,kind="ok"){
   const el=document.createElement("div"); el.className="toast "+(kind==="ok"?"ok":kind==="bad"?"bad":kind==="warn"?"warn":"");
-  el.innerHTML=(kind==="ok"?"✅ ":kind==="bad"?"⛔ ":kind==="warn"?"⚠️ ":"ℹ️ ")+esc(msg);
+  el.textContent=msg;
   $("#toasts").appendChild(el);
   setTimeout(()=>{el.style.transition="opacity .3s,transform .3s";el.style.opacity="0";el.style.transform="translateX(40px)";setTimeout(()=>el.remove(),320);},3200);
 }
@@ -286,7 +289,7 @@ function openModal({title,body,footer=[],wide=false}){
   const root=$("#modalRoot");
   const foot=footer.map((b,i)=>`<button class="btn ${b.cls||''}" data-fi="${i}">${esc(b.label)}</button>`).join("");
   root.innerHTML=`<div class="overlay" id="ov"><div class="modal ${wide?'wide':''}" role="dialog">
-    <div class="mhead"><h3>${esc(title)}</h3><div class="spacer"></div><button class="btn ghost icon" id="mx">✕</button></div>
+    <div class="mhead"><h3>${esc(title)}</h3><div class="spacer"></div><button class="btn ghost icon" id="mx" aria-label="Fermer">&times;</button></div>
     <div class="mbody">${body}</div>${footer.length?`<div class="mfoot">${foot}</div>`:''}</div></div>`;
   footer.forEach((b,i)=>$(`[data-fi="${i}"]`,root)?.addEventListener("click",b.act));
   $("#mx",root).onclick=closeModal;
@@ -457,6 +460,81 @@ const EmailFinder = (()=> {
 })();
 
 /* ============================================================
+   3b. SCRAPER (mode extension) — LinkedIn & web multi-pages
+   Fonctionne quand l'outil est installé comme extension Chrome
+   (accès à chrome.tabs / chrome.scripting). En fichier simple,
+   l'onglet propose une solution de repli (bookmarklet + collage).
+   ============================================================ */
+const IS_EXT = (typeof chrome!=="undefined" && chrome.runtime && chrome.runtime.id && chrome.tabs && chrome.scripting);
+/* Fonction injectée DANS la page cible (doit être autonome, sans variable externe) */
+function ftPageScrape(){
+  try{
+    const txt=(document.body&&document.body.innerText)||"";
+    const mailtos=[].slice.call(document.querySelectorAll('a[href^="mailto:"]')).map(a=>{try{return decodeURIComponent(a.getAttribute("href").slice(7).split("?")[0]);}catch(e){return "";}});
+    const tels=[].slice.call(document.querySelectorAll('a[href^="tel:"]')).map(a=>a.getAttribute("href").slice(4));
+    const blob=txt+" "+mailtos.join(" ")+" "+tels.join(" ");
+    const emails=Array.from(new Set((blob.match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g)||[]).map(e=>e.toLowerCase().replace(/[.,;:)]+$/,"")))).filter(e=>!/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(e));
+    const phones=Array.from(new Set((blob.match(/(?:(?:\+|00)\d{1,3}[\s.\-]?)?(?:\(?\d{1,4}\)?[\s.\-]?){2,5}\d{2,4}/g)||[]).map(p=>p.trim()).filter(p=>{var d=p.replace(/\D/g,"");return d.length>=9&&d.length<=15;})));
+    let name="", headline="", company="";
+    const host=location.hostname;
+    if(/linkedin\./.test(host)){
+      const h1=document.querySelector("h1"); if(h1) name=h1.innerText.trim();
+      const hl=document.querySelector(".text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium, .top-card-layout__headline");
+      if(hl) headline=hl.innerText.trim();
+      const cm=document.querySelector('[aria-label^="Current company"], .pv-text-details__right-panel a[href*="/company/"]');
+      if(cm) company=cm.innerText.trim();
+    } else {
+      const h1=document.querySelector("h1"); if(h1) name=h1.innerText.trim().slice(0,80);
+    }
+    const links=Array.from(new Set([].slice.call(document.querySelectorAll("a[href]")).map(a=>a.href).filter(h=>/^https?:/.test(h))));
+    return {url:location.href, title:document.title, host, name, headline, company, emails, phones, links};
+  }catch(e){ return {url:location.href, error:String(e), emails:[], phones:[], links:[]}; }
+}
+const Scraper = (()=>{
+  const appUrl = IS_EXT ? chrome.runtime.getURL("index.html") : "";
+  function waitTab(tabId,timeout=18000){ return new Promise(res=>{ const t0=Date.now();
+    const iv=setInterval(async()=>{ try{ const tb=await chrome.tabs.get(tabId);
+      if(tb.status==="complete"||Date.now()-t0>timeout){ clearInterval(iv); setTimeout(()=>res(tb),600); } }
+      catch(e){ clearInterval(iv); res(null); } },400); }); }
+  async function scrapeTab(tabId){ try{ const r=await chrome.scripting.executeScript({target:{tabId},func:ftPageScrape}); return r&&r[0]&&r[0].result; }catch(e){ return null; } }
+  async function listTabs(){ const tabs=await chrome.tabs.query({}); return tabs.filter(t=>t.url&&/^https?:/.test(t.url)&&!t.url.startsWith(appUrl)); }
+  function searchURL(engine,q,page){ q=encodeURIComponent(q);
+    return engine==="google" ? `https://www.google.com/search?q=${q}&start=${page*10}` : `https://duckduckgo.com/html/?q=${q}`; }
+  function decodeLink(href){ try{ if(/duckduckgo\.com\/l\//.test(href)){ const u=new URL(href); const t=u.searchParams.get("uddg"); if(t) return decodeURIComponent(t); } }catch(e){} return href; }
+  const JUNK=/(google\.|gstatic\.|googleusercontent|youtube\.|ytimg|duckduckgo\.|bing\.|microsoft\.|facebook\.com\/tr|w3\.org|schema\.org|gmpg\.org|wordpress\.org)/i;
+  function externalLinks(res){ return Array.from(new Set((res.links||[]).map(decodeLink).filter(h=>/^https?:/.test(h)&&!JUNK.test(h)))); }
+  function mergeContacts(out,seen,res){
+    const src=res.url||"", domain=(res.host||(src.split("/")[2]||"")).replace(/^www\./,"");
+    const svc=res.headline||"";
+    if((res.emails||[]).length){
+      res.emails.forEach(email=>{ if(seen.has(email))return; seen.add(email);
+        out.push({email, name:res.name||"", phone:(res.phones&&res.phones[0])||"", company:res.company||domain, service:svc, source:src}); });
+    } else if((res.phones||[]).length && (res.name||res.company)){
+      res.phones.forEach(ph=>{ const k="tel:"+ph+"|"+domain; if(seen.has(k))return; seen.add(k);
+        out.push({email:"", name:res.name||"", phone:ph, company:res.company||domain, service:svc, source:src}); });
+    }
+  }
+  async function crawl(opts,onProgress){
+    const {engine,query,pages,perPage,visit}=opts; const out=[], seen=new Set();
+    for(let pg=0; pg<pages; pg++){
+      onProgress&&onProgress(`Recherche — page ${pg+1}/${pages}`);
+      let tab; try{ tab=await chrome.tabs.create({url:searchURL(engine,query,pg),active:false}); }catch(e){ continue; }
+      await waitTab(tab.id); const res=await scrapeTab(tab.id);
+      if(res){ mergeContacts(out,seen,res);
+        if(visit){ const links=externalLinks(res).slice(0,perPage);
+          for(let i=0;i<links.length;i++){ onProgress&&onProgress(`Page ${pg+1} — site ${i+1}/${links.length} · ${out.length} contact(s)`);
+            let t2; try{ t2=await chrome.tabs.create({url:links[i],active:false}); }catch(e){ continue; }
+            await waitTab(t2.id); const r2=await scrapeTab(t2.id); if(r2) mergeContacts(out,seen,r2);
+            try{ await chrome.tabs.remove(t2.id); }catch(e){} } } }
+      try{ await chrome.tabs.remove(tab.id); }catch(e){}
+      if(engine==="duckduckgo") break; // DDG html n'a pas de pagination par start
+    }
+    return out;
+  }
+  return {IS_EXT, listTabs, scrapeTab, crawl, mergeContacts, externalLinks};
+})();
+
+/* ============================================================
    4. MOTEUR D'AUTOMATISATIONS (remplace Make, côté client)
    Règles simples : QUAND <event> [SI condition] ALORS <actions>.
    Déclenché à chaque mutation d'entité.
@@ -494,7 +572,7 @@ const Automations = (()=>{
     } else if(a.action==="flag"){
       if(ctx?._entity && ctx?._id){
         const arr=DB[ctx._entity]; const it=arr?.find(x=>x.id===ctx._id);
-        if(it){ it.flag=a.actionValue||"⭐"; save(); }
+        if(it){ it.flag=a.actionValue||"Prioritaire"; save(); }
       }
     }
   }
@@ -573,27 +651,27 @@ function nextActions(){
   const add=(pri,icon,title,detail,act)=>A.push({pri,icon,title,detail,act});
   // 1. Prospects à contacter
   DB.partners.filter(p=>["À contacter","Non catégorisée",""].includes(p.status||"")).forEach(p=>
-    add(2,"🤝",`Contacter ${p.name}`,`Prospect ${p.type||""} sans premier contact`,{l:"Ouvrir",fn:`openRec('partners','${p.id}')`}));
+    add(2,"",`Contacter ${p.name}`,`Prospect ${p.type||""} sans premier contact`,{l:"Ouvrir",fn:`openRec('partners','${p.id}')`}));
   // 2. Devis envoyés sans réponse depuis > 7 j -> relancer
   DB.quotes.filter(q=>(q.kind||"devis")==="devis" && q.status==="Envoyé" && (now-(q.date||now))>7*DAY).forEach(q=>
-    add(2,"📤",`Relancer le devis ${q.number}`,`${q.clientName||""} · envoyé il y a ${Math.round((now-q.date)/DAY)} j`,{l:"Relancer",fn:`relanceDevis('${q.id}')`}));
+    add(2,"",`Relancer le devis ${q.number}`,`${q.clientName||""} · envoyé il y a ${Math.round((now-q.date)/DAY)} j`,{l:"Relancer",fn:`relanceDevis('${q.id}')`}));
   // 3. Factures en retard
   DB.quotes.filter(q=>q.kind==="facture" && q.status==="Émise" && q.due && q.due<now).forEach(q=>
-    add(3,"💶",`Facture ${q.number} en retard`,`${q.clientName||""} · échéance ${fmtDate(q.due)}`,{l:"Ouvrir",fn:`openQuoteRec('${q.id}')`}));
+    add(3,"",`Facture ${q.number} en retard`,`${q.clientName||""} · échéance ${fmtDate(q.due)}`,{l:"Ouvrir",fn:`openQuoteRec('${q.id}')`}));
   // 4. Conventions AVANT départ (R2) — départ proche
   DB.projects.filter(p=>p.start && p.start>now && (p.start-now)<21*DAY && !((p.R||{}).R2)).forEach(p=>
-    add(3,"⚠️",`Conventions à signer AVANT le départ`,`${p.name} · départ le ${fmtDate(p.start)} — R2 non validé`,{l:"Ouvrir",fn:`openRec('projects','${p.id}')`}));
+    add(3,"",`Conventions à signer AVANT le départ`,`${p.name} · départ le ${fmtDate(p.start)} — R2 non validé`,{l:"Ouvrir",fn:`openRec('projects','${p.id}')`}));
   // 5. Assurances (R5) — départ dans 6 semaines
   DB.projects.filter(p=>p.start && p.start>now && (p.start-now)<42*DAY && !((p.R||{}).R5)).forEach(p=>
-    add(2,"🛡️",`Vérifier assurances / CEAM`,`${p.name} · départ le ${fmtDate(p.start)}`,{l:"Ouvrir",fn:`openRec('projects','${p.id}')`}));
+    add(2,"",`Vérifier assurances / CEAM`,`${p.name} · départ le ${fmtDate(p.start)}`,{l:"Ouvrir",fn:`openRec('projects','${p.id}')`}));
   // 6. Dossiers participants incomplets
   DB.participants.filter(p=>["Incomplet","En cours",""].includes(p.status||"")).forEach(p=>
-    add(1,"🧑‍🎓",`Compléter le dossier de ${p.name}`,`Statut : ${p.status||"Incomplet"}`,{l:"Ouvrir",fn:`openRec('participants','${p.id}')`}));
+    add(1,"",`Compléter le dossier de ${p.name}`,`Statut : ${p.status||"Incomplet"}`,{l:"Ouvrir",fn:`openRec('participants','${p.id}')`}));
   // 7. Tâches en retard
   DB.tasks.filter(t=>t.status!=="Fait" && t.due && t.due<now).forEach(t=>
     add(3,"⏰",`Tâche en retard : ${t.title}`,`Échéance ${fmtDate(t.due)}`,{l:"Ouvrir",fn:`openRec('tasks','${t.id}')`}));
   // 8. Amorçage si vide
-  if(!DB.partners.length) add(1,"✨","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
+  if(!DB.partners.length) add(1,"","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
   return A.sort((a,b)=>b.pri-a.pri);
 }
 window.openRec=(entity,id)=>{ go(entity); if(id||id===null) editEntity(entity,id==="null"?null:id); };
@@ -637,12 +715,11 @@ VIEWS.dash=()=>{
       <div class="spacer"></div><span class="muted" style="font-size:12px;font-weight:600">Mis à jour en direct depuis vos données</span>
     </div>
     ${acts.length? acts.slice(0,8).map(a=>`<div class="result-row" style="border-color:var(--line)">
-      <span style="font-size:18px">${a.icon}</span>
-      <span class="meter-dot" style="background:${priColor(a.pri)}"></span>
+      <span class="meter-dot" style="background:${priColor(a.pri)};width:10px;height:10px"></span>
       <div style="flex:1;min-width:0"><div class="cell-strong">${esc(a.title)}</div><div class="muted" style="font-size:12.5px">${esc(a.detail)}</div></div>
       <button class="btn sm primary" onclick="${a.act.fn}">${esc(a.act.l)}</button></div>`).join("")
       + (acts.length>8?`<div class="muted" style="font-size:12px;font-weight:600;margin-top:8px">+ ${acts.length-8} autre(s) action(s)…</div>`:"")
-      : `<div class="muted" style="font-weight:600">🎉 Tout est à jour — aucune action urgente. Continuez la prospection ou préparez vos prochains séjours.</div>`}
+      : `<div class="muted" style="font-weight:600">Tout est à jour — aucune action urgente. Continuez la prospection ou préparez vos prochains séjours.</div>`}
   </div>
   <div class="grid cards">
     ${kpi("Marge totale", eur(marge), "money", "var(--ok)")}
@@ -685,18 +762,124 @@ const kpi=(lab,val,icon,color)=>`<div class="card hover kpi">
 const revLine=(l,v)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)"><span class="muted" style="font-weight:600">${l}</span><b style="font-size:16px">${v.toLocaleString("fr-FR")}</b></div>`;
 
 /* ---------- Chercheur de contacts (module phare) ---------- */
-let FINDER_TAB="find";
+let FINDER_TAB="scrape";
+let SCRAPE_MODE="tab";
+let SCRAPE_ROWS=[];
+function finderScrape(){
+  if(!IS_EXT){
+    $("#finderBody").innerHTML=`
+    <div class="helpbox">${ic2("info")}<div><b>Le scraping direct (LinkedIn & web) nécessite d'installer l'outil comme extension Chrome</b> (5 minutes, gratuit, une seule fois). Voir l'onglet « Guide & aide » → « Installer l'extension ». En attendant, deux solutions fonctionnent tout de suite ci-dessous.</div></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+      <div class="card"><div class="section-title" style="margin-top:0">Solution 1 — Bookmarklet « sur toute page »</div>
+        <p class="muted" style="font-weight:600;margin-top:0">Glissez ce bouton dans votre barre de favoris, puis cliquez-le sur n'importe quel site (LinkedIn, annuaire, Google…) pour récupérer emails et téléphones de la page.</p>
+        <a class="btn accent" id="sc_bm" href="#" draggable="true" style="text-decoration:none">Extracteur de contacts</a></div>
+      <div class="card"><div class="section-title" style="margin-top:0">Solution 2 — Coller le contenu</div>
+        <p class="muted" style="font-weight:600;margin-top:0">Sélectionnez tout sur une page (Ctrl+A, Ctrl+C) et collez dans l'onglet « Extraire d'une page ».</p>
+        <button class="btn" onclick="FINDER_TAB='extract';VIEWS.finder()">Ouvrir « Extraire d'une page »</button></div>
+    </div>`;
+    $("#sc_bm").href=BOOKMARKLET;
+    $("#sc_bm").onclick=e=>{e.preventDefault();toast("Glissez ce bouton dans votre barre de favoris.","warn");};
+    return;
+  }
+  $("#finderBody").innerHTML=`
+  <div class="pill-tabs" style="margin-bottom:16px">
+    <button data-sm="tab" class="${SCRAPE_MODE==='tab'?'active':''}">Onglet actif (LinkedIn / site)</button>
+    <button data-sm="web" class="${SCRAPE_MODE==='web'?'active':''}">Recherche web multi-pages</button>
+  </div><div id="scBody"></div>`;
+  $$("#finderBody [data-sm]").forEach(b=>b.onclick=()=>{SCRAPE_MODE=b.dataset.sm;finderScrape();});
+  (SCRAPE_MODE==="tab"?scrapeTabUI:scrapeWebUI)();
+}
+async function scrapeTabUI(){
+  $("#scBody").innerHTML=`<div class="card"><div style="display:flex;align-items:center"><div class="section-title" style="margin:0">Vos onglets ouverts</div><div class="spacer"></div><button class="btn sm ghost" id="sc_refresh">Rafraîchir</button></div>
+    <p class="muted" style="font-weight:600">Ouvrez un profil LinkedIn (ou tout site/annuaire) dans un onglet, puis cliquez « Scraper » ici. Les emails, téléphones et le nom sont extraits.</p>
+    <div id="sc_tabs" class="muted">Chargement…</div></div><div id="sc_out" style="margin-top:16px"></div>`;
+  $("#sc_refresh").onclick=scrapeTabUI;
+  let tabs=[]; try{ tabs=await Scraper.listTabs(); }catch(e){}
+  $("#sc_tabs").innerHTML= tabs.length? tabs.map(t=>`<div class="result-row">
+    <div style="flex:1;min-width:0"><div class="cell-strong" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.title||t.url)}</div>
+    <div class="muted" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.url)}</div></div>
+    <button class="btn sm primary" data-tab="${t.id}">Scraper</button></div>`).join("")
+    : `<div class="empty">Aucun onglet web ouvert. Ouvrez une page dans un autre onglet, puis « Rafraîchir ».</div>`;
+  $$("#sc_tabs [data-tab]").forEach(b=>b.onclick=async()=>{ b.textContent="…";
+    const res=await Scraper.scrapeTab(+b.dataset.tab); b.textContent="Scraper";
+    if(!res){ toast("Impossible de lire cet onglet","bad"); return; }
+    const out=[], seen=new Set(); Scraper.mergeContacts(out,seen,res);
+    SCRAPE_ROWS=out; renderScrapeResults($("#sc_out"), res); });
+}
+function renderScrapeResults(container,res){
+  const rows=[], seen=new Set(); Scraper.mergeContacts(rows,seen,res); SCRAPE_ROWS=rows;
+  container.innerHTML=`<div class="card">
+    <div class="grid cards" style="margin-bottom:12px">
+      ${kpi("Emails",(res.emails||[]).length,"finder","var(--brand)")}
+      ${kpi("Téléphones",(res.phones||[]).length,"finder","var(--accent)")}
+      ${kpi("Contacts",rows.length,"finder","var(--ok)")}</div>
+    ${res.name?`<p style="font-weight:700;margin:0 0 8px">${esc(res.name)}${res.headline?` — <span class="muted">${esc(res.headline)}</span>`:""}</p>`:""}
+    ${rows.length?scrapeTable(rows):`<div class="empty">Aucun email/téléphone exploitable sur cette page.</div>`}
+    ${(res.phones||[]).length?`<div class="divider"></div><div class="muted" style="font-weight:700;font-size:11px;text-transform:uppercase;margin-bottom:6px">Téléphones détectés</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${res.phones.map(p=>`<span class="tag b copybtn" onclick="copy('${p.replace(/'/g,"")}')">${esc(p)}</span>`).join("")}</div>`:""}
+  </div>`;
+  wireScrapeTable(container);
+}
+function scrapeTable(rows){
+  return `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn sm primary" id="scr_import">Ajouter tout au CRM (${rows.length})</button>
+    <button class="btn sm ghost" id="scr_csv">Exporter CSV</button></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Email</th><th>Nom</th><th>Téléphone</th><th>Société / domaine</th><th>Service</th></tr></thead>
+  <tbody>${rows.map(r=>`<tr><td class="mono cell-strong">${esc(r.email||"—")}</td><td>${esc(r.name||"—")}</td>
+    <td>${esc(r.phone||"—")}</td><td class="muted">${esc(r.company||"—")}</td><td class="muted">${esc((r.service||"").slice(0,40))}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function wireScrapeTable(container){
+  const imp=$("#scr_import",container), csv=$("#scr_csv",container);
+  imp&&(imp.onclick=()=>importScraped(SCRAPE_ROWS));
+  csv&&(csv.onclick=()=>exportCSV("scraping",["email","name","phone","company","service","source"],SCRAPE_ROWS));
+}
+function importScraped(rows){
+  let n=0; for(const r of rows){ const key=r.email||("tel:"+r.phone);
+    if(!key||key==="tel:") continue;
+    if(DB.contacts.some(c=>(r.email&&c.email===r.email)||(!r.email&&r.phone&&c.phone===r.phone))) continue;
+    DB.contacts.unshift({id:uid(),email:r.email||"",name:r.name||"",domain:r.company||"",phone:r.phone||"",
+      service:r.service||"",sourceUrl:r.source||"",confidence:"",source:"scraper",added:Date.now(),tags:[]}); n++; }
+  logAct(`${n} contacts importés (scraper)`); save(); renderNav(); toast(n+" contact(s) ajouté(s) au CRM");
+}
+async function scrapeWebUI(){
+  $("#scBody").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Tapez une recherche, choisissez le nombre de pages et lancez : l'outil ouvre les résultats, visite les sites et récupère <b>emails, téléphones, noms</b> automatiquement. Tout reste en local.</div></div>
+  <div class="card">
+    <div class="row2"><div class="field"><label>Recherche (ex : « CFA coiffure Occitanie »)</label><input class="input" id="sw_q" placeholder="Votre requête"></div>
+      <div class="field"><label>Moteur</label><select id="sw_eng"><option value="google">Google</option><option value="duckduckgo">DuckDuckGo (plus permissif)</option></select></div></div>
+    <div class="row3">
+      <div class="field"><label>Pages de résultats</label><input class="input" type="number" id="sw_pages" value="2" min="1" max="10"></div>
+      <div class="field"><label>Sites à visiter / page</label><input class="input" type="number" id="sw_per" value="5" min="0" max="15"></div>
+      <div class="field"><label>Visiter les sites ?</label><select id="sw_visit"><option value="1">Oui (recommandé)</option><option value="0">Non (SERP seulement)</option></select></div>
+    </div>
+    <button class="btn primary" id="sw_go" style="width:100%">Lancer le run</button>
+    <div id="sw_prog" class="muted" style="font-weight:600;margin-top:12px"></div>
+  </div>
+  <div id="sw_out" style="margin-top:16px"></div>`;
+  $("#sw_go").onclick=async()=>{
+    const q=$("#sw_q").value.trim(); if(!q){toast("Entrez une recherche","warn");return;}
+    const opts={engine:$("#sw_eng").value,query:q,pages:Math.max(1,+$("#sw_pages").value||1),perPage:+$("#sw_per").value||0,visit:$("#sw_visit").value==="1"};
+    const go=$("#sw_go"); go.disabled=true; go.textContent="Run en cours…";
+    const prog=$("#sw_prog");
+    try{
+      const rows=await Scraper.crawl(opts,msg=>prog.textContent=msg);
+      SCRAPE_ROWS=rows; prog.textContent=`Terminé — ${rows.length} contact(s) trouvé(s).`;
+      $("#sw_out").innerHTML= rows.length?`<div class="card">${scrapeTable(rows)}</div>`:`<div class="card"><div class="empty">Aucun contact trouvé. Essayez plus de pages, ou activez « Visiter les sites », ou changez de moteur.</div></div>`;
+      wireScrapeTable($("#sw_out"));
+    }catch(e){ prog.textContent="Erreur : "+e.message; }
+    go.disabled=false; go.textContent="Lancer le run";
+  };
+}
 VIEWS.finder=()=>{
   $("#view").innerHTML=`
   <div class="helpbox">${ic2("info")}
     <div>Ce module reproduit hors-ligne le cœur des extensions type Skrapp / Hunter / Snov : il <b>devine les emails</b> à partir d'un nom + domaine, <b>extrait tous les contacts</b> d'une page collée (emails, téléphones, réseaux), <b>apprend un modèle</b> d'email et <b>vérifie</b> la validité. Aucune donnée ne quitte votre navigateur — il n'y a pas d'envoi réseau, donc pas de coût, pas de blocage, pas de dépendance.</div></div>
   <div class="pill-tabs" style="margin-bottom:18px;flex-wrap:wrap">
-    ${[["find","🔎 Par nom"],["domain","🌐 Par domaine"],["bulk","📚 En masse"],["extract","📋 Extraire d'une page"],["profile","👤 Profil / LinkedIn"],["learn","🧠 Modèle"],["verify","✔️ Vérifier"],["saved","💾 Contacts ("+DB.contacts.length+")"]]
-      .map(([k,l])=>`<button data-ft="${k}" class="${FINDER_TAB===k?'active':''}">${l}</button>`).join("")}
+    ${[["scrape","Scraper LinkedIn / Web"],["find","Deviner par nom"],["domain","Par domaine"],["bulk","En masse"],["extract","Extraire d'une page"],["profile","Profil / LinkedIn"],["learn","Modèle"],["verify","Vérifier"],["saved","Contacts ("+DB.contacts.length+")"]]
+      .map(([k,l])=>`<button data-ft="${k}" class="${FINDER_TAB===k?'active':''}">${esc(l)}</button>`).join("")}
   </div>
   <div id="finderBody"></div>`;
   $$("#view [data-ft]").forEach(b=>b.onclick=()=>{FINDER_TAB=b.dataset.ft;VIEWS.finder();});
-  ({find:finderFind,domain:finderDomain,bulk:finderBulk,extract:finderExtract,profile:finderProfile,learn:finderLearn,verify:finderVerify,saved:finderSaved}[FINDER_TAB]||finderFind)();
+  ({scrape:finderScrape,find:finderFind,domain:finderDomain,bulk:finderBulk,extract:finderExtract,profile:finderProfile,learn:finderLearn,verify:finderVerify,saved:finderSaved}[FINDER_TAB]||finderScrape)();
 };
 const ic2=k=>`<svg viewBox="0 0 24 24" ${''}><g fill="none" stroke="currentColor" stroke-width="2">${k==="info"?'<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>':ICONS[k]||""}</g></svg>`;
 
@@ -724,7 +907,7 @@ function finderFind(){
       <button class="btn sm ghost" onclick="copy('${c.email}')">Copier</button>
       <button class="btn sm" onclick="saveContact('${esc(c.email)}','${esc(f+' '+l)}','${esc(d)}',${c.confidence})">+ CRM</button>
     </div>`).join("")}
-    <p class="muted" style="font-size:12px;margin:12px 0 0;font-weight:600">⚠️ Ce sont des <b>probabilités</b> (aucune vérification serveur n'est possible hors-ligne). Confirmez la meilleure par un envoi test ou l'onglet « Apprendre un modèle » si vous connaissez déjà un email de la boîte.</p></div>`;
+    <p class="muted" style="font-size:12px;margin:12px 0 0;font-weight:600"> Ce sont des <b>probabilités</b> (aucune vérification serveur n'est possible hors-ligne). Confirmez la meilleure par un envoi test ou l'onglet « Apprendre un modèle » si vous connaissez déjà un email de la boîte.</p></div>`;
   };
   $("#ff_go").onclick=run;
   $$("#ff_first,#ff_last,#ff_domain").forEach(i=>i.addEventListener("keydown",e=>{if(e.key==="Enter")run();}));
@@ -828,7 +1011,7 @@ function finderExtract(){
   <div class="card" style="margin-top:16px">
     <div class="section-title" style="margin-top:0">Bonus : outil « sur toute page » (comme une extension, sans en installer)</div>
     <p class="muted" style="font-weight:600;margin-top:0">Glissez ce bouton dans votre barre de favoris. Ensuite, sur <b>n'importe quel site</b> (annuaire, résultats de recherche…), cliquez-le : il récupère tous les emails et téléphones de la page — y compris les liens masqués — dans une fenêtre. 100% local, aucun envoi.</p>
-    <a class="btn accent" id="fx_bm" href="#" draggable="true" style="text-decoration:none">📌 Extracteur de contacts</a>
+    <a class="btn accent" id="fx_bm" href="#" draggable="true" style="text-decoration:none">Extracteur de contacts</a>
     <button class="btn ghost sm" id="fx_bmcopy" style="margin-left:8px">Copier le code</button>
   </div>
   <div id="fx_res" style="margin-top:16px"></div>`;
@@ -1052,9 +1235,12 @@ const SCHEMAS={
     ],
     cols:["title","status","priority","due","linked"], kanbanBy:"status" },
 };
-function labelOf(entity,k){ const s=SCHEMAS[entity]; return s.fields.find(f=>f.k===k)?.l || k; }
+function customCols(entity){ return (DB.customFields&&DB.customFields[entity])||[]; }
+function fieldsOf(entity){ return SCHEMAS[entity].fields.concat(customCols(entity)); }
+function labelOf(entity,k){ return fieldsOf(entity).find(f=>f.k===k)?.l || k; }
+function statusField(entity){ return SCHEMAS[entity].fields.find(f=>f.k==="status"); }
 function cellRender(entity,item,k){
-  const f=SCHEMAS[entity].fields.find(x=>x.k===k); const v=item[k];
+  const f=fieldsOf(entity).find(x=>x.k===k); const v=item[k];
   if(k==="status"){ return statusTag(entity,v); }
   if(f?.type==="number"){ return k.match(/margin|potential|price|grant/)? eur(v): (v??"—"); }
   if(f?.type==="date"){ return `<span class="muted">${fmtDate(v)}</span>`; }
@@ -1073,30 +1259,42 @@ function statusTag(entity,v){
     "Payée":"g","Émise":"b","En retard":"r","Annulée":"n" };
   return `<span class="tag ${map[v]||'n'}">${esc(v)}</span>`;
 }
-let ENTITY_VIEW={}; // per-entity: {mode:'table'|'kanban', q:''}
+let ENTITY_VIEW={}; // per-entity: {mode, q, filter, sel:Set}
 function entityView(entity){
-  const s=SCHEMAS[entity]; const st=ENTITY_VIEW[entity]||(ENTITY_VIEW[entity]={mode:s.kanbanBy?"kanban":"table",q:""});
-  const canKanban=!!s.kanbanBy;
+  const s=SCHEMAS[entity]; const st=ENTITY_VIEW[entity]||(ENTITY_VIEW[entity]={mode:s.kanbanBy?"kanban":"table",q:"",filter:"",sel:new Set()});
+  if(!st.sel) st.sel=new Set();
+  const canKanban=!!s.kanbanBy; const sf=statusField(entity);
+  const filterOpts = sf ? (s.statuses||sf.opts||[]) : [];
   $("#view").innerHTML=`
   <div class="toolbar">
     <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input class="input" id="ev_q" placeholder="Rechercher…" value="${esc(st.q)}"></div>
+    ${sf?`<select class="input" id="ev_filter" style="max-width:190px"><option value="">Tous les statuts</option>${filterOpts.map(o=>`<option ${st.filter===o?'selected':''}>${esc(o)}</option>`).join("")}</select>`:""}
     ${canKanban?`<div class="pill-tabs"><button data-mode="kanban" class="${st.mode==='kanban'?'active':''}">Kanban</button><button data-mode="table" class="${st.mode==='table'?'active':''}">Tableau</button></div>`:""}
     <div class="spacer"></div>
+    <button class="btn ghost sm" id="ev_cols">Colonnes</button>
     <button class="btn ghost sm" id="ev_exp">Exporter CSV</button>
     <button class="btn primary" id="ev_add">+ ${esc(s.label)}</button>
   </div>
+  <div id="ev_bulk"></div>
   <div id="ev_body"></div>`;
   $("#ev_q").oninput=e=>{st.q=e.target.value;drawEntity(entity);};
+  $("#ev_filter")&&($("#ev_filter").onchange=e=>{st.filter=e.target.value;drawEntity(entity);});
   $("#ev_add").onclick=()=>editEntity(entity,null);
-  $("#ev_exp").onclick=()=>exportCSV(entity, s.fields.map(f=>f.k), DB[entity]);
+  $("#ev_cols").onclick=()=>manageColumns(entity);
+  $("#ev_exp").onclick=()=>exportCSV(entity, fieldsOf(entity).map(f=>f.k), DB[entity]);
   $$("#view [data-mode]").forEach(b=>b.onclick=()=>{st.mode=b.dataset.mode;entityView(entity);});
   drawEntity(entity);
 }
-function drawEntity(entity){
+function filteredRows(entity){
   const s=SCHEMAS[entity], st=ENTITY_VIEW[entity]; const q=(st.q||"").toLowerCase();
-  let rows=DB[entity].filter(it=> !q || JSON.stringify(it).toLowerCase().includes(q));
+  return DB[entity].filter(it=>(!q||JSON.stringify(it).toLowerCase().includes(q)) && (!st.filter||(it.status||"")===st.filter));
+}
+function drawEntity(entity){
+  const s=SCHEMAS[entity], st=ENTITY_VIEW[entity];
+  let rows=filteredRows(entity);
   const body=$("#ev_body");
-  if(!rows.length){ body.innerHTML=`<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.people}</svg><div>Aucun élément. Cliquez « + ${esc(s.label)} » pour commencer.</div></div></div>`; return; }
+  drawBulkBar(entity);
+  if(!rows.length){ body.innerHTML=`<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.people}</svg><div>Aucun élément${st.q||st.filter?" pour ce filtre":""}. ${st.q||st.filter?"":`Cliquez « + ${esc(s.label)} » pour commencer.`}</div></div></div>`; return; }
   if(st.mode==="kanban"&&s.kanbanBy){
     const col=s.kanbanBy; const groups=(s.statuses||s.fields.find(f=>f.k===col).opts);
     body.innerHTML=`<div class="kanban">${groups.map(g=>{
@@ -1105,14 +1303,70 @@ function drawEntity(entity){
       ${items.map(it=>kanbanCard(entity,it)).join("")}</div>`;}).join("")}</div>`;
     wireKanban(entity,col);
   } else {
-    const cols=s.cols;
-    body.innerHTML=`<div class="tbl-wrap"><table><thead><tr>${cols.map(c=>`<th>${esc(labelOf(entity,c))}</th>`).join("")}<th></th></tr></thead>
-    <tbody>${rows.map(it=>`<tr data-id="${it.id}" style="cursor:pointer">${cols.map(c=>`<td>${cellRender(entity,it,c)}</td>`).join("")}
+    const cols=s.cols.concat(customCols(entity).map(f=>f.k));
+    const allSel=rows.length&&rows.every(r=>st.sel.has(r.id));
+    body.innerHTML=`<div class="tbl-wrap"><table><thead><tr>
+      <th style="width:34px"><span class="chk ${allSel?'on':''}" id="ev_all" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></th>
+      ${cols.map(c=>`<th>${esc(labelOf(entity,c))}</th>`).join("")}<th></th></tr></thead>
+    <tbody>${rows.map(it=>`<tr data-id="${it.id}" class="${st.sel.has(it.id)?'selrow':''}">
+      <td><span class="chk ${st.sel.has(it.id)?'on':''}" data-sel="${it.id}" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></td>
+      ${cols.map(c=>`<td data-open="${it.id}" style="cursor:pointer">${cellRender(entity,it,c)}</td>`).join("")}
       <td class="rowact"><button class="btn sm ghost" data-edit="${it.id}">Ouvrir</button><button class="btn sm ghost" data-del="${it.id}">✕</button></td></tr>`).join("")}</tbody></table></div>`;
     $$("#ev_body [data-edit]").forEach(b=>b.onclick=e=>{e.stopPropagation();editEntity(entity,b.dataset.edit);});
     $$("#ev_body [data-del]").forEach(b=>b.onclick=e=>{e.stopPropagation();delEntity(entity,b.dataset.del);});
-    $$("#ev_body tr[data-id]").forEach(tr=>tr.onclick=()=>editEntity(entity,tr.dataset.id));
+    $$("#ev_body [data-open]").forEach(td=>td.onclick=()=>editEntity(entity,td.dataset.open));
+    $$("#ev_body [data-sel]").forEach(c=>c.onclick=e=>{e.stopPropagation();const id=c.dataset.sel; st.sel.has(id)?st.sel.delete(id):st.sel.add(id); drawEntity(entity);});
+    $("#ev_all").onclick=()=>{ if(allSel) rows.forEach(r=>st.sel.delete(r.id)); else rows.forEach(r=>st.sel.add(r.id)); drawEntity(entity); };
   }
+}
+function drawBulkBar(entity){
+  const st=ENTITY_VIEW[entity]; const bar=$("#ev_bulk"); if(!bar) return;
+  const n=st.sel?st.sel.size:0;
+  if(!n){ bar.innerHTML=""; return; }
+  bar.innerHTML=`<div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;border-left:4px solid var(--brand);padding:12px 16px">
+    <b>${n} sélectionné${n>1?'s':''}</b><div class="spacer"></div>
+    <button class="btn sm" id="bulk_edit">Modifier en masse</button>
+    <button class="btn sm ghost" id="bulk_del" style="color:var(--bad)">Supprimer</button>
+    <button class="btn sm ghost" id="bulk_clear">Annuler la sélection</button></div>`;
+  $("#bulk_clear").onclick=()=>{st.sel.clear();drawEntity(entity);};
+  $("#bulk_del").onclick=()=>{ confirmModal("Supprimer la sélection ?",`${n} élément(s) seront supprimés définitivement.`,()=>{
+    DB[entity]=DB[entity].filter(x=>!st.sel.has(x.id)); logAct(`${n} ${SCHEMAS[entity].label}(s) supprimé(s)`); st.sel.clear(); save(); renderNav(); entityView(entity);
+  },true); };
+  $("#bulk_edit").onclick=()=>bulkEdit(entity);
+}
+function bulkEdit(entity){
+  const st=ENTITY_VIEW[entity]; const fields=fieldsOf(entity).filter(f=>f.type!=="textarea"||true);
+  const opts=fields.map(f=>`<option value="${f.k}">${esc(f.l)}</option>`).join("");
+  openModal({title:`Modifier ${st.sel.size} élément(s)`,
+    body:`<div class="field"><label>Champ à modifier</label><select id="be_field">${opts}</select></div>
+    <div class="field" id="be_valwrap"><label>Nouvelle valeur</label><input class="input" id="be_val"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Appliquer",cls:"primary",act:()=>{
+      const k=$("#be_field").value; const el=$("#be_val"); let v=el.value;
+      const f=fieldsOf(entity).find(x=>x.k===k); if(f?.type==="date"&&v) v=new Date(v).getTime();
+      let n=0; DB[entity].forEach(it=>{ if(st.sel.has(it.id)){ it[k]=v; n++; } });
+      logAct(`${n} ${SCHEMAS[entity].label}(s) modifié(s) en masse`); save(); renderNav(); closeModal(); entityView(entity); toast(n+" élément(s) modifié(s)");
+    }}]});
+  const sync=()=>{ const f=fieldsOf(entity).find(x=>x.k===$("#be_field").value); const w=$("#be_valwrap");
+    if(f?.type==="select"){ const o=f.optsFrom?SCHEMAS[entity][f.optsFrom]:f.opts; w.innerHTML=`<label>Nouvelle valeur</label><select class="input" id="be_val"><option value="">—</option>${o.map(x=>`<option>${esc(x)}</option>`).join("")}</select>`; }
+    else { w.innerHTML=`<label>Nouvelle valeur</label><input class="input" id="be_val" type="${f?.type==="number"?"number":f?.type==="date"?"date":"text"}">`; } };
+  $("#be_field").onchange=sync; sync();
+}
+function manageColumns(entity){
+  const cols=customCols(entity);
+  openModal({title:"Colonnes personnalisées", wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">Ajoutez vos propres colonnes à ce tableau. Elles apparaissent dans la fiche et dans le tableau, et sont sauvegardées.</p>
+    <div id="mc_list">${cols.length?cols.map(f=>`<div class="result-row"><div style="flex:1"><b>${esc(f.l)}</b> <span class="muted">(${f.type})</span></div>
+      <button class="btn sm ghost" data-delcol="${f.k}">Supprimer</button></div>`).join(""):'<div class="muted" style="font-weight:600;padding:6px 0">Aucune colonne personnalisée pour l’instant.</div>'}</div>
+    <div class="divider"></div>
+    <div class="row3"><div class="field"><label>Nom de la colonne</label><input class="input" id="mc_name" placeholder="Ex : Ville, Budget, Référent"></div>
+      <div class="field"><label>Type</label><select id="mc_type"><option value="text">Texte</option><option value="number">Nombre</option><option value="date">Date</option><option value="textarea">Texte long</option></select></div>
+      <div class="field" style="just-content:flex-end"><label>&nbsp;</label><button class="btn primary" id="mc_add">Ajouter la colonne</button></div></div>`,
+    footer:[{label:"Fermer",cls:"primary",act:()=>{closeModal();entityView(entity);}}]});
+  $$("#mc_list [data-delcol]").forEach(b=>b.onclick=()=>{ DB.customFields[entity]=customCols(entity).filter(f=>f.k!==b.dataset.delcol); save(); manageColumns(entity); });
+  $("#mc_add").onclick=()=>{ const name=$("#mc_name").value.trim(); if(!name){toast("Nom requis","warn");return;}
+    const k="c_"+name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")+"_"+Math.random().toString(36).slice(2,5);
+    DB.customFields[entity]=customCols(entity); DB.customFields[entity].push({k,l:name,type:$("#mc_type").value});
+    save(); manageColumns(entity); toast("Colonne ajoutée"); };
 }
 function kanbanCard(entity,it){
   const s=SCHEMAS[entity]; const title=it.name||it.title||"(sans nom)";
@@ -1152,15 +1406,15 @@ function fieldHTML(entity,it,f){
 }
 function editEntity(entity,id){
   const s=SCHEMAS[entity]; const it = id? DB[entity].find(x=>x.id===id) : {};
-  const body=`<div class="row2" style="align-items:start">${s.fields.map(f=>fieldHTML(entity,it,f)).join("")}</div>`;
+  const body=`<div class="row2" style="align-items:start">${fieldsOf(entity).map(f=>fieldHTML(entity,it,f)).join("")}</div>`;
   openModal({ title:(id?"Modifier ":"Nouveau ")+s.label, wide:true, body,
     footer:[ ...(id?[{label:"Supprimer",cls:"ghost",act:()=>{closeModal();delEntity(entity,id);}}]:[]),
       {label:"Annuler",cls:"ghost",act:closeModal},
       {label:"Enregistrer",cls:"primary",act:()=>saveEntity(entity,id)} ] });
 }
 function saveEntity(entity,id){
-  const s=SCHEMAS[entity]; const data={};
-  $$(".mbody [data-f]").forEach(el=>{ let v=el.value; const f=s.fields.find(x=>x.k===el.dataset.f);
+  const s=SCHEMAS[entity]; const data={}; const allF=fieldsOf(entity);
+  $$(".mbody [data-f]").forEach(el=>{ let v=el.value; const f=allF.find(x=>x.k===el.dataset.f);
     if(f?.type==="date"&&v) v=new Date(v).getTime(); data[el.dataset.f]=v; });
   const req=s.fields.find(f=>f.req);
   if(req && !data[req.k]?.toString().trim()){ toast(req.l+" est obligatoire","warn"); return; }
@@ -1312,7 +1566,7 @@ function drawErasmus(){
     ${kpi("Disponible",eur(remaining),"money",remaining>=0?"var(--ok)":"var(--bad)")}
   </div>
   <div class="progress" style="margin-bottom:6px"><i style="width:${pct}%;${remaining<0?'background:var(--bad)':''}"></i></div>
-  <div class="muted" style="font-size:12px;font-weight:600">${pct}% de l'enveloppe engagée${remaining<0?' — ⚠️ dépassement !':''}</div>
+  <div class="muted" style="font-size:12px;font-weight:600">${pct}% de l'enveloppe engagée${remaining<0?' —  dépassement !':''}</div>
   ${byProj.length?`<div class="divider"></div><div class="muted" style="font-weight:700;font-size:11px;text-transform:uppercase;margin-bottom:6px">Déduction automatique par projet</div>
     ${byProj.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)"><span>${esc(p.name)}</span><b>${eur(p.grant)}</b></div>`).join("")}`
     :`<p class="muted" style="font-size:12px;font-weight:600;margin:10px 0 0">Renseignez la « Subvention Erasmus (€) » dans vos projets (T2) : elle se déduira automatiquement ici.</p>`}`;
@@ -1372,7 +1626,7 @@ function printDocument(title, inner){
   .noprint button.g{background:#556}
   @media print{ body{background:#fff} .sheet{box-shadow:none;margin:0;max-width:none;padding:0} .noprint{display:none} }
   </style></head><body><div class="sheet">${inner}</div>
-  <div class="noprint"><button class="g" onclick="window.close()">Fermer</button><button onclick="window.print()">🖨️ Imprimer / PDF</button></div>
+  <div class="noprint"><button class="g" onclick="window.close()">Fermer</button><button onclick="window.print()">Imprimer / PDF</button></div>
   </body></html>`);
   w.document.close();
 }
@@ -1416,7 +1670,7 @@ let DOCS_TAB="quotes";
 VIEWS.docs=()=>{
   $("#view").innerHTML=`
   <div class="pill-tabs" style="margin-bottom:18px">
-    ${[["quotes","🧾 Devis"],["templates","📄 Modèles de documents"],["company","🏢 Fiche société"],["style","🎨 Mise en page"]]
+    ${[["quotes","Devis & Factures"],["templates","Modèles de documents"],["company","Fiche société"],["style","Mise en page"]]
       .map(([k,l])=>`<button data-dt="${k}" class="${DOCS_TAB===k?'active':''}">${l}</button>`).join("")}
   </div><div id="docsBody"></div>`;
   $$("#view [data-dt]").forEach(b=>b.onclick=()=>{DOCS_TAB=b.dataset.dt;VIEWS.docs();});
@@ -1705,19 +1959,29 @@ function editAuto(id){
 /* ---------- Guide ---------- */
 VIEWS.guide=()=>{
   const cards=[
-    ["🔎","Chercheur de contacts","Devinez des emails (nom + domaine), extrayez tous les contacts d'une page collée, apprenez le modèle d'une boîte, vérifiez la validité. Tout hors-ligne."],
-    ["🤝","T1 Partenaires","Votre CRM de prospection : CFA, écoles, OPCO. Glissez les cartes dans le Kanban pour changer de statut. Les automatisations peuvent réagir aux changements."],
-    ["🎓","T2 Projets","Chaque mobilité + sa conformité R1→R8. Ouvrez un projet pour cocher les 8 cases audit."],
-    ["🧑‍🎓","T3 Participants","Apprenants, mineurs, assurances, statut de dossier."],
-    ["💶","Finances","Calculateur de marge séjour + lignes budgétaires. La marge remonte au tableau de bord."],
-    ["🏨","T6 Prestataires","Hôtels, guides, transporteurs, contrats."],
-    ["✅","T7 Tâches","Échéances et rappels. Les tâches en retard s'affichent en rouge et sur le tableau de bord."],
-    ["⚙️","Automatisations","Règles QUAND/ALORS qui remplacent Make. Elles tournent dans l'outil, sans service externe."],
-    ["💾","Sauvegarde","Tout est enregistré dans le navigateur en continu. Exportez régulièrement un fichier JSON de sauvegarde (Réglages)."],
+    ["Scraper LinkedIn / Web","Récupérez emails et téléphones directement depuis un profil LinkedIn ou en lançant une recherche web multi-pages (nécessite d'installer l'extension — voir ci-dessous)."],
+    ["Chercheur de contacts","Devinez des emails (nom + domaine), extrayez les contacts d'une page collée, apprenez le modèle d'une boîte, vérifiez la validité. Hors-ligne."],
+    ["T1 Partenaires","Votre CRM de prospection : CFA, écoles, OPCO. Glissez les cartes dans le Kanban pour changer de statut."],
+    ["T2 Projets","Chaque mobilité + sa conformité R1→R8. Ouvrez un projet pour cocher les 8 cases audit."],
+    ["T3 Participants","Apprenants, mineurs, assurances, statut de dossier."],
+    ["Finances","Calculateur de marge séjour + lignes budgétaires + enveloppe Erasmus. La marge remonte au tableau de bord."],
+    ["Devis & documents","Devis, factures, attestations, modèles — pré-remplis, personnalisables, imprimables en PDF."],
+    ["Automatisations","Règles QUAND/ALORS qui remplacent Make. Elles tournent dans l'outil, sans service externe."],
+    ["Sauvegarde","Tout est enregistré en continu. Exportez régulièrement un fichier de sauvegarde (Réglages)."],
   ];
   $("#view").innerHTML=`
   <div class="helpbox">${ic2("info")}<div>Cet outil est <b>100% autonome</b> : aucun serveur, aucune API, aucun abonnement. Il fonctionne même sans connexion et ne dépend d'aucun autre logiciel — donc il ne peut pas « tomber en panne » à cause d'un service tiers. Pensez seulement à exporter une sauvegarde de temps en temps.</div></div>
-  <div class="grid cards">${cards.map(([e,t,d])=>`<div class="card hover"><div style="font-size:26px">${e}</div><div class="cell-strong" style="margin:8px 0 4px;font-size:15px">${esc(t)}</div><div class="muted" style="font-weight:600">${esc(d)}</div></div>`).join("")}</div>
+  <div class="card" style="margin-bottom:16px;border-left:4px solid var(--accent)">
+    <div class="section-title" style="margin-top:0">Installer l'extension (pour le scraping LinkedIn & web)</div>
+    <ol style="margin:0;padding-left:20px;line-height:1.9;font-weight:600">
+      <li>Téléchargez le dossier de l'outil (ZIP) et décompressez-le.</li>
+      <li>Ouvrez Chrome → <code class="k">chrome://extensions</code> → activez « Mode développeur » (en haut à droite).</li>
+      <li>Cliquez « Charger l'extension non empaquetée » et sélectionnez le dossier <code class="k">app</code> (celui qui contient <code class="k">manifest.json</code>).</li>
+      <li>Cliquez l'icône de l'extension pour ouvrir l'outil. L'onglet « Scraper LinkedIn / Web » est alors actif.</li>
+    </ol>
+    <p class="muted" style="font-weight:600;margin:10px 0 0">Sans extension, l'outil fonctionne quand même : utilisez le bookmarklet ou « Extraire d'une page ».</p>
+  </div>
+  <div class="grid cards">${cards.map(([t,d])=>`<div class="card hover"><div class="cell-strong" style="margin:0 0 4px;font-size:15px">${esc(t)}</div><div class="muted" style="font-weight:600">${esc(d)}</div></div>`).join("")}</div>
   <div class="section-title">Où va quoi (rappel Erasmus)</div>
   <div class="card"><table style="min-width:auto"><tbody>
     <tr><td class="cell-strong">Vers Erasmus (en ligne)</td><td>Rapport participant + données de mobilité (Beneficiary Module). Le reste : à garder 5 ans, montré seulement en cas de contrôle.</td></tr>
@@ -1792,7 +2056,7 @@ function exportCSV(name,cols,rows){
    6. AMORÇAGE
    ============================================================ */
 function applyTheme(){ const dark=DB.settings.theme==="dark"; document.documentElement.setAttribute("data-theme",dark?"dark":"light");
-  $("#themeBtn").textContent=dark?"☀️ Thème":"🌙 Thème"; }
+  $("#themeBtn").textContent=dark?"Thème clair":"Thème sombre"; }
 $("#themeBtn").onclick=()=>{ DB.settings.theme=DB.settings.theme==="dark"?"light":"dark"; save(); applyTheme(); };
 $("#backupBtn").onclick=exportDB;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
