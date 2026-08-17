@@ -223,7 +223,7 @@ const KEY = "FT_OS_DB_v1";
 const DEFAULT_DB = {
   meta:{ created:Date.now(), version:1 },
   settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35,
-    quoteSeq:1, tvaDefault:0,
+    quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0,
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -1204,6 +1204,15 @@ VIEWS.finance=()=>{
     ${kpi("Marge",eur(totalMargin),"money",totalMargin>=0?"var(--ok)":"var(--bad)")}
     ${kpi("Taux de marge",(totalRev?Math.round(totalMargin/totalRev*100):0)+"%","money","var(--accent)")}
   </div>
+  <div class="card" style="margin-top:16px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="section-title" style="margin:0">Enveloppe Erasmus (T9)</div><div class="spacer"></div>
+      <label class="muted" style="font-weight:700;font-size:12px">Subvention totale (€)</label>
+      <input class="input" type="number" id="ee_total" value="${esc(DB.settings.erasmusEnvelope||0)}" style="max-width:160px">
+      <button class="btn sm primary" id="ee_save">Enregistrer</button>
+    </div>
+    <div id="ee_body" style="margin-top:14px"></div>
+  </div>
   <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:16px">
     <div class="card">
       <div class="section-title" style="margin-top:0">Calculateur de marge séjour</div>
@@ -1233,7 +1242,26 @@ VIEWS.finance=()=>{
   $("#mc_go").onclick=calc; calc();
   $("#bl_add").onclick=()=>editBudget(null);
   drawBudget();
+  drawErasmus();
+  $("#ee_save").onclick=()=>{ DB.settings.erasmusEnvelope=+$("#ee_total").value||0; save(); drawErasmus(); toast("Enveloppe Erasmus enregistrée"); };
 };
+function drawErasmus(){
+  const total=Number(DB.settings.erasmusEnvelope)||0;
+  const engaged=DB.projects.reduce((s,p)=>s+(Number(p.grant)||0),0);
+  const remaining=total-engaged; const pct=total?Math.min(100,Math.round(engaged/total*100)):0;
+  const byProj=DB.projects.filter(p=>Number(p.grant)>0);
+  $("#ee_body").innerHTML=`
+  <div class="grid cards" style="margin-bottom:12px">
+    ${kpi("Subvention totale",eur(total),"money","var(--brand)")}
+    ${kpi("Engagé (projets)",eur(engaged),"money","var(--warn)")}
+    ${kpi("Disponible",eur(remaining),"money",remaining>=0?"var(--ok)":"var(--bad)")}
+  </div>
+  <div class="progress" style="margin-bottom:6px"><i style="width:${pct}%;${remaining<0?'background:var(--bad)':''}"></i></div>
+  <div class="muted" style="font-size:12px;font-weight:600">${pct}% de l'enveloppe engagée${remaining<0?' — ⚠️ dépassement !':''}</div>
+  ${byProj.length?`<div class="divider"></div><div class="muted" style="font-weight:700;font-size:11px;text-transform:uppercase;margin-bottom:6px">Déduction automatique par projet</div>
+    ${byProj.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)"><span>${esc(p.name)}</span><b>${eur(p.grant)}</b></div>`).join("")}`
+    :`<p class="muted" style="font-size:12px;font-weight:600;margin:10px 0 0">Renseignez la « Subvention Erasmus (€) » dans vos projets (T2) : elle se déduira automatiquement ici.</p>`}`;
+}
 function drawBudget(){
   const b=DB.budget;
   $("#bl_tbl").innerHTML=b.length?`<div class="tbl-wrap"><table><thead><tr><th>Libellé</th><th>Revenus</th><th>Coûts</th><th>Marge</th><th></th></tr></thead>
