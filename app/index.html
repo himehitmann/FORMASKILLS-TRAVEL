@@ -1,0 +1,1221 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Formaskills Travel OS</title>
+<!--
+  Formaskills Travel OS — outil de gestion 100% autonome
+  --------------------------------------------------------
+  * Aucune dépendance externe : ni serveur, ni CDN, ni API, ni compte.
+  * Fonctionne hors-ligne, pour toujours. Un simple fichier HTML.
+  * Toutes les données sont sauvegardées dans le navigateur (localStorage)
+    + export/import JSON pour ne jamais rien perdre.
+  * Remplace Airtable (tables T1..T9 + conformité R1..R8) et Make
+    (moteur d'automatisations côté client).
+  Toute la logique est ci-dessous, sans minification, pour rester
+  lisible et maintenable indéfiniment.
+-->
+<style>
+:root{
+  --bg:#f4f6fb; --panel:#ffffff; --panel-2:#f8fafc; --ink:#0f1e37; --muted:#607089;
+  --line:#e3e9f2; --brand:#1d5fd6; --brand-ink:#0b3f9e; --brand-soft:#e8f0ff;
+  --ok:#12915b; --ok-soft:#e2f6ec; --warn:#c9820a; --warn-soft:#fdf1dc;
+  --bad:#d13c3c; --bad-soft:#fbe6e6; --accent:#7b4bd6; --accent-soft:#efe8fb;
+  --shadow:0 1px 2px rgba(16,32,64,.06),0 8px 28px rgba(16,32,64,.08);
+  --shadow-sm:0 1px 2px rgba(16,32,64,.08);
+  --r:14px; --r-sm:10px; --sp:16px; --ease:cubic-bezier(.22,.61,.36,1);
+}
+:root[data-theme="dark"]{
+  --bg:#0c1220; --panel:#111a2e; --panel-2:#0e1626; --ink:#e9eef8; --muted:#93a2bd;
+  --line:#213150; --brand:#5b8dff; --brand-ink:#a8c4ff; --brand-soft:#16243f;
+  --ok:#3ecb8a; --ok-soft:#122a20; --warn:#f0b34e; --warn-soft:#2c2412;
+  --bad:#f4756f; --bad-soft:#2c1717; --accent:#b18bf0; --accent-soft:#221a36;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.45);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--brand);text-decoration:none}
+::selection{background:var(--brand-soft)}
+/* Layout */
+#app{display:grid;grid-template-columns:248px 1fr;height:100vh}
+aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--brand),var(--accent));display:grid;place-items:center;color:#fff;font-weight:800;box-shadow:var(--shadow-sm)}
+.brand b{font-size:15px;letter-spacing:.2px}
+.brand small{display:block;color:var(--muted);font-size:11px;font-weight:600}
+nav{padding:10px;overflow:auto;flex:1;min-height:0}
+.nav-group{margin:6px 8px 2px;font-size:10.5px;font-weight:800;letter-spacing:.8px;color:var(--muted);text-transform:uppercase}
+.nav-item{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border:0;background:transparent;border-radius:10px;color:var(--ink);cursor:pointer;text-align:left;font-weight:600;transition:background .18s var(--ease),transform .1s var(--ease),color .18s}
+.nav-item:hover{background:var(--panel-2)}
+.nav-item:active{transform:scale(.98)}
+.nav-item.active{background:var(--brand-soft);color:var(--brand-ink)}
+.nav-item .ic{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9}
+.nav-item .badge{margin-left:auto;font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:20px;padding:1px 8px;font-weight:700;min-width:22px;text-align:center}
+.nav-item.active .badge{background:#fff;border-color:transparent;color:var(--brand-ink)}
+:root[data-theme="dark"] .nav-item.active .badge{background:var(--brand-soft)}
+aside .foot{padding:10px;border-top:1px solid var(--line);display:flex;gap:8px}
+main{min-width:0;display:flex;flex-direction:column;min-height:0}
+header.top{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);background:var(--panel)}
+header.top h1{font-size:17px;margin:0;font-weight:800;letter-spacing:.2px}
+header.top .sub{color:var(--muted);font-size:12.5px;font-weight:600}
+.spacer{flex:1}
+.view{padding:22px;overflow:auto;flex:1;min-height:0}
+.view-anim{animation:fade .32s var(--ease)}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-weight:700;cursor:pointer;transition:transform .12s var(--ease),box-shadow .18s var(--ease),background .18s,border-color .18s;box-shadow:var(--shadow-sm)}
+.btn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.btn:active{transform:translateY(0) scale(.98)}
+.btn.primary{background:linear-gradient(135deg,var(--brand),var(--brand-ink));border-color:transparent;color:#fff}
+.btn.accent{background:linear-gradient(135deg,var(--accent),#5b34b0);border-color:transparent;color:#fff}
+.btn.ghost{background:transparent;box-shadow:none}
+.btn.sm{padding:6px 10px;font-size:12.5px;border-radius:9px}
+.btn.icon{padding:8px;width:36px;height:36px;justify-content:center}
+.btn .ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+/* Cards & grid */
+.grid{display:grid;gap:16px}
+.cards{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow-sm);transition:transform .16s var(--ease),box-shadow .2s var(--ease)}
+.card.hover:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.kpi .lab{color:var(--muted);font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px}
+.kpi .val{font-size:28px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
+.kpi .val small{font-size:14px;color:var(--muted);font-weight:700}
+.kpi .dot{width:9px;height:9px;border-radius:50%}
+.section-title{font-size:13px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;color:var(--muted);margin:26px 2px 12px}
+.section-title:first-child{margin-top:4px}
+/* Table */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);box-shadow:var(--shadow-sm)}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th{position:sticky;top:0;background:var(--panel-2);text-align:left;font-size:11.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:800;padding:11px 14px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:1}
+td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr{transition:background .14s}
+tbody tr:hover{background:var(--panel-2)}
+tbody tr:last-child td{border-bottom:0}
+.cell-strong{font-weight:700}
+.muted{color:var(--muted)}
+.rowact{opacity:0;transition:opacity .16s}
+tr:hover .rowact{opacity:1}
+/* chips / tags */
+.tag{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;border:1px solid transparent;white-space:nowrap}
+.tag.b{background:var(--brand-soft);color:var(--brand-ink)}
+.tag.g{background:var(--ok-soft);color:var(--ok)}
+.tag.w{background:var(--warn-soft);color:var(--warn)}
+.tag.r{background:var(--bad-soft);color:var(--bad)}
+.tag.a{background:var(--accent-soft);color:var(--accent)}
+.tag.n{background:var(--panel-2);color:var(--muted);border-color:var(--line)}
+/* forms */
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.field label{font-size:12px;font-weight:700;color:var(--muted)}
+.input,textarea,select{width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);transition:border-color .16s,box-shadow .16s;outline:none}
+.input:focus,textarea:focus,select:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+textarea{resize:vertical;min-height:80px;font-family:inherit}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba:8,14,26,.5;background:rgba(8,14,26,.55);backdrop-filter:blur(3px);display:grid;place-items:center;z-index:60;animation:fade .2s var(--ease);padding:20px}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);width:min(620px,96vw);max-height:90vh;overflow:auto;animation:pop .26s var(--ease)}
+.modal.wide{width:min(920px,96vw)}
+@keyframes pop{from{opacity:0;transform:scale(.96) translateY(10px)}to{opacity:1;transform:none}}
+.modal .mhead{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:2}
+.modal .mhead h3{margin:0;font-size:16px;font-weight:800}
+.modal .mbody{padding:20px}
+.modal .mfoot{display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--line);position:sticky;bottom:0;background:var(--panel)}
+/* toast */
+#toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:10px;z-index:90}
+.toast{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow);min-width:240px;max-width:360px;font-weight:600;animation:slidein .3s var(--ease);display:flex;gap:10px;align-items:center}
+.toast.ok{border-left-color:var(--ok)} .toast.bad{border-left-color:var(--bad)} .toast.warn{border-left-color:var(--warn)}
+@keyframes slidein{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}
+/* misc */
+.empty{text-align:center;color:var(--muted);padding:48px 20px}
+.empty svg{width:44px;height:44px;stroke:var(--muted);fill:none;stroke-width:1.5;opacity:.6;margin-bottom:10px}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.search{position:relative;flex:1;min-width:180px;max-width:340px}
+.search input{padding-left:34px}
+.search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;stroke:var(--muted);fill:none;stroke-width:2}
+.pill-tabs{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:11px;padding:3px;gap:2px}
+.pill-tabs button{border:0;background:transparent;padding:7px 14px;border-radius:8px;font-weight:700;cursor:pointer;color:var(--muted);transition:all .18s var(--ease)}
+.pill-tabs button.active{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-sm)}
+.progress{height:8px;background:var(--panel-2);border-radius:20px;overflow:hidden;border:1px solid var(--line)}
+.progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--accent));border-radius:20px;transition:width .5s var(--ease)}
+.checkline{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:7px;background:var(--panel-2);transition:background .16s}
+.checkline:hover{background:var(--panel)}
+.chk{width:22px;height:22px;border-radius:7px;border:2px solid var(--line);display:grid;place-items:center;cursor:pointer;flex:none;transition:all .18s var(--ease)}
+.chk.on{background:var(--ok);border-color:var(--ok)}
+.chk svg{width:13px;height:13px;stroke:#fff;fill:none;stroke-width:3;opacity:0;transition:opacity .18s}
+.chk.on svg{opacity:1}
+.kanban{display:flex;gap:14px;overflow-x:auto;padding-bottom:8px}
+.kcol{flex:0 0 260px;background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:10px;min-height:120px}
+.kcol h4{margin:4px 6px 10px;font-size:12.5px;display:flex;align-items:center;gap:8px}
+.kcard{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px 12px;margin-bottom:9px;box-shadow:var(--shadow-sm);cursor:grab;transition:transform .14s var(--ease),box-shadow .18s}
+.kcard:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.kcard.drag{opacity:.4}
+.kcol.over{outline:2px dashed var(--brand);outline-offset:-4px}
+.meter-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.helpbox{background:var(--brand-soft);border:1px solid transparent;border-radius:12px;padding:14px 16px;color:var(--brand-ink);font-weight:600;display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
+.helpbox svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:2;margin-top:1px}
+code.k{background:var(--panel-2);border:1px solid var(--line);padding:1px 6px;border-radius:6px;font-size:12.5px}
+.copybtn{cursor:pointer}
+.scorebar{display:inline-flex;align-items:center;gap:7px}
+.scorebar .track{width:64px;height:6px;border-radius:20px;background:var(--panel-2);overflow:hidden;border:1px solid var(--line)}
+.scorebar .track > i{display:block;height:100%;border-radius:20px}
+.result-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:11px;margin-bottom:8px;background:var(--panel);transition:background .14s,transform .12s}
+.result-row:hover{background:var(--panel-2)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.switch{width:42px;height:24px;border-radius:20px;background:var(--line);position:relative;cursor:pointer;transition:background .2s;flex:none}
+.switch.on{background:var(--ok)}
+.switch i{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s var(--ease);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.switch.on i{left:21px}
+.divider{height:1px;background:var(--line);margin:18px 0}
+.stat-mini{display:flex;gap:6px;align-items:baseline}
+.stat-mini b{font-size:19px;font-weight:800}
+@media(max-width:860px){
+  #app{grid-template-columns:1fr}
+  aside{position:fixed;left:0;top:0;bottom:0;width:248px;z-index:70;transform:translateX(-100%);transition:transform .26s var(--ease)}
+  aside.open{transform:none}
+  .row2,.row3{grid-template-columns:1fr}
+  #menuBtn{display:inline-flex!important}
+}
+#menuBtn{display:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="logo">FT</div>
+      <div><b>Travel OS</b><small>Formaskills · autonome</small></div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="foot">
+      <button class="btn ghost sm" id="themeBtn" title="Thème clair/sombre" style="flex:1">🌙 Thème</button>
+      <button class="btn ghost sm icon" id="backupBtn" title="Sauvegarder / Restaurer">⤓</button>
+    </div>
+  </aside>
+  <main>
+    <header class="top">
+      <button class="btn ghost icon" id="menuBtn">☰</button>
+      <div>
+        <h1 id="viewTitle">Tableau de bord</h1>
+        <div class="sub" id="viewSub">Vue d'ensemble de l'activité</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn primary" id="quickAdd">+ Ajouter</button>
+    </header>
+    <div class="view" id="view"></div>
+  </main>
+</div>
+<div id="toasts"></div>
+<div id="modalRoot"></div>
+
+<script>
+"use strict";
+/* ============================================================
+   1. STORE — persistance locale, zéro dépendance
+   ============================================================ */
+const KEY = "FT_OS_DB_v1";
+const DEFAULT_DB = {
+  meta:{ created:Date.now(), version:1 },
+  settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35 },
+  partners:[], projects:[], participants:[], providers:[],
+  budget:[], tasks:[], contacts:[], automations:[], activity:[]
+};
+function loadDB(){
+  try{ const raw=localStorage.getItem(KEY); if(raw){ return migrate(JSON.parse(raw)); } }
+  catch(e){ console.warn("DB corrompue, réinit",e); }
+  return structuredClone(DEFAULT_DB);
+}
+function migrate(db){ // garantit la présence de toutes les clés (évite les casses futures)
+  const d=structuredClone(DEFAULT_DB);
+  for(const k in d){ if(!(k in db)) db[k]=d[k]; }
+  for(const k in d.settings){ if(db.settings==null) db.settings={}; if(!(k in db.settings)) db.settings[k]=d.settings[k]; }
+  return db;
+}
+let DB = loadDB();
+let _saveT=null;
+function save(){ // debounce léger pour ne pas écrire à chaque frappe
+  clearTimeout(_saveT);
+  _saveT=setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } }, 120);
+}
+function saveNow(){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(e){} }
+const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+function logAct(msg){ DB.activity.unshift({t:Date.now(),m:msg}); DB.activity=DB.activity.slice(0,120); }
+
+/* ============================================================
+   2. UTILITAIRES UI
+   ============================================================ */
+const $  = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const esc = s => (s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const eur = n => (Number(n)||0).toLocaleString("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:0});
+const fmtDate = t => t? new Date(t).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"}):"—";
+function toast(msg,kind="ok"){
+  const el=document.createElement("div"); el.className="toast "+(kind==="ok"?"ok":kind==="bad"?"bad":kind==="warn"?"warn":"");
+  el.innerHTML=(kind==="ok"?"✅ ":kind==="bad"?"⛔ ":kind==="warn"?"⚠️ ":"ℹ️ ")+esc(msg);
+  $("#toasts").appendChild(el);
+  setTimeout(()=>{el.style.transition="opacity .3s,transform .3s";el.style.opacity="0";el.style.transform="translateX(40px)";setTimeout(()=>el.remove(),320);},3200);
+}
+function copy(text){ navigator.clipboard?.writeText(text).then(()=>toast("Copié : "+text)).catch(()=>toast("Copie impossible","warn")); }
+function confirmModal(title,msg,onYes,danger){
+  openModal({title, body:`<p style="margin:0;color:var(--muted);font-weight:600">${esc(msg)}</p>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:danger?"Supprimer":"Confirmer",cls:danger?"":"primary",act:()=>{closeModal();onYes();}}]});
+}
+/* Modal engine */
+function openModal({title,body,footer=[],wide=false}){
+  const root=$("#modalRoot");
+  const foot=footer.map((b,i)=>`<button class="btn ${b.cls||''}" data-fi="${i}">${esc(b.label)}</button>`).join("");
+  root.innerHTML=`<div class="overlay" id="ov"><div class="modal ${wide?'wide':''}" role="dialog">
+    <div class="mhead"><h3>${esc(title)}</h3><div class="spacer"></div><button class="btn ghost icon" id="mx">✕</button></div>
+    <div class="mbody">${body}</div>${footer.length?`<div class="mfoot">${foot}</div>`:''}</div></div>`;
+  footer.forEach((b,i)=>$(`[data-fi="${i}"]`,root)?.addEventListener("click",b.act));
+  $("#mx",root).onclick=closeModal;
+  $("#ov",root).addEventListener("mousedown",e=>{ if(e.target.id==="ov") closeModal(); });
+  return root;
+}
+function closeModal(){ $("#modalRoot").innerHTML=""; }
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
+
+/* ============================================================
+   3. MOTEUR CHERCHEUR DE CONTACTS (100% hors-ligne)
+   Réplique les techniques cœur des extensions email-finder :
+   permutation de patterns, extraction bulk, apprentissage de
+   pattern, vérification heuristique. Aucune API, aucun réseau.
+   ============================================================ */
+const EmailFinder = (()=> {
+  const deburr = s => (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"");
+  // patterns d'email d'entreprise les plus fréquents, avec poids de confiance
+  const PATTERNS = [
+    {id:"f.l",       fn:(f,l)=>`${f}.${l}`,        w:34, lab:"prenom.nom"},
+    {id:"fl",        fn:(f,l)=>`${f}${l}`,         w:14, lab:"prenomnom"},
+    {id:"fi.l",      fn:(f,l)=>`${f[0]}.${l}`,     w:12, lab:"p.nom"},
+    {id:"fil",       fn:(f,l)=>`${f[0]}${l}`,      w:11, lab:"pnom"},
+    {id:"f_l",       fn:(f,l)=>`${f}_${l}`,        w:6,  lab:"prenom_nom"},
+    {id:"f-l",       fn:(f,l)=>`${f}-${l}`,        w:4,  lab:"prenom-nom"},
+    {id:"f",         fn:(f,l)=>`${f}`,             w:5,  lab:"prenom"},
+    {id:"l.f",       fn:(f,l)=>`${l}.${f}`,        w:4,  lab:"nom.prenom"},
+    {id:"lf",        fn:(f,l)=>`${l}${f}`,         w:2,  lab:"nomprenom"},
+    {id:"l",         fn:(f,l)=>`${l}`,             w:2,  lab:"nom"},
+    {id:"fli",       fn:(f,l)=>`${f}${l[0]}`,      w:2,  lab:"prenomn"},
+    {id:"li.f",      fn:(f,l)=>`${l}.${f[0]}`,     w:1,  lab:"nom.p"},
+  ];
+  function candidates(first,last,domain){
+    const f=deburr(first), l=deburr(last), d=(domain||"").trim().toLowerCase().replace(/^https?:\/\//,"").replace(/^www\./,"").replace(/\/.*$/,"");
+    if(!d) return [];
+    const out=[];
+    for(const p of PATTERNS){
+      let local; try{ local=p.fn(f,l); }catch(e){ continue; }
+      if(!local || local.includes("undefined")) continue;
+      out.push({ email:`${local}@${d}`, pattern:p.id, patternLabel:p.lab, score:p.w });
+    }
+    // normaliser en confiance 0..99 (le pattern dominant reste inférieur à une preuve réelle)
+    const max=Math.max(...out.map(o=>o.score));
+    out.forEach(o=> o.confidence=Math.round(40 + (o.score/max)*45)); // 40..85
+    // dédup
+    const seen=new Set();
+    return out.filter(o=> seen.has(o.email)?false:(seen.add(o.email),true)).sort((a,b)=>b.confidence-a.confidence);
+  }
+  // Apprend le pattern à partir d'un email connu -> l'applique à d'autres personnes
+  function learnPattern(first,last,knownEmail){
+    const f=deburr(first), l=deburr(last);
+    const m=/^([^@]+)@(.+)$/.exec((knownEmail||"").trim().toLowerCase());
+    if(!m) return null;
+    const local=m[1], domain=m[2];
+    for(const p of PATTERNS){
+      let cand; try{ cand=p.fn(f,l); }catch(e){ continue; }
+      if(cand===local) return {pattern:p.id, patternLabel:p.lab, domain, template:p};
+    }
+    return {pattern:"inconnu", patternLabel:"non reconnu", domain, template:null};
+  }
+  function applyLearned(learned,first,last){
+    if(!learned||!learned.template) return null;
+    const f=deburr(first), l=deburr(last);
+    return `${learned.template.fn(f,l)}@${learned.domain}`;
+  }
+  // Extraction bulk : depuis n'importe quel texte de page (résultats de recherche,
+  // annuaire, site) -> emails, téléphones, liens sociaux, + heuristique nom/role
+  const RE_EMAIL = /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g;
+  const RE_PHONE = /(?:(?:\+|00)\d{1,3}[\s.\-]?)?(?:\(?\d{1,4}\)?[\s.\-]?){2,5}\d{2,4}/g;
+  const RE_URL   = /\bhttps?:\/\/[^\s"'<>)]+/gi;
+  const ROLE_HINTS = ["contact","info","hello","bonjour","sales","vente","commercial","support","admin","direction","rh","recrutement","accueil","secretariat","compta","noreply","no-reply","postmaster","webmaster"];
+  const DISPOSABLE = ["mailinator.com","yopmail.com","guerrillamail.com","10minutemail.com","trashmail.com","tempmail.com","getnada.com","sharklasers.com","temp-mail.org"];
+  function cleanEmail(e){ return e.toLowerCase().replace(/[.,;:)]+$/,""); }
+  function classify(email){
+    const [local,domain]=email.split("@");
+    const isRole = ROLE_HINTS.some(r=> local===r || local.startsWith(r+".") || local.startsWith(r+"-") || local===r.replace("-",""));
+    const isDisp = DISPOSABLE.includes(domain);
+    const free = ["gmail.com","yahoo.com","yahoo.fr","hotmail.com","hotmail.fr","outlook.com","outlook.fr","live.fr","orange.fr","free.fr","wanadoo.fr","laposte.net","icloud.com"].includes(domain);
+    return {isRole,isDisp,free,domain};
+  }
+  function extract(text){
+    const raw = text||"";
+    const emails = [...new Set((raw.match(RE_EMAIL)||[]).map(cleanEmail))];
+    // téléphones : filtrer les faux positifs (trop courts)
+    const phones = [...new Set((raw.match(RE_PHONE)||[])
+      .map(p=>p.trim())
+      .filter(p=>{ const d=p.replace(/\D/g,""); return d.length>=9 && d.length<=15; }))];
+    const urls = [...new Set(raw.match(RE_URL)||[])];
+    const socials = urls.filter(u=>/(linkedin|facebook|instagram|twitter|x\.com|youtube|tiktok)\./i.test(u));
+    const sites = urls.filter(u=>!socials.includes(u));
+    const contacts = emails.map(e=>{
+      const c=classify(e);
+      // deviner un nom depuis le local part si prenom.nom
+      let guessName="";
+      if(!c.isRole && /^[a-z]+[._\-][a-z]+$/.test(e.split("@")[0])){
+        const parts=e.split("@")[0].split(/[._\-]/);
+        guessName=parts.map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(" ");
+      }
+      return { email:e, domain:c.domain, type:c.isRole?"générique":(c.free?"perso":"nominatif"),
+        disposable:c.isDisp, guessName };
+    });
+    return {emails,phones,sites,socials,contacts};
+  }
+  // Vérification offline honnête : syntaxe + heuristiques (pas de vrai SMTP possible en navigateur)
+  function verify(email){
+    const e=(email||"").trim().toLowerCase();
+    const okSyntax = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+    if(!okSyntax) return {status:"invalide", reason:"Syntaxe incorrecte", score:0};
+    const c=classify(e);
+    if(c.isDisp) return {status:"jetable", reason:"Domaine email jetable", score:8};
+    if(c.isRole) return {status:"générique", reason:"Adresse de service (non nominative)", score:55};
+    if(c.free)   return {status:"perso", reason:"Messagerie personnelle (gmail, etc.)", score:60};
+    return {status:"probable", reason:"Format professionnel plausible", score:78};
+  }
+  return {candidates,learnPattern,applyLearned,extract,verify,PATTERNS};
+})();
+
+/* ============================================================
+   4. MOTEUR D'AUTOMATISATIONS (remplace Make, côté client)
+   Règles simples : QUAND <event> [SI condition] ALORS <actions>.
+   Déclenché à chaque mutation d'entité.
+   ============================================================ */
+const Automations = (()=>{
+  const EVENTS = {
+    "partner.status": "Statut partenaire changé",
+    "project.created":"Projet créé",
+    "task.overdue":  "Tâche en retard (au chargement)",
+    "participant.created":"Participant ajouté",
+  };
+  const ACTIONS = {
+    "task": "Créer une tâche",
+    "toast":"Afficher une notification",
+    "flag": "Marquer / étiqueter",
+  };
+  function run(eventKey, ctx){
+    const active = DB.automations.filter(a=>a.on && a.event===eventKey);
+    for(const a of active){
+      if(a.condField && a.condValue){
+        const v = (ctx?.[a.condField] ?? "").toString().toLowerCase();
+        if(!v.includes(a.condValue.toLowerCase())) continue;
+      }
+      applyAction(a, ctx);
+      logAct(`Auto « ${a.name} » déclenchée`);
+    }
+  }
+  function applyAction(a, ctx){
+    if(a.action==="task"){
+      DB.tasks.push({id:uid(), title:tpl(a.actionValue||"Suite à automatisation", ctx),
+        status:"À faire", due:Date.now()+3*864e5, priority:"Normale", auto:true});
+      save();
+    } else if(a.action==="toast"){
+      toast(tpl(a.actionValue||"Automatisation déclenchée", ctx),"ok");
+    } else if(a.action==="flag"){
+      if(ctx?._entity && ctx?._id){
+        const arr=DB[ctx._entity]; const it=arr?.find(x=>x.id===ctx._id);
+        if(it){ it.flag=a.actionValue||"⭐"; save(); }
+      }
+    }
+  }
+  const tpl=(s,ctx)=> (s||"").replace(/\{(\w+)\}/g,(_,k)=> (ctx?.[k]??"").toString());
+  return {run,EVENTS,ACTIONS};
+})();
+
+/* ============================================================
+   5. VUES
+   ============================================================ */
+const ICONS = {
+  dash:'<path d="M4 13h6V4H4zM14 20h6v-9h-6zM14 8h6V4h-6zM4 20h6v-4H4z"/>',
+  finder:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>',
+  crm:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13A4 4 0 0 1 16 11"/>',
+  proj:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>',
+  people:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>',
+  money:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  provider:'<path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-3"/>',
+  task:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  auto:'<path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/><circle cx="12" cy="12" r="3"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  guide:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>'
+};
+const ic = k => `<svg class="ic" viewBox="0 0 24 24">${ICONS[k]||""}</svg>`;
+
+const NAV = [
+  {group:"Pilotage"},
+  {id:"dash",   title:"Tableau de bord", sub:"Vue d'ensemble de l'activité", icon:"dash"},
+  {id:"finder", title:"Chercheur de contacts", sub:"Emails, téléphones & prospection — 100% hors-ligne", icon:"finder"},
+  {group:"Données (comme Airtable)"},
+  {id:"partners", title:"T1 · Partenaires & prospection", sub:"CFA, écoles, OPCO, prospects", icon:"crm", entity:"partners"},
+  {id:"projects", title:"T2 · Projets & mobilités", sub:"Séjours + conformité R1→R8", icon:"proj", entity:"projects"},
+  {id:"participants", title:"T3 · Participants", sub:"Apprenants, documents, assurances", icon:"people", entity:"participants"},
+  {id:"finance", title:"T4/T5 · Finances & marges", sub:"Lignes budgétaires + forfaits", icon:"money"},
+  {id:"providers", title:"T6 · Prestataires", sub:"Hôtels, guides, transporteurs", icon:"provider", entity:"providers"},
+  {id:"tasks", title:"T7 · Tâches & conformité", sub:"Échéances, rappels, checklist", icon:"task", entity:"tasks"},
+  {group:"Système"},
+  {id:"automations", title:"Automatisations", sub:"Règles automatiques (remplace Make)", icon:"auto"},
+  {id:"guide", title:"Guide & aide", sub:"Comment utiliser chaque écran", icon:"guide"},
+  {id:"settings", title:"Réglages & sauvegarde", sub:"Thème, objectifs, export/import", icon:"gear"},
+];
+
+let CURRENT="dash";
+function renderNav(){
+  const counts={ partners:DB.partners.length, projects:DB.projects.length, participants:DB.participants.length,
+    providers:DB.providers.length, tasks:DB.tasks.filter(t=>t.status!=="Fait").length };
+  $("#nav").innerHTML = NAV.map(n=>{
+    if(n.group) return `<div class="nav-group">${esc(n.group)}</div>`;
+    const c = n.entity!=null ? counts[n.entity] : null;
+    return `<button class="nav-item ${n.id===CURRENT?'active':''}" data-nav="${n.id}">
+      ${ic(n.icon)}<span>${esc(n.title.replace(/^T\d[\/\d]* · /,""))}</span>
+      ${c? `<span class="badge">${c}</span>`:""}</button>`;
+  }).join("");
+  $$("#nav [data-nav]").forEach(b=>b.onclick=()=>{ go(b.dataset.nav); $("#sidebar").classList.remove("open"); });
+}
+function go(id){
+  CURRENT=id; const n=NAV.find(x=>x.id===id);
+  $("#viewTitle").textContent = n? n.title : "";
+  $("#viewSub").textContent = n? n.sub : "";
+  renderNav();
+  const v=$("#view"); v.classList.remove("view-anim"); void v.offsetWidth; v.classList.add("view-anim");
+  (VIEWS[id]||VIEWS.dash)();
+}
+
+const VIEWS={};
+
+/* ---------- Dashboard ---------- */
+VIEWS.dash=()=>{
+  const P=DB.partners, prj=DB.projects, part=DB.participants;
+  const marge = DB.budget.reduce((s,b)=>s+(Number(b.margin)||0),0)
+    + DB.projects.reduce((s,p)=>s+(Number(p.margin)||0),0);
+  const enCours = prj.filter(p=>(p.status||"")!=="Clôturé").length;
+  const auth = prj.reduce((s,p)=>{ const r=compliance(p); return s+(r.done<r.total?1:0); },0);
+  const overdue = DB.tasks.filter(t=>t.status!=="Fait" && t.due && t.due<Date.now());
+  const s=DB.settings;
+  const prospects = P.length;
+  const funnel = [
+    {k:"Prospects", v:prospects},
+    {k:"Contactés", v:P.filter(x=>["Contacté","Devis envoyé","Partenaire actif","En discussion"].includes(x.status)).length},
+    {k:"En discussion", v:P.filter(x=>x.status==="En discussion").length},
+    {k:"Devis envoyé", v:P.filter(x=>x.status==="Devis envoyé").length},
+    {k:"Actifs", v:P.filter(x=>x.status==="Partenaire actif").length},
+  ];
+  const fmax=Math.max(1,...funnel.map(f=>f.v));
+  // reverse CA
+  const target=Number(s.caTarget)||0, panier=Number(s.panier)||1;
+  const nbVentes=Math.ceil(target/panier);
+  const nbDevis=Math.ceil(nbVentes/(s.convDevis||.3));
+  const nbRdv=Math.ceil(nbDevis/(s.convRdv||.25));
+  const nbProspects=Math.ceil(nbRdv/(s.convContact||.35));
+
+  $("#view").innerHTML=`
+  <div class="grid cards">
+    ${kpi("Marge totale", eur(marge), "money", "var(--ok)")}
+    ${kpi("Projets en cours", enCours, "proj", "var(--brand)")}
+    ${kpi("Autorisations à obtenir", auth, "task", "var(--warn)")}
+    ${kpi("Participants", part.length, "people", "var(--accent)")}
+    ${kpi("Prospects (T1)", prospects, "crm", "var(--brand)")}
+    ${kpi("Tâches en retard", overdue.length, "task", overdue.length?"var(--bad)":"var(--ok)")}
+  </div>
+
+  <div class="grid" style="grid-template-columns:1.3fr 1fr;margin-top:16px">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Entonnoir de prospection</div>
+      ${funnel.map(f=>`<div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;font-weight:700;margin-bottom:5px"><span>${f.k}</span><span>${f.v}</span></div>
+        <div class="progress"><i style="width:${(f.v/fmax*100).toFixed(0)}%"></i></div>
+      </div>`).join("")}
+    </div>
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Objectif → prospection (calcul inverse)</div>
+      <p class="muted" style="margin:0 0 12px;font-weight:600">Pour atteindre <b style="color:var(--ink)">${eur(target)}</b> à ${eur(panier)}/vente :</p>
+      ${revLine("Ventes nécessaires", nbVentes)}
+      ${revLine("Devis à envoyer", nbDevis)}
+      ${revLine("Rendez-vous à obtenir", nbRdv)}
+      ${revLine("Prospects à contacter", nbProspects)}
+      <button class="btn sm ghost" style="margin-top:10px" onclick="go('settings')">Modifier les hypothèses →</button>
+    </div>
+  </div>
+
+  <div class="section-title">Activité récente</div>
+  <div class="card">
+    ${DB.activity.length? DB.activity.slice(0,10).map(a=>`<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)">
+      <span class="muted mono" style="font-size:12px;white-space:nowrap">${fmtDate(a.t)}</span><span style="font-weight:600">${esc(a.m)}</span></div>`).join("")
+      : `<div class="empty"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg><div>Aucune activité pour l'instant. Commencez par ajouter un prospect ou chercher un contact.</div></div>`}
+  </div>`;
+};
+const kpi=(lab,val,icon,color)=>`<div class="card hover kpi">
+  <div class="lab"><span class="dot" style="background:${color}"></span>${esc(lab)}</div>
+  <div class="val">${val}</div></div>`;
+const revLine=(l,v)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)"><span class="muted" style="font-weight:600">${l}</span><b style="font-size:16px">${v.toLocaleString("fr-FR")}</b></div>`;
+
+/* ---------- Chercheur de contacts (module phare) ---------- */
+let FINDER_TAB="find";
+VIEWS.finder=()=>{
+  $("#view").innerHTML=`
+  <div class="helpbox">${ic2("info")}
+    <div>Ce module reproduit hors-ligne le cœur des extensions type Skrapp / Hunter / Snov : il <b>devine les emails</b> à partir d'un nom + domaine, <b>extrait tous les contacts</b> d'une page collée (emails, téléphones, réseaux), <b>apprend un modèle</b> d'email et <b>vérifie</b> la validité. Aucune donnée ne quitte votre navigateur — il n'y a pas d'envoi réseau, donc pas de coût, pas de blocage, pas de dépendance.</div></div>
+  <div class="pill-tabs" style="margin-bottom:18px">
+    <button data-ft="find" class="${FINDER_TAB==='find'?'active':''}">🔎 Deviner un email</button>
+    <button data-ft="extract" class="${FINDER_TAB==='extract'?'active':''}">📋 Extraire depuis une page</button>
+    <button data-ft="learn" class="${FINDER_TAB==='learn'?'active':''}">🧠 Apprendre un modèle</button>
+    <button data-ft="verify" class="${FINDER_TAB==='verify'?'active':''}">✔️ Vérifier</button>
+    <button data-ft="saved" class="${FINDER_TAB==='saved'?'active':''}">💾 Contacts (${DB.contacts.length})</button>
+  </div>
+  <div id="finderBody"></div>`;
+  $$("#view [data-ft]").forEach(b=>b.onclick=()=>{FINDER_TAB=b.dataset.ft;VIEWS.finder();});
+  ({find:finderFind,extract:finderExtract,learn:finderLearn,verify:finderVerify,saved:finderSaved}[FINDER_TAB])();
+};
+const ic2=k=>`<svg viewBox="0 0 24 24" ${''}><g fill="none" stroke="currentColor" stroke-width="2">${k==="info"?'<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>':ICONS[k]||""}</g></svg>`;
+
+function finderFind(){
+  $("#finderBody").innerHTML=`
+  <div class="grid" style="grid-template-columns:1fr 1.2fr;gap:20px;align-items:start">
+    <div class="card">
+      <div class="row2"><div class="field"><label>Prénom</label><input class="input" id="ff_first" placeholder="Marie"></div>
+      <div class="field"><label>Nom</label><input class="input" id="ff_last" placeholder="Dupont"></div></div>
+      <div class="field"><label>Domaine de l'entreprise</label><input class="input" id="ff_domain" placeholder="entreprise.fr"></div>
+      <button class="btn primary" id="ff_go" style="width:100%">Générer les emails probables</button>
+      <p class="muted" style="font-size:12px;margin:12px 0 0;font-weight:600">Astuce : le domaine se trouve dans l'adresse du site web du partenaire (ex. formaskills.fr).</p>
+    </div>
+    <div id="ff_res"></div>
+  </div>`;
+  const run=()=>{
+    const f=$("#ff_first").value.trim(),l=$("#ff_last").value.trim(),d=$("#ff_domain").value.trim();
+    if(!f||!l||!d){ toast("Renseignez prénom, nom et domaine","warn"); return; }
+    const cand=EmailFinder.candidates(f,l,d);
+    $("#ff_res").innerHTML=`<div class="card"><div class="section-title" style="margin-top:0">${cand.length} adresses classées par probabilité</div>
+    ${cand.map(c=>`<div class="result-row">
+      <div style="flex:1;min-width:0"><div class="mono cell-strong" style="word-break:break-all">${esc(c.email)}</div>
+        <div class="muted" style="font-size:12px">modèle <code class="k">${esc(c.patternLabel)}</code></div></div>
+      ${scoreBar(c.confidence)}
+      <button class="btn sm ghost" onclick="copy('${c.email}')">Copier</button>
+      <button class="btn sm" onclick="saveContact('${esc(c.email)}','${esc(f+' '+l)}','${esc(d)}',${c.confidence})">+ CRM</button>
+    </div>`).join("")}
+    <p class="muted" style="font-size:12px;margin:12px 0 0;font-weight:600">⚠️ Ce sont des <b>probabilités</b> (aucune vérification serveur n'est possible hors-ligne). Confirmez la meilleure par un envoi test ou l'onglet « Apprendre un modèle » si vous connaissez déjà un email de la boîte.</p></div>`;
+  };
+  $("#ff_go").onclick=run;
+  $$("#ff_first,#ff_last,#ff_domain").forEach(i=>i.addEventListener("keydown",e=>{if(e.key==="Enter")run();}));
+}
+const scoreBar=c=>{
+  const col=c>=75?"var(--ok)":c>=55?"var(--warn)":"var(--bad)";
+  return `<span class="scorebar"><span class="track"><i style="width:${c}%;background:${col}"></i></span><b style="color:${col};font-size:13px">${c}%</b></span>`;
+};
+window.saveContact=(email,name,domain,conf)=>{
+  if(DB.contacts.some(c=>c.email===email)){ toast("Déjà dans les contacts","warn"); return; }
+  DB.contacts.unshift({id:uid(),email,name,domain,confidence:conf||"",source:"finder",added:Date.now(),phone:"",note:""});
+  logAct(`Contact ajouté : ${email}`); save(); renderNav(); toast("Contact enregistré");
+};
+
+function finderExtract(){
+  $("#finderBody").innerHTML=`
+  <div class="card">
+    <div class="field"><label>Collez ici le contenu d'une page (résultats de recherche, annuaire, page contact, liste de sociétés…)</label>
+    <textarea id="fx_in" style="min-height:180px" placeholder="Sélectionnez tout le texte d'une page web (Ctrl+A, Ctrl+C) puis collez-le ici. L'outil extraira automatiquement tous les emails, téléphones, sites et réseaux sociaux — site par site, sans LinkedIn requis."></textarea></div>
+    <div class="toolbar" style="margin:0"><button class="btn primary" id="fx_go">Extraire les contacts</button>
+    <button class="btn ghost" id="fx_clear">Effacer</button></div>
+  </div>
+  <div id="fx_res" style="margin-top:16px"></div>`;
+  $("#fx_clear").onclick=()=>{$("#fx_in").value="";$("#fx_res").innerHTML="";};
+  $("#fx_go").onclick=()=>{
+    const r=EmailFinder.extract($("#fx_in").value);
+    if(!r.emails.length && !r.phones.length){ $("#fx_res").innerHTML=`<div class="card"><div class="empty">Aucun email ni téléphone trouvé dans ce texte.</div></div>`; return; }
+    $("#fx_res").innerHTML=`
+    <div class="grid cards" style="margin-bottom:16px">
+      ${kpi("Emails",r.emails.length,"finder","var(--brand)")}
+      ${kpi("Téléphones",r.phones.length,"finder","var(--accent)")}
+      ${kpi("Sites",r.sites.length,"finder","var(--ok)")}
+      ${kpi("Réseaux",r.socials.length,"finder","var(--warn)")}
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div class="section-title" style="margin:0">Contacts extraits</div><div class="spacer"></div>
+      <button class="btn sm" onclick='importAllContacts(${JSON.stringify(r.contacts).replace(/'/g,"&#39;")})'>Tout ajouter au CRM</button></div>
+      ${r.contacts.map(c=>`<div class="result-row">
+        <div style="flex:1;min-width:0"><div class="mono cell-strong" style="word-break:break-all">${esc(c.email)}</div>
+        <div class="muted" style="font-size:12px">${c.guessName?esc(c.guessName)+" · ":""}${esc(c.domain)}</div></div>
+        <span class="tag ${c.type==='nominatif'?'g':c.type==='générique'?'w':'n'}">${c.type}</span>
+        ${c.disposable?'<span class="tag r">jetable</span>':''}
+        <button class="btn sm ghost" onclick="copy('${c.email}')">Copier</button>
+        <button class="btn sm" onclick="saveContact('${esc(c.email)}','${esc(c.guessName)}','${esc(c.domain)}',70)">+</button>
+      </div>`).join("")}
+      ${r.phones.length?`<div class="divider"></div><div class="section-title" style="margin-top:0">Téléphones</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${r.phones.map(p=>`<span class="tag b copybtn" onclick="copy('${p.replace(/'/g,"")}')">${esc(p)}</span>`).join("")}</div>`:""}
+      ${r.sites.length?`<div class="divider"></div><div class="section-title" style="margin-top:0">Sites</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${r.sites.slice(0,40).map(u=>`<a class="tag n" href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//,'').slice(0,42))}</a>`).join("")}</div>`:""}
+    </div>`;
+  };
+}
+window.importAllContacts=(list)=>{
+  let n=0; for(const c of list){ if(!DB.contacts.some(x=>x.email===c.email)){ DB.contacts.unshift({id:uid(),email:c.email,name:c.guessName||"",domain:c.domain,confidence:70,source:"extract",added:Date.now(),phone:"",note:""}); n++; } }
+  logAct(`${n} contacts importés (extraction)`); save(); renderNav(); toast(n+" contacts ajoutés au CRM");
+};
+
+function finderLearn(){
+  $("#finderBody").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Si vous connaissez <b>un seul</b> email d'une entreprise, l'outil devine le modèle utilisé, puis génère les adresses de <b>toutes les autres personnes</b> de la même boîte — de façon fiable.</div></div>
+  <div class="card">
+    <div class="section-title" style="margin-top:0">1. Renseignez un contact connu</div>
+    <div class="row3">
+      <div class="field"><label>Prénom connu</label><input class="input" id="fl_f" placeholder="Jean"></div>
+      <div class="field"><label>Nom connu</label><input class="input" id="fl_l" placeholder="Martin"></div>
+      <div class="field"><label>Son email connu</label><input class="input" id="fl_e" placeholder="j.martin@boite.fr"></div>
+    </div>
+    <button class="btn primary" id="fl_detect">Détecter le modèle</button>
+    <div id="fl_out" style="margin-top:14px"></div>
+  </div>`;
+  $("#fl_detect").onclick=()=>{
+    const f=$("#fl_f").value.trim(),l=$("#fl_l").value.trim(),e=$("#fl_e").value.trim();
+    if(!f||!l||!e){toast("Renseignez les trois champs","warn");return;}
+    const learned=EmailFinder.learnPattern(f,l,e);
+    if(!learned){toast("Email invalide","bad");return;}
+    if(!learned.template){
+      $("#fl_out").innerHTML=`<div class="tag w">Modèle non reconnu pour ${esc(e)} — utilisez plutôt l'onglet « Deviner ».</div>`;return;
+    }
+    $("#fl_out").innerHTML=`<div class="tag g" style="margin-bottom:14px">Modèle détecté : <code class="k" style="margin-left:6px">${esc(learned.patternLabel)}</code> @ ${esc(learned.domain)}</div>
+    <div class="section-title" style="margin-top:0">2. Appliquez à d'autres personnes</div>
+    <div class="row2"><div class="field"><label>Prénom</label><input class="input" id="fl_nf" placeholder="Sophie"></div>
+    <div class="field"><label>Nom</label><input class="input" id="fl_nl" placeholder="Bernard"></div></div>
+    <button class="btn accent" id="fl_apply">Générer l'email</button>
+    <div id="fl_applied" style="margin-top:12px"></div>`;
+    const learnedRef=learned;
+    $("#fl_apply").onclick=()=>{
+      const nf=$("#fl_nf").value.trim(),nl=$("#fl_nl").value.trim();
+      if(!nf||!nl){toast("Prénom + nom requis","warn");return;}
+      const em=EmailFinder.applyLearned(learnedRef,nf,nl);
+      $("#fl_applied").innerHTML=`<div class="result-row"><div class="mono cell-strong" style="flex:1">${esc(em)}</div>
+        ${scoreBar(92)}<button class="btn sm ghost" onclick="copy('${em}')">Copier</button>
+        <button class="btn sm" onclick="saveContact('${esc(em)}','${esc(nf+' '+nl)}','${esc(learnedRef.domain)}',92)">+ CRM</button></div>`;
+    };
+  };
+}
+
+function finderVerify(){
+  $("#finderBody").innerHTML=`
+  <div class="card">
+    <div class="field"><label>Une ou plusieurs adresses (une par ligne)</label>
+    <textarea id="fv_in" placeholder="marie.dupont@entreprise.fr&#10;contact@boite.com&#10;test@mailinator.com"></textarea></div>
+    <button class="btn primary" id="fv_go">Vérifier</button>
+  </div><div id="fv_res" style="margin-top:16px"></div>`;
+  $("#fv_go").onclick=()=>{
+    const list=$("#fv_in").value.split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean);
+    if(!list.length){toast("Ajoutez au moins une adresse","warn");return;}
+    const cols={invalide:"r",jetable:"r",générique:"w",perso:"w",probable:"g"};
+    $("#fv_res").innerHTML=`<div class="card">${list.map(e=>{const v=EmailFinder.verify(e);
+      return `<div class="result-row"><div class="mono cell-strong" style="flex:1;word-break:break-all">${esc(e)}</div>
+      <span class="tag ${cols[v.status]||'n'}">${v.status}</span>
+      <span class="muted" style="font-size:12px;min-width:180px;text-align:right">${esc(v.reason)}</span></div>`;}).join("")}
+      <p class="muted" style="font-size:12px;margin:12px 0 0;font-weight:600">Vérification hors-ligne = syntaxe + heuristiques (jetable, générique, format pro). La confirmation « boîte réelle » nécessiterait un serveur — évitée volontairement pour rester 100% autonome et gratuit.</p></div>`;
+  };
+}
+
+function finderSaved(){
+  const list=DB.contacts;
+  $("#finderBody").innerHTML=`
+  <div class="toolbar">
+    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input class="input" id="cs_q" placeholder="Rechercher un contact…"></div>
+    <div class="spacer"></div>
+    <button class="btn ghost sm" id="cs_exp">Exporter CSV</button>
+  </div>
+  <div id="cs_tbl"></div>`;
+  const draw=()=>{
+    const q=($("#cs_q").value||"").toLowerCase();
+    const rows=list.filter(c=>!q||(c.email+c.name+c.domain).toLowerCase().includes(q));
+    $("#cs_tbl").innerHTML= rows.length?`<div class="tbl-wrap"><table>
+      <thead><tr><th>Email</th><th>Nom</th><th>Domaine</th><th>Source</th><th>Ajouté</th><th></th></tr></thead>
+      <tbody>${rows.map(c=>`<tr>
+        <td class="mono cell-strong">${esc(c.email)}</td><td>${esc(c.name||"—")}</td>
+        <td class="muted">${esc(c.domain||"—")}</td><td><span class="tag n">${esc(c.source||"—")}</span></td>
+        <td class="muted">${fmtDate(c.added)}</td>
+        <td class="rowact"><button class="btn sm ghost" onclick="copy('${c.email}')">Copier</button>
+        <button class="btn sm ghost" onclick="delContact('${c.id}')">✕</button></td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div>Aucun contact enregistré. Utilisez « Deviner » ou « Extraire » pour en ajouter.</div></div></div>`;
+  };
+  $("#cs_q").oninput=draw;
+  $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","domain","phone","confidence","source"],list);
+  draw();
+}
+window.delContact=id=>{ DB.contacts=DB.contacts.filter(c=>c.id!==id); save(); renderNav(); VIEWS.finder(); };
+
+/* ---------- Générique : tables entités ---------- */
+const SCHEMAS={
+  partners:{ label:"Partenaire", statuses:["Non catégorisée","À contacter","Contacté","En discussion","Devis envoyé","Partenaire actif"],
+    fields:[
+      {k:"name",l:"Nom du partenaire",req:true},
+      {k:"type",l:"Type",type:"select",opts:["CFA","École","Entreprise","OPCO","ONG","Organisme d'accueil","Autre"]},
+      {k:"country",l:"Pays"},{k:"oid",l:"Identifiant Erasmus (OID)"},
+      {k:"contactName",l:"Contact (Nom Prénom)"},{k:"email",l:"Email",type:"email"},{k:"phone",l:"Téléphone"},
+      {k:"status",l:"Statut relation",type:"select",optsFrom:"statuses"},
+      {k:"potential",l:"Valeur potentielle (€)",type:"number"},
+      {k:"lastContact",l:"Dernier contact",type:"date"},{k:"notes",l:"Notes",type:"textarea"},
+    ],
+    cols:["name","type","status","contactName","email","potential"], kanbanBy:"status" },
+  projects:{ label:"Projet",
+    fields:[
+      {k:"name",l:"Nom du projet",req:true},
+      {k:"direction",l:"Sens",type:"select",opts:["Sortant (on envoie)","Entrant (on reçoit)"]},
+      {k:"country",l:"Pays de destination"},{k:"city",l:"Ville d'accueil"},
+      {k:"start",l:"Date de début",type:"date"},{k:"end",l:"Date de fin",type:"date"},
+      {k:"grant",l:"Subvention Erasmus (€)",type:"number"},{k:"convention",l:"N° de convention Erasmus"},
+      {k:"status",l:"Avancement",type:"select",opts:["Cadrage","Conventions","Préparation","En cours","Reconnaissance","Reporting","Clôturé"]},
+      {k:"margin",l:"Marge (€)",type:"number"},{k:"notes",l:"Notes",type:"textarea"},
+    ],
+    cols:["name","direction","country","status","start","margin"] },
+  participants:{ label:"Participant",
+    fields:[
+      {k:"name",l:"Nom Prénom",req:true},{k:"birth",l:"Date de naissance",type:"date"},
+      {k:"nationality",l:"Nationalité"},{k:"email",l:"Email",type:"email"},{k:"phone",l:"Téléphone"},
+      {k:"project",l:"Projet lié"},{k:"minor",l:"Mineur ?",type:"select",opts:["Non","Oui"]},
+      {k:"insurance",l:"Assurances OK ?",type:"select",opts:["Non","En cours","Oui"]},
+      {k:"ceam",l:"Carte CEAM ?",type:"select",opts:["Non","Oui"]},
+      {k:"status",l:"Statut dossier",type:"select",opts:["Incomplet","En cours","Complet"]},
+      {k:"notes",l:"Notes",type:"textarea"},
+    ],
+    cols:["name","project","minor","insurance","status"] },
+  providers:{ label:"Prestataire",
+    fields:[
+      {k:"name",l:"Nom du prestataire",req:true},
+      {k:"type",l:"Type",type:"select",opts:["Hébergement","Restauration","Transport","Activité","Guide","Autre"]},
+      {k:"city",l:"Ville"},{k:"contactName",l:"Contact"},{k:"email",l:"Email",type:"email"},{k:"phone",l:"Téléphone"},
+      {k:"price",l:"Prix estimé (€/groupe/jour)",type:"number"},
+      {k:"contract",l:"Contrat ?",type:"select",opts:["Non","À signer","Signé"]},
+      {k:"notes",l:"Notes",type:"textarea"},
+    ],
+    cols:["name","type","city","price","contract"] },
+  tasks:{ label:"Tâche",
+    fields:[
+      {k:"title",l:"Intitulé",req:true},
+      {k:"status",l:"Statut",type:"select",opts:["À faire","En cours","Fait"]},
+      {k:"priority",l:"Priorité",type:"select",opts:["Basse","Normale","Haute","Urgente"]},
+      {k:"due",l:"Échéance",type:"date"},{k:"linked",l:"Lié à (projet/partenaire)"},
+      {k:"notes",l:"Détails",type:"textarea"},
+    ],
+    cols:["title","status","priority","due","linked"], kanbanBy:"status" },
+};
+function labelOf(entity,k){ const s=SCHEMAS[entity]; return s.fields.find(f=>f.k===k)?.l || k; }
+function cellRender(entity,item,k){
+  const f=SCHEMAS[entity].fields.find(x=>x.k===k); const v=item[k];
+  if(k==="status"){ return statusTag(entity,v); }
+  if(f?.type==="number"){ return k.match(/margin|potential|price|grant/)? eur(v): (v??"—"); }
+  if(f?.type==="date"){ return `<span class="muted">${fmtDate(v)}</span>`; }
+  if(k==="name"||k==="title"){ return `<span class="cell-strong">${item.flag?item.flag+" ":""}${esc(v||"(sans nom)")}</span>`; }
+  if(k==="email"&&v){ return `<span class="mono" style="font-size:12.5px">${esc(v)}</span>`; }
+  return v?esc(v):`<span class="muted">—</span>`;
+}
+function statusTag(entity,v){
+  if(!v) return `<span class="tag n">—</span>`;
+  const map={ "Partenaire actif":"g","Complet":"g","Fait":"g","Signé":"g","Clôturé":"g","Oui":"g",
+    "En discussion":"b","En cours":"b","Contacté":"b","Préparation":"b","Reporting":"b",
+    "Devis envoyé":"a","Conventions":"a","Reconnaissance":"a",
+    "À contacter":"w","À signer":"w","À faire":"w","Incomplet":"w","Cadrage":"w",
+    "Urgente":"r","Haute":"r","Non":"n","Non catégorisée":"n" };
+  return `<span class="tag ${map[v]||'n'}">${esc(v)}</span>`;
+}
+let ENTITY_VIEW={}; // per-entity: {mode:'table'|'kanban', q:''}
+function entityView(entity){
+  const s=SCHEMAS[entity]; const st=ENTITY_VIEW[entity]||(ENTITY_VIEW[entity]={mode:s.kanbanBy?"kanban":"table",q:""});
+  const canKanban=!!s.kanbanBy;
+  $("#view").innerHTML=`
+  <div class="toolbar">
+    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input class="input" id="ev_q" placeholder="Rechercher…" value="${esc(st.q)}"></div>
+    ${canKanban?`<div class="pill-tabs"><button data-mode="kanban" class="${st.mode==='kanban'?'active':''}">Kanban</button><button data-mode="table" class="${st.mode==='table'?'active':''}">Tableau</button></div>`:""}
+    <div class="spacer"></div>
+    <button class="btn ghost sm" id="ev_exp">Exporter CSV</button>
+    <button class="btn primary" id="ev_add">+ ${esc(s.label)}</button>
+  </div>
+  <div id="ev_body"></div>`;
+  $("#ev_q").oninput=e=>{st.q=e.target.value;drawEntity(entity);};
+  $("#ev_add").onclick=()=>editEntity(entity,null);
+  $("#ev_exp").onclick=()=>exportCSV(entity, s.fields.map(f=>f.k), DB[entity]);
+  $$("#view [data-mode]").forEach(b=>b.onclick=()=>{st.mode=b.dataset.mode;entityView(entity);});
+  drawEntity(entity);
+}
+function drawEntity(entity){
+  const s=SCHEMAS[entity], st=ENTITY_VIEW[entity]; const q=(st.q||"").toLowerCase();
+  let rows=DB[entity].filter(it=> !q || JSON.stringify(it).toLowerCase().includes(q));
+  const body=$("#ev_body");
+  if(!rows.length){ body.innerHTML=`<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.people}</svg><div>Aucun élément. Cliquez « + ${esc(s.label)} » pour commencer.</div></div></div>`; return; }
+  if(st.mode==="kanban"&&s.kanbanBy){
+    const col=s.kanbanBy; const groups=(s.statuses||s.fields.find(f=>f.k===col).opts);
+    body.innerHTML=`<div class="kanban">${groups.map(g=>{
+      const items=rows.filter(r=>(r[col]||groups[0])===g);
+      return `<div class="kcol" data-col="${esc(g)}"><h4>${statusTag(entity,g)}<span class="spacer"></span><span class="muted">${items.length}</span></h4>
+      ${items.map(it=>kanbanCard(entity,it)).join("")}</div>`;}).join("")}</div>`;
+    wireKanban(entity,col);
+  } else {
+    const cols=s.cols;
+    body.innerHTML=`<div class="tbl-wrap"><table><thead><tr>${cols.map(c=>`<th>${esc(labelOf(entity,c))}</th>`).join("")}<th></th></tr></thead>
+    <tbody>${rows.map(it=>`<tr data-id="${it.id}" style="cursor:pointer">${cols.map(c=>`<td>${cellRender(entity,it,c)}</td>`).join("")}
+      <td class="rowact"><button class="btn sm ghost" data-edit="${it.id}">Ouvrir</button><button class="btn sm ghost" data-del="${it.id}">✕</button></td></tr>`).join("")}</tbody></table></div>`;
+    $$("#ev_body [data-edit]").forEach(b=>b.onclick=e=>{e.stopPropagation();editEntity(entity,b.dataset.edit);});
+    $$("#ev_body [data-del]").forEach(b=>b.onclick=e=>{e.stopPropagation();delEntity(entity,b.dataset.del);});
+    $$("#ev_body tr[data-id]").forEach(tr=>tr.onclick=()=>editEntity(entity,tr.dataset.id));
+  }
+}
+function kanbanCard(entity,it){
+  const s=SCHEMAS[entity]; const title=it.name||it.title||"(sans nom)";
+  const sub=entity==="partners"? (it.contactName||it.type||"") : entity==="tasks"? (it.due?fmtDate(it.due):"") : (it.country||it.project||"");
+  const extra=entity==="partners"&&it.potential? `<span class="tag g" style="margin-top:8px">${eur(it.potential)}</span>`:
+    entity==="tasks"&&it.priority? statusTag(entity,it.priority):"";
+  return `<div class="kcard" draggable="true" data-id="${it.id}">
+    <div class="cell-strong">${it.flag?it.flag+" ":""}${esc(title)}</div>
+    ${sub?`<div class="muted" style="font-size:12.5px;margin-top:3px">${esc(sub)}</div>`:""}
+    ${extra?`<div style="margin-top:6px">${extra}</div>`:""}</div>`;
+}
+function wireKanban(entity,col){
+  let dragId=null;
+  $$("#ev_body .kcard").forEach(c=>{
+    c.addEventListener("dragstart",()=>{dragId=c.dataset.id;c.classList.add("drag");});
+    c.addEventListener("dragend",()=>c.classList.remove("drag"));
+    c.addEventListener("click",()=>editEntity(entity,c.dataset.id));
+  });
+  $$("#ev_body .kcol").forEach(kc=>{
+    kc.addEventListener("dragover",e=>{e.preventDefault();kc.classList.add("over");});
+    kc.addEventListener("dragleave",()=>kc.classList.remove("over"));
+    kc.addEventListener("drop",e=>{e.preventDefault();kc.classList.remove("over");
+      const it=DB[entity].find(x=>x.id===dragId); if(it){ const old=it[col]; it[col]=kc.dataset.col;
+        if(entity==="partners"&&col==="status") Automations.run("partner.status",{...it,_entity:entity,_id:it.id});
+        logAct(`${SCHEMAS[entity].label} « ${it.name||it.title} » : ${old} → ${it[col]}`);
+        save();renderNav();drawEntity(entity);toast("Déplacé vers "+kc.dataset.col);}});
+  });
+}
+function fieldHTML(entity,it,f){
+  const s=SCHEMAS[entity]; const v=it[f.k]??"";
+  const val=f.type==="date"&&v? new Date(v).toISOString().slice(0,10):v;
+  if(f.type==="textarea") return `<div class="field" style="grid-column:1/-1"><label>${esc(f.l)}</label><textarea data-f="${f.k}">${esc(v)}</textarea></div>`;
+  if(f.type==="select"){ const opts=f.optsFrom?s[f.optsFrom]:f.opts;
+    return `<div class="field"><label>${esc(f.l)}</label><select data-f="${f.k}"><option value="">—</option>${opts.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join("")}</select></div>`; }
+  const t=f.type==="number"?"number":f.type==="date"?"date":f.type==="email"?"email":"text";
+  return `<div class="field"><label>${esc(f.l)}${f.req?' *':''}</label><input class="input" type="${t}" data-f="${f.k}" value="${esc(val)}"></div>`;
+}
+function editEntity(entity,id){
+  const s=SCHEMAS[entity]; const it = id? DB[entity].find(x=>x.id===id) : {};
+  const body=`<div class="row2" style="align-items:start">${s.fields.map(f=>fieldHTML(entity,it,f)).join("")}</div>`;
+  openModal({ title:(id?"Modifier ":"Nouveau ")+s.label, wide:true, body,
+    footer:[ ...(id?[{label:"Supprimer",cls:"ghost",act:()=>{closeModal();delEntity(entity,id);}}]:[]),
+      {label:"Annuler",cls:"ghost",act:closeModal},
+      {label:"Enregistrer",cls:"primary",act:()=>saveEntity(entity,id)} ] });
+}
+function saveEntity(entity,id){
+  const s=SCHEMAS[entity]; const data={};
+  $$(".mbody [data-f]").forEach(el=>{ let v=el.value; const f=s.fields.find(x=>x.k===el.dataset.f);
+    if(f?.type==="date"&&v) v=new Date(v).getTime(); data[el.dataset.f]=v; });
+  const req=s.fields.find(f=>f.req);
+  if(req && !data[req.k]?.toString().trim()){ toast(req.l+" est obligatoire","warn"); return; }
+  if(id){ const it=DB[entity].find(x=>x.id===id); Object.assign(it,data); logAct(`${s.label} modifié : ${data[req.k]||it[req.k]}`); }
+  else{ const nw={id:uid(),...data}; DB[entity].push(nw); logAct(`${s.label} créé : ${data[req.k]||""}`);
+    if(entity==="projects") Automations.run("project.created",{...nw,_entity:entity,_id:nw.id});
+    if(entity==="participants") Automations.run("participant.created",{...nw,_entity:entity,_id:nw.id}); }
+  save(); renderNav(); closeModal(); toast(id?"Modifié":"Créé");
+  if(VIEWS[CURRENT]) VIEWS[CURRENT](); else entityView(entity);
+}
+function delEntity(entity,id){
+  const s=SCHEMAS[entity]; const it=DB[entity].find(x=>x.id===id);
+  confirmModal("Supprimer ?", `« ${it?.name||it?.title||"cet élément"} » sera définitivement supprimé.`, ()=>{
+    DB[entity]=DB[entity].filter(x=>x.id!==id); logAct(`${s.label} supprimé`); save(); renderNav();
+    if(CURRENT===entity) entityView(entity);
+  }, true);
+}
+VIEWS.partners=()=>entityView("partners");
+VIEWS.participants=()=>entityView("participants");
+VIEWS.providers=()=>entityView("providers");
+VIEWS.tasks=()=>{ renderTasksExtra(); };
+
+/* Projects view with compliance R1..R8 */
+const R_LABELS=[
+  ["R1","Durée & type d'activité conformes"],
+  ["R2","Toutes les conventions signées AVANT le départ"],
+  ["R3","Présence réelle prouvée (émargement)"],
+  ["R4","Archive conservée 5 ans"],
+  ["R5","Assurances OK (RC, rapatriement, CEAM)"],
+  ["R6","Cœur pédagogique réel vérifié"],
+  ["R7","Statut social maintenu (CPAM/MSA si apprenti)"],
+  ["R8","Pays / partenaire unique identifié (OID)"],
+];
+function compliance(p){ const r=p.R||{}; const done=R_LABELS.filter(([k])=>r[k]).length; return {done,total:R_LABELS.length,r}; }
+VIEWS.projects=()=>{
+  const st=ENTITY_VIEW.projects||(ENTITY_VIEW.projects={mode:"table",q:""});
+  entityView("projects");
+  // add a compliance panel button per row via override of table: we augment after draw
+  const body=$("#ev_body");
+  // Insert compliance quick access: clicking a project opens editor; add compliance section there.
+};
+// Extend editEntity for projects: append compliance checklist R1..R8.
+// The checkboxes write directly into __pendingR, which the wrapped
+// saveEntity reads and merges onto the project after saving.
+const _editEntity=editEntity;
+editEntity=function(entity,id){
+  window.__pendingR=null;
+  _editEntity(entity,id);
+  if(entity==="projects"){
+    const it = id? DB.projects.find(x=>x.id===id):null;
+    const mb=$(".mbody"); if(!mb) return;
+    const r={...((it&&it.R)||{})};
+    window.__pendingR=r;
+    const box=document.createElement("div");
+    box.innerHTML=`<div class="divider"></div><div class="section-title" style="margin-top:0">Conformité Erasmus (R1 → R8)</div>
+      ${R_LABELS.map(([k,l])=>`<div class="checkline"><div class="chk ${r[k]?'on':''}" data-r="${k}"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+        <div><b>${k}</b> · ${esc(l)}</div></div>`).join("")}
+      <p class="muted" style="font-size:12px;font-weight:600;margin:4px 0 0">Cochez au fur et à mesure. Un projet « prêt pour l'audit » a ses 8 cases vertes.</p>`;
+    mb.appendChild(box);
+    $$(".chk[data-r]",box).forEach(c=>c.onclick=()=>{ const k=c.dataset.r; r[k]=!r[k]; c.classList.toggle("on",r[k]); });
+  }
+};
+const _saveEntity=saveEntity;
+saveEntity=function(entity,id){
+  const pending = entity==="projects" ? window.__pendingR : null;
+  const idsBefore = entity==="projects" ? new Set(DB.projects.map(x=>x.id)) : null;
+  _saveEntity(entity,id); // this closes the modal + re-renders
+  if(pending){
+    const it = id? DB.projects.find(x=>x.id===id) : DB.projects.find(x=>!idsBefore.has(x.id));
+    if(it){ it.R=pending; save(); if(VIEWS[CURRENT]) VIEWS[CURRENT](); }
+    window.__pendingR=null;
+  }
+};
+
+/* Tasks extra: overdue banner + reminders */
+function renderTasksExtra(){
+  entityView("tasks");
+  const overdue=DB.tasks.filter(t=>t.status!=="Fait"&&t.due&&t.due<Date.now());
+  if(overdue.length){
+    const b=document.createElement("div"); b.className="helpbox"; b.style.background="var(--bad-soft)"; b.style.color="var(--bad)";
+    b.innerHTML=`${ic2("info")}<div><b>${overdue.length} tâche(s) en retard.</b> ${overdue.slice(0,3).map(t=>esc(t.title)).join(" · ")}${overdue.length>3?"…":""}</div>`;
+    $("#view").insertBefore(b, $("#view").firstChild.nextSibling);
+  }
+}
+
+/* ---------- Finances ---------- */
+VIEWS.finance=()=>{
+  const b=DB.budget;
+  const totalRev=b.reduce((s,x)=>s+(Number(x.revenue)||0),0);
+  const totalCost=b.reduce((s,x)=>s+(Number(x.cost)||0),0);
+  const totalMargin=totalRev-totalCost;
+  $("#view").innerHTML=`
+  <div class="grid cards">
+    ${kpi("Revenus",eur(totalRev),"money","var(--brand)")}
+    ${kpi("Coûts",eur(totalCost),"money","var(--warn)")}
+    ${kpi("Marge",eur(totalMargin),"money",totalMargin>=0?"var(--ok)":"var(--bad)")}
+    ${kpi("Taux de marge",(totalRev?Math.round(totalMargin/totalRev*100):0)+"%","money","var(--accent)")}
+  </div>
+  <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:16px">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Calculateur de marge séjour</div>
+      <div class="row2"><div class="field"><label>Prix de vente / pers (€)</label><input class="input" type="number" id="mc_price" value="790"></div>
+      <div class="field"><label>Nb participants</label><input class="input" type="number" id="mc_n" value="10"></div></div>
+      <div class="field"><label>Coût FLE (€/heure)</label><input class="input" type="number" id="mc_fle" value="30"></div>
+      <div class="row2"><div class="field"><label>Heures de cours</label><input class="input" type="number" id="mc_h" value="20"></div>
+      <div class="field"><label>Autres coûts / pers (héberg., activités…)</label><input class="input" type="number" id="mc_other" value="450"></div></div>
+      <button class="btn primary" id="mc_go" style="width:100%">Calculer</button>
+      <div id="mc_out" style="margin-top:14px"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center"><div class="section-title" style="margin:0">Lignes budgétaires</div><div class="spacer"></div><button class="btn sm primary" id="bl_add">+ Ligne</button></div>
+      <div id="bl_tbl" style="margin-top:12px"></div>
+    </div>
+  </div>`;
+  const calc=()=>{
+    const price=+$("#mc_price").value||0,n=+$("#mc_n").value||1,fle=+$("#mc_fle").value||0,h=+$("#mc_h").value||0,other=+$("#mc_other").value||0;
+    const flePer=(fle*h)/n; const costPer=flePer+other; const marginPer=price-costPer;
+    const totM=marginPer*n;
+    $("#mc_out").innerHTML=`
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><span class="muted">Coût FLE / pers</span><b>${eur(flePer)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><span class="muted">Coût total / pers</span><b>${eur(costPer)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><span class="muted">Marge / participant</span><b style="color:${marginPer>=0?'var(--ok)':'var(--bad)'}">${eur(marginPer)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:10px 0"><span style="font-weight:800">Marge totale groupe</span><b style="font-size:20px;color:${totM>=0?'var(--ok)':'var(--bad)'}">${eur(totM)}</b></div>`;
+  };
+  $("#mc_go").onclick=calc; calc();
+  $("#bl_add").onclick=()=>editBudget(null);
+  drawBudget();
+};
+function drawBudget(){
+  const b=DB.budget;
+  $("#bl_tbl").innerHTML=b.length?`<div class="tbl-wrap"><table><thead><tr><th>Libellé</th><th>Revenus</th><th>Coûts</th><th>Marge</th><th></th></tr></thead>
+    <tbody>${b.map(x=>{const m=(+x.revenue||0)-(+x.cost||0);return `<tr><td class="cell-strong">${esc(x.label||"—")}</td><td>${eur(x.revenue)}</td><td>${eur(x.cost)}</td>
+    <td style="color:${m>=0?'var(--ok)':'var(--bad)'};font-weight:700">${eur(m)}</td>
+    <td class="rowact"><button class="btn sm ghost" onclick="editBudget('${x.id}')">Ouvrir</button><button class="btn sm ghost" onclick="delBudget('${x.id}')">✕</button></td></tr>`;}).join("")}</tbody></table></div>`
+    :`<div class="empty"><div>Aucune ligne. Ajoutez vos revenus/coûts par séjour.</div></div>`;
+}
+window.editBudget=id=>{ const it=id?DB.budget.find(x=>x.id===id):{};
+  openModal({title:id?"Modifier la ligne":"Nouvelle ligne budgétaire",
+    body:`<div class="field"><label>Libellé *</label><input class="input" id="b_label" value="${esc(it.label||"")}"></div>
+    <div class="row2"><div class="field"><label>Revenus (€)</label><input class="input" type="number" id="b_rev" value="${esc(it.revenue||"")}"></div>
+    <div class="field"><label>Coûts (€)</label><input class="input" type="number" id="b_cost" value="${esc(it.cost||"")}"></div></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Enregistrer",cls:"primary",act:()=>{
+      const label=$("#b_label").value.trim(); if(!label){toast("Libellé requis","warn");return;}
+      const rev=+$("#b_rev").value||0,cost=+$("#b_cost").value||0,margin=rev-cost;
+      if(id){Object.assign(it,{label,revenue:rev,cost,margin});}else{DB.budget.push({id:uid(),label,revenue:rev,cost,margin});}
+      save();closeModal();VIEWS.finance();toast("Enregistré");}}]});
+};
+window.delBudget=id=>{ DB.budget=DB.budget.filter(x=>x.id!==id); save(); VIEWS.finance(); };
+
+/* ---------- Automatisations ---------- */
+VIEWS.automations=()=>{
+  $("#view").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Créez des règles <b>QUAND … ALORS …</b> qui s'exécutent automatiquement dans l'outil, sans Make ni Zapier. Ex : « Quand un partenaire passe en <i>Devis envoyé</i>, alors créer une tâche de relance ».</div></div>
+  <div class="toolbar"><div class="spacer"></div><button class="btn primary" id="au_add">+ Automatisation</button></div>
+  <div id="au_list"></div>`;
+  $("#au_add").onclick=()=>editAuto(null);
+  drawAutos();
+};
+function drawAutos(){
+  const a=DB.automations;
+  $("#au_list").innerHTML=a.length? a.map(x=>`<div class="card" style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
+    <div class="switch ${x.on?'on':''}" data-toggle="${x.id}"><i></i></div>
+    <div style="flex:1">
+      <div class="cell-strong">${esc(x.name)}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:2px">QUAND <b>${esc(Automations.EVENTS[x.event]||x.event)}</b>${x.condField?` · SI ${esc(x.condField)} contient « ${esc(x.condValue)} »`:""} → <b>${esc(Automations.ACTIONS[x.action]||x.action)}</b>${x.actionValue?` : ${esc(x.actionValue)}`:""}</div>
+    </div>
+    <button class="btn sm ghost" data-edit="${x.id}">Modifier</button>
+    <button class="btn sm ghost" data-del="${x.id}">✕</button></div>`).join("")
+    : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.auto}</svg><div>Aucune automatisation. Créez votre première règle.</div></div></div>`;
+  $$("#au_list [data-toggle]").forEach(b=>b.onclick=()=>{const x=DB.automations.find(y=>y.id===b.dataset.toggle);x.on=!x.on;save();drawAutos();toast(x.on?"Activée":"Désactivée");});
+  $$("#au_list [data-edit]").forEach(b=>b.onclick=()=>editAuto(b.dataset.edit));
+  $$("#au_list [data-del]").forEach(b=>b.onclick=()=>{DB.automations=DB.automations.filter(y=>y.id!==b.dataset.del);save();drawAutos();});
+}
+function editAuto(id){
+  const it=id?DB.automations.find(x=>x.id===id):{on:true,event:"partner.status",action:"task"};
+  const evOpts=Object.entries(Automations.EVENTS).map(([k,v])=>`<option value="${k}" ${it.event===k?'selected':''}>${esc(v)}</option>`).join("");
+  const acOpts=Object.entries(Automations.ACTIONS).map(([k,v])=>`<option value="${k}" ${it.action===k?'selected':''}>${esc(v)}</option>`).join("");
+  openModal({title:id?"Modifier l'automatisation":"Nouvelle automatisation", wide:true,
+    body:`<div class="field"><label>Nom de la règle *</label><input class="input" id="a_name" value="${esc(it.name||"")}" placeholder="Relance après devis"></div>
+    <div class="row2"><div class="field"><label>QUAND (déclencheur)</label><select id="a_ev">${evOpts}</select></div>
+    <div class="field"><label>ALORS (action)</label><select id="a_ac">${acOpts}</select></div></div>
+    <div class="row2"><div class="field"><label>SI (champ, optionnel)</label><input class="input" id="a_cf" value="${esc(it.condField||"")}" placeholder="status"></div>
+    <div class="field"><label>… contient</label><input class="input" id="a_cv" value="${esc(it.condValue||"")}" placeholder="Devis"></div></div>
+    <div class="field"><label>Valeur de l'action (texte de la tâche / notification). Variables : {name}, {status}…</label><input class="input" id="a_av" value="${esc(it.actionValue||"")}" placeholder="Relancer {name} sur le devis"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Enregistrer",cls:"primary",act:()=>{
+      const name=$("#a_name").value.trim(); if(!name){toast("Nom requis","warn");return;}
+      const obj={name,event:$("#a_ev").value,action:$("#a_ac").value,condField:$("#a_cf").value.trim(),condValue:$("#a_cv").value.trim(),actionValue:$("#a_av").value.trim(),on:it.on!==false};
+      if(id){Object.assign(it,obj);}else{DB.automations.push({id:uid(),...obj});}
+      save();closeModal();drawAutos();toast("Automatisation enregistrée");}}]});
+}
+
+/* ---------- Guide ---------- */
+VIEWS.guide=()=>{
+  const cards=[
+    ["🔎","Chercheur de contacts","Devinez des emails (nom + domaine), extrayez tous les contacts d'une page collée, apprenez le modèle d'une boîte, vérifiez la validité. Tout hors-ligne."],
+    ["🤝","T1 Partenaires","Votre CRM de prospection : CFA, écoles, OPCO. Glissez les cartes dans le Kanban pour changer de statut. Les automatisations peuvent réagir aux changements."],
+    ["🎓","T2 Projets","Chaque mobilité + sa conformité R1→R8. Ouvrez un projet pour cocher les 8 cases audit."],
+    ["🧑‍🎓","T3 Participants","Apprenants, mineurs, assurances, statut de dossier."],
+    ["💶","Finances","Calculateur de marge séjour + lignes budgétaires. La marge remonte au tableau de bord."],
+    ["🏨","T6 Prestataires","Hôtels, guides, transporteurs, contrats."],
+    ["✅","T7 Tâches","Échéances et rappels. Les tâches en retard s'affichent en rouge et sur le tableau de bord."],
+    ["⚙️","Automatisations","Règles QUAND/ALORS qui remplacent Make. Elles tournent dans l'outil, sans service externe."],
+    ["💾","Sauvegarde","Tout est enregistré dans le navigateur en continu. Exportez régulièrement un fichier JSON de sauvegarde (Réglages)."],
+  ];
+  $("#view").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Cet outil est <b>100% autonome</b> : aucun serveur, aucune API, aucun abonnement. Il fonctionne même sans connexion et ne dépend d'aucun autre logiciel — donc il ne peut pas « tomber en panne » à cause d'un service tiers. Pensez seulement à exporter une sauvegarde de temps en temps.</div></div>
+  <div class="grid cards">${cards.map(([e,t,d])=>`<div class="card hover"><div style="font-size:26px">${e}</div><div class="cell-strong" style="margin:8px 0 4px;font-size:15px">${esc(t)}</div><div class="muted" style="font-weight:600">${esc(d)}</div></div>`).join("")}</div>
+  <div class="section-title">Où va quoi (rappel Erasmus)</div>
+  <div class="card"><table style="min-width:auto"><tbody>
+    <tr><td class="cell-strong">Vers Erasmus (en ligne)</td><td>Rapport participant + données de mobilité (Beneficiary Module). Le reste : à garder 5 ans, montré seulement en cas de contrôle.</td></tr>
+    <tr><td class="cell-strong">Vers l'OPCO</td><td>(Apprenti) convention de mise à disposition + avenant + factures.</td></tr>
+    <tr><td class="cell-strong">Vers CPAM/MSA</td><td>(Apprenti) déclaration de maintien de sécurité sociale.</td></tr>
+    <tr><td class="cell-strong">Vous recevez de l'Agence</td><td>Accréditation + convention de subvention → à classer.</td></tr>
+  </tbody></table></div>`;
+};
+
+/* ---------- Settings ---------- */
+VIEWS.settings=()=>{
+  const s=DB.settings;
+  $("#view").innerHTML=`
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Objectifs & hypothèses (calcul inverse)</div>
+      <div class="field"><label>Objectif de CA (€)</label><input class="input" type="number" id="s_ca" value="${esc(s.caTarget)}"></div>
+      <div class="field"><label>Panier moyen / vente (€)</label><input class="input" type="number" id="s_panier" value="${esc(s.panier)}"></div>
+      <div class="row3">
+        <div class="field"><label>Taux devis→vente</label><input class="input" type="number" step="0.01" id="s_cd" value="${esc(s.convDevis)}"></div>
+        <div class="field"><label>Taux rdv→devis</label><input class="input" type="number" step="0.01" id="s_cr" value="${esc(s.convRdv)}"></div>
+        <div class="field"><label>Taux contact→rdv</label><input class="input" type="number" step="0.01" id="s_cc" value="${esc(s.convContact)}"></div>
+      </div>
+      <button class="btn primary" id="s_save">Enregistrer</button>
+    </div>
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Sauvegarde & données</div>
+      <p class="muted" style="font-weight:600;margin-top:0">Vos données vivent dans ce navigateur. Exportez un fichier pour les archiver ou les transférer sur un autre ordinateur.</p>
+      <button class="btn primary" id="s_exp" style="width:100%;margin-bottom:10px">⤓ Exporter toutes les données (JSON)</button>
+      <button class="btn" id="s_imp" style="width:100%;margin-bottom:10px">⤒ Importer une sauvegarde</button>
+      <input type="file" id="s_file" accept="application/json" style="display:none">
+      <div class="divider"></div>
+      <div class="stat-mini muted" style="font-weight:600">Contenu actuel :</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+        ${["partners","projects","participants","providers","budget","tasks","contacts","automations"].map(k=>`<span class="tag n">${k} : ${DB[k].length}</span>`).join("")}
+      </div>
+      <div class="divider"></div>
+      <button class="btn ghost" id="s_reset" style="color:var(--bad)">Réinitialiser toutes les données</button>
+    </div>
+  </div>`;
+  $("#s_save").onclick=()=>{ Object.assign(DB.settings,{caTarget:+$("#s_ca").value||0,panier:+$("#s_panier").value||1,
+    convDevis:+$("#s_cd").value||.3,convRdv:+$("#s_cr").value||.25,convContact:+$("#s_cc").value||.35}); save(); toast("Réglages enregistrés"); };
+  $("#s_exp").onclick=exportDB;
+  $("#s_imp").onclick=()=>$("#s_file").click();
+  $("#s_file").onchange=importDB;
+  $("#s_reset").onclick=()=>confirmModal("Tout réinitialiser ?","Toutes vos données seront effacées de ce navigateur. Exportez d'abord une sauvegarde !",()=>{DB=structuredClone(DEFAULT_DB);saveNow();renderNav();go("dash");toast("Réinitialisé");},true);
+};
+
+/* ---------- Export / Import ---------- */
+function exportDB(){
+  const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download=`formaskills-travel-os_${new Date().toISOString().slice(0,10)}.json`; a.click();
+  URL.revokeObjectURL(a.href); toast("Sauvegarde exportée");
+}
+function importDB(e){
+  const f=e.target.files[0]; if(!f) return; const rd=new FileReader();
+  rd.onload=()=>{ try{ const d=migrate(JSON.parse(rd.result)); DB=d; saveNow(); renderNav(); go("dash"); toast("Sauvegarde importée"); }
+    catch(err){ toast("Fichier invalide","bad"); } };
+  rd.readAsText(f);
+}
+function exportCSV(name,cols,rows){
+  const head=cols.join(",");
+  const esc=v=>{ v=(v==null?"":String(v)).replace(/"/g,'""'); return /[",\n]/.test(v)?`"${v}"`:v; };
+  const body=rows.map(r=>cols.map(c=>esc(r[c])).join(",")).join("\n");
+  const blob=new Blob(["﻿"+head+"\n"+body],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`${name}.csv`; a.click();
+  URL.revokeObjectURL(a.href); toast("CSV exporté");
+}
+
+/* ============================================================
+   6. AMORÇAGE
+   ============================================================ */
+function applyTheme(){ const dark=DB.settings.theme==="dark"; document.documentElement.setAttribute("data-theme",dark?"dark":"light");
+  $("#themeBtn").textContent=dark?"☀️ Thème":"🌙 Thème"; }
+$("#themeBtn").onclick=()=>{ DB.settings.theme=DB.settings.theme==="dark"?"light":"dark"; save(); applyTheme(); };
+$("#backupBtn").onclick=exportDB;
+$("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
+$("#quickAdd").onclick=()=>{
+  const map={partners:"partners",projects:"projects",participants:"participants",providers:"providers",tasks:"tasks"};
+  if(map[CURRENT]) return editEntity(CURRENT,null);
+  if(CURRENT==="finance") return editBudget(null);
+  if(CURRENT==="automations") return editAuto(null);
+  if(CURRENT==="finder"){ FINDER_TAB="find"; return go("finder"); }
+  // default: quick partner
+  editEntity("partners",null);
+};
+
+// check overdue tasks on load (task.overdue automations)
+function checkOverdue(){ const od=DB.tasks.filter(t=>t.status!=="Fait"&&t.due&&t.due<Date.now());
+  od.forEach(t=>Automations.run("task.overdue",{...t,_entity:"tasks",_id:t.id})); }
+
+// Seed demo activity note on very first run
+if(!localStorage.getItem(KEY)){ logAct("Bienvenue — Travel OS initialisé."); saveNow(); }
+
+applyTheme();
+renderNav();
+go("dash");
+checkOverdue();
+window.addEventListener("beforeunload",saveNow);
+</script>
+</body>
+</html>
