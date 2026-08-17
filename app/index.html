@@ -287,6 +287,9 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
    permutation de patterns, extraction bulk, apprentissage de
    pattern, vérification heuristique. Aucune API, aucun réseau.
    ============================================================ */
+/* Bookmarklet « sur toute page » : extrait emails + téléphones (liens mailto/tel
+   inclus) de la page courante et les affiche dans une fenêtre. 100% local. */
+const BOOKMARKLET="javascript:(function(){var t=document.body.innerText+' '+[].map.call(document.querySelectorAll('a[href^=\"mailto:\"],a[href^=\"tel:\"]'),function(a){return decodeURIComponent(a.getAttribute('href').replace(/^(mailto|tel):/,''))}).join(' ');var e=[...new Set((t.match(/[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}/g)||[]).map(function(x){return x.toLowerCase()}))];var p=[...new Set((t.match(/(?:(?:\\+|00)\\d{1,3}[\\s.\\-]?)?(?:\\(?\\d{1,4}\\)?[\\s.\\-]?){2,5}\\d{2,4}/g)||[]).map(function(x){return x.trim()}).filter(function(x){var d=x.replace(/\\D/g,'');return d.length>=9&&d.length<=15}))];var o='EMAILS ('+e.length+')\\n'+e.join('\\n')+'\\n\\nTELEPHONES ('+p.length+')\\n'+p.join('\\n');var w=window.open('','_blank','width=480,height=600');w.document.write('<title>Contacts</title><pre style=\"font:13px/1.6 monospace;padding:18px;white-space:pre-wrap\">'+o.replace(/[&<]/g,function(c){return c=='&'?'&amp;':'&lt;'})+'</pre>');})();";
 const EmailFinder = (()=> {
   const deburr = s => (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"");
   // patterns d'email d'entreprise les plus fréquents, avec poids de confiance
@@ -386,7 +389,56 @@ const EmailFinder = (()=> {
     if(c.free)   return {status:"perso", reason:"Messagerie personnelle (gmail, etc.)", score:60};
     return {status:"probable", reason:"Format professionnel plausible", score:78};
   }
-  return {candidates,learnPattern,applyLearned,extract,verify,PATTERNS};
+  // Domain search (façon Hunter) : à partir d'un domaine, propose les adresses
+  // de service courantes + les départements. 100% hors-ligne.
+  const ROLE_ADDR=[
+    ["contact","Général"],["info","Général"],["hello","Général"],["bonjour","Général"],
+    ["accueil","Général"],["sales","Commercial"],["commercial","Commercial"],["vente","Commercial"],
+    ["marketing","Marketing"],["rh","RH"],["recrutement","RH"],["direction","Direction"],
+    ["compta","Finance"],["facturation","Finance"],["support","Support"],["admin","Admin"]
+  ];
+  function cleanDomain(d){ return (d||"").trim().toLowerCase().replace(/^https?:\/\//,"").replace(/^www\./,"").replace(/\/.*$/,"").replace(/\s/g,""); }
+  function domainSearch(domain){
+    const d=cleanDomain(domain); if(!d) return null;
+    const roles=ROLE_ADDR.map(([r,dept])=>({email:`${r}@${d}`, dept, confidence:48}));
+    return {domain:d, roles};
+  }
+  // Recherche en masse : lignes {first,last,domain} -> meilleur email + alternatives
+  function bulkFind(rows){
+    return rows.map(r=>{
+      const c=candidates(r.first,r.last,r.domain);
+      return { first:r.first,last:r.last,domain:cleanDomain(r.domain),
+        email:c[0]?.email||"", pattern:c[0]?.patternLabel||"", confidence:c[0]?.confidence||0,
+        alt:c.slice(1,3).map(x=>x.email).join(" | ") };
+    });
+  }
+  // Parseur de profil (équivalent hors-ligne d'un scraper LinkedIn) : on colle le
+  // texte d'un profil / d'une fiche et on en extrait une structure exploitable.
+  function parseProfile(text){
+    const raw=(text||"").replace(/\r/g,"");
+    const lines=raw.split("\n").map(s=>s.trim()).filter(Boolean);
+    const emails=[...new Set((raw.match(RE_EMAIL)||[]).map(cleanEmail))];
+    const phones=[...new Set((raw.match(RE_PHONE)||[]).map(p=>p.trim()).filter(p=>{const d=p.replace(/\D/g,"");return d.length>=9&&d.length<=15;}))];
+    // nom : 1re ligne "prénom nom" plausible (2-3 mots, lettres, pas d'@, pas de chiffre)
+    let name="";
+    for(const l of lines){
+      if(/@|https?:|\d/.test(l)) continue;
+      const w=l.split(/\s+/);
+      if(w.length>=2 && w.length<=3 && w.every(x=>/^[A-Za-zÀ-ÿ'’\-]{2,}$/.test(x))){ name=l; break; }
+    }
+    // titre & société : ligne avec " at / chez / @ / - / | "
+    let title="", company="";
+    const sep=/\s+(?:at|chez|@|\-|\|)\s+/i;
+    for(const l of lines){
+      if(l===name) continue;
+      if(sep.test(l)){ const [t,c]=l.split(sep); title=(t||"").trim(); company=(c||"").trim(); break; }
+    }
+    const parts=name.split(/\s+/);
+    return { name, first:parts[0]||"", last:parts.slice(1).join(" ")||"", title, company,
+      email:emails[0]||"", phone:phones[0]||"", allEmails:emails, allPhones:phones };
+  }
+  function dedupe(list){ const seen=new Set(); return list.filter(c=>{const k=(c.email||"").toLowerCase(); if(!k||seen.has(k))return false; seen.add(k); return true;}); }
+  return {candidates,learnPattern,applyLearned,extract,verify,PATTERNS,domainSearch,bulkFind,parseProfile,dedupe,cleanDomain};
 })();
 
 /* ============================================================
@@ -566,16 +618,13 @@ VIEWS.finder=()=>{
   $("#view").innerHTML=`
   <div class="helpbox">${ic2("info")}
     <div>Ce module reproduit hors-ligne le cœur des extensions type Skrapp / Hunter / Snov : il <b>devine les emails</b> à partir d'un nom + domaine, <b>extrait tous les contacts</b> d'une page collée (emails, téléphones, réseaux), <b>apprend un modèle</b> d'email et <b>vérifie</b> la validité. Aucune donnée ne quitte votre navigateur — il n'y a pas d'envoi réseau, donc pas de coût, pas de blocage, pas de dépendance.</div></div>
-  <div class="pill-tabs" style="margin-bottom:18px">
-    <button data-ft="find" class="${FINDER_TAB==='find'?'active':''}">🔎 Deviner un email</button>
-    <button data-ft="extract" class="${FINDER_TAB==='extract'?'active':''}">📋 Extraire depuis une page</button>
-    <button data-ft="learn" class="${FINDER_TAB==='learn'?'active':''}">🧠 Apprendre un modèle</button>
-    <button data-ft="verify" class="${FINDER_TAB==='verify'?'active':''}">✔️ Vérifier</button>
-    <button data-ft="saved" class="${FINDER_TAB==='saved'?'active':''}">💾 Contacts (${DB.contacts.length})</button>
+  <div class="pill-tabs" style="margin-bottom:18px;flex-wrap:wrap">
+    ${[["find","🔎 Par nom"],["domain","🌐 Par domaine"],["bulk","📚 En masse"],["extract","📋 Extraire d'une page"],["profile","👤 Profil / LinkedIn"],["learn","🧠 Modèle"],["verify","✔️ Vérifier"],["saved","💾 Contacts ("+DB.contacts.length+")"]]
+      .map(([k,l])=>`<button data-ft="${k}" class="${FINDER_TAB===k?'active':''}">${l}</button>`).join("")}
   </div>
   <div id="finderBody"></div>`;
   $$("#view [data-ft]").forEach(b=>b.onclick=()=>{FINDER_TAB=b.dataset.ft;VIEWS.finder();});
-  ({find:finderFind,extract:finderExtract,learn:finderLearn,verify:finderVerify,saved:finderSaved}[FINDER_TAB])();
+  ({find:finderFind,domain:finderDomain,bulk:finderBulk,extract:finderExtract,profile:finderProfile,learn:finderLearn,verify:finderVerify,saved:finderSaved}[FINDER_TAB]||finderFind)();
 };
 const ic2=k=>`<svg viewBox="0 0 24 24" ${''}><g fill="none" stroke="currentColor" stroke-width="2">${k==="info"?'<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>':ICONS[k]||""}</g></svg>`;
 
@@ -608,6 +657,84 @@ function finderFind(){
   $("#ff_go").onclick=run;
   $$("#ff_first,#ff_last,#ff_domain").forEach(i=>i.addEventListener("keydown",e=>{if(e.key==="Enter")run();}));
 }
+function finderDomain(){
+  $("#finderBody").innerHTML=`
+  <div class="card" style="max-width:560px">
+    <div class="field"><label>Domaine de l'entreprise</label><input class="input" id="fd_dom" placeholder="entreprise.fr"></div>
+    <button class="btn primary" id="fd_go" style="width:100%">Lister les adresses probables du domaine</button>
+    <p class="muted" style="font-size:12px;margin:12px 0 0;font-weight:600">Comme le « Domain Search » de Hunter : génère les adresses de service courantes (contact@, sales@, rh@…), par département. Idéal quand vous n'avez pas de nom précis.</p>
+  </div>
+  <div id="fd_res" style="margin-top:16px"></div>`;
+  const run=()=>{
+    const r=EmailFinder.domainSearch($("#fd_dom").value);
+    if(!r){toast("Renseignez un domaine","warn");return;}
+    const byDept={}; r.roles.forEach(x=>{(byDept[x.dept]=byDept[x.dept]||[]).push(x);});
+    $("#fd_res").innerHTML=`<div class="card"><div style="display:flex;align-items:center;margin-bottom:8px"><div class="section-title" style="margin:0">Adresses probables · ${esc(r.domain)}</div><div class="spacer"></div>
+      <button class="btn sm" onclick='importAllContacts(${JSON.stringify(r.roles.map(x=>({email:x.email,guessName:"",domain:r.domain}))).replace(/'/g,"&#39;")})'>Tout ajouter</button></div>
+    ${Object.entries(byDept).map(([dept,list])=>`<div style="margin-bottom:6px"><div class="muted" style="font-weight:800;font-size:11px;text-transform:uppercase;margin:10px 0 6px">${esc(dept)}</div>
+      ${list.map(x=>`<div class="result-row"><div class="mono cell-strong" style="flex:1">${esc(x.email)}</div><span class="tag w">générique</span>
+        <button class="btn sm ghost" onclick="copy('${x.email}')">Copier</button>
+        <button class="btn sm" onclick="saveContact('${esc(x.email)}','','${esc(r.domain)}',48)">+</button></div>`).join("")}</div>`).join("")}
+    <p class="muted" style="font-size:12px;margin:12px 0 0;font-weight:600">Ce sont des adresses de service typiques — toutes n'existent pas forcément. Pour une personne précise, utilisez « Par nom » ou « Modèle ».</p></div>`;
+  };
+  $("#fd_go").onclick=run; $("#fd_dom").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
+}
+
+let BULK_RESULT=[];
+function finderBulk(){
+  $("#finderBody").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Collez une liste (une personne par ligne, séparée par virgule ou tabulation) : <code class="k">Prénom, Nom, domaine.fr</code>. L'outil génère le meilleur email pour chacun, puis exporte en CSV. Vous pouvez coller directement depuis un tableur.</div></div>
+  <div class="card">
+    <div class="field"><label>Liste (Prénom, Nom, Domaine — une par ligne)</label>
+    <textarea id="fb_in" style="min-height:150px" placeholder="Marie, Dupont, entreprise.fr&#10;Jean, Martin, boite.com&#10;Sofia, Rossi, azienda.it"></textarea></div>
+    <div class="toolbar" style="margin:0"><button class="btn primary" id="fb_go">Générer les emails</button>
+    <button class="btn ghost" id="fb_ex" disabled>Exporter CSV</button>
+    <button class="btn ghost" id="fb_save" disabled>Tout ajouter au CRM</button></div>
+  </div>
+  <div id="fb_res" style="margin-top:16px"></div>`;
+  $("#fb_go").onclick=()=>{
+    const rows=$("#fb_in").value.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{
+      const p=l.split(/[,\t;]+/).map(s=>s.trim()); return {first:p[0]||"",last:p[1]||"",domain:p[2]||""};
+    }).filter(r=>r.first&&r.last&&r.domain);
+    if(!rows.length){toast("Format attendu : Prénom, Nom, Domaine","warn");return;}
+    BULK_RESULT=EmailFinder.bulkFind(rows);
+    $("#fb_ex").disabled=false; $("#fb_save").disabled=false;
+    $("#fb_res").innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Prénom</th><th>Nom</th><th>Email probable</th><th>Confiance</th><th>Alternatives</th></tr></thead>
+    <tbody>${BULK_RESULT.map(r=>`<tr><td>${esc(r.first)}</td><td>${esc(r.last)}</td>
+      <td class="mono cell-strong">${esc(r.email)}</td><td>${scoreBar(r.confidence)}</td>
+      <td class="muted mono" style="font-size:12px">${esc(r.alt)}</td></tr>`).join("")}</tbody></table></div>`;
+    toast(BULK_RESULT.length+" emails générés");
+  };
+  $("#fb_ex").onclick=()=>exportCSV("emails-en-masse",["first","last","domain","email","confidence","alt"],BULK_RESULT);
+  $("#fb_save").onclick=()=>importAllContacts(BULK_RESULT.filter(r=>r.email).map(r=>({email:r.email,guessName:r.first+" "+r.last,domain:r.domain})));
+}
+
+function finderProfile(){
+  $("#finderBody").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Équivalent hors-ligne d'un « scraper de profil » : collez le texte d'un profil LinkedIn (ou d'une fiche/annuaire) et l'outil en extrait le nom, le poste, la société, l'email et le téléphone — puis devine l'email pro si absent.</div></div>
+  <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+    <div class="card"><div class="field"><label>Texte du profil</label>
+      <textarea id="fp_in" style="min-height:220px" placeholder="Collez ici le contenu d'un profil (Ctrl+A, Ctrl+C sur la page, puis collez)."></textarea></div>
+      <button class="btn primary" id="fp_go" style="width:100%">Analyser</button></div>
+    <div id="fp_res"></div>
+  </div>`;
+  $("#fp_go").onclick=()=>{
+    const p=EmailFinder.parseProfile($("#fp_in").value);
+    if(!p.name && !p.email){toast("Aucune donnée reconnue dans ce texte","warn");return;}
+    const guess = (!p.email && p.first && p.last && p.company) ? EmailFinder.candidates(p.first,p.last,EmailFinder.cleanDomain(p.company)+".com") : [];
+    $("#fp_res").innerHTML=`<div class="card">
+      ${row("Nom",p.name||"—")}${row("Poste",p.title||"—")}${row("Société",p.company||"—")}
+      ${row("Email",p.email?`<span class="mono">${esc(p.email)}</span>`:'<span class="muted">non trouvé</span>')}
+      ${row("Téléphone",p.phone||'<span class="muted">non trouvé</span>')}
+      ${p.email?`<button class="btn sm" style="margin-top:10px" onclick="saveContact('${esc(p.email)}','${esc(p.name)}','${esc((p.email.split('@')[1]||''))}',85)">+ Ajouter au CRM</button>`:''}
+      ${(!p.email&&guess.length)?`<div class="divider"></div><div class="muted" style="font-size:12px;font-weight:700;margin-bottom:6px">Email probable (deviné) :</div>
+        <div class="result-row"><div class="mono cell-strong" style="flex:1">${esc(guess[0].email)}</div>${scoreBar(guess[0].confidence)}<button class="btn sm ghost" onclick="copy('${guess[0].email}')">Copier</button></div>
+        <p class="muted" style="font-size:11px;margin:6px 0 0">Domaine deviné depuis le nom de société — vérifiez le vrai domaine du site.</p>`:''}
+    </div>`;
+  };
+}
+const row=(l,v)=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)"><span class="muted" style="font-weight:700">${l}</span><span style="text-align:right">${v}</span></div>`;
+
 const scoreBar=c=>{
   const col=c>=75?"var(--ok)":c>=55?"var(--warn)":"var(--bad)";
   return `<span class="scorebar"><span class="track"><i style="width:${c}%;background:${col}"></i></span><b style="color:${col};font-size:13px">${c}%</b></span>`;
@@ -626,7 +753,16 @@ function finderExtract(){
     <div class="toolbar" style="margin:0"><button class="btn primary" id="fx_go">Extraire les contacts</button>
     <button class="btn ghost" id="fx_clear">Effacer</button></div>
   </div>
+  <div class="card" style="margin-top:16px">
+    <div class="section-title" style="margin-top:0">Bonus : outil « sur toute page » (comme une extension, sans en installer)</div>
+    <p class="muted" style="font-weight:600;margin-top:0">Glissez ce bouton dans votre barre de favoris. Ensuite, sur <b>n'importe quel site</b> (annuaire, résultats de recherche…), cliquez-le : il récupère tous les emails et téléphones de la page — y compris les liens masqués — dans une fenêtre. 100% local, aucun envoi.</p>
+    <a class="btn accent" id="fx_bm" href="#" draggable="true" style="text-decoration:none">📌 Extracteur de contacts</a>
+    <button class="btn ghost sm" id="fx_bmcopy" style="margin-left:8px">Copier le code</button>
+  </div>
   <div id="fx_res" style="margin-top:16px"></div>`;
+  $("#fx_bm").href=BOOKMARKLET;
+  $("#fx_bm").onclick=e=>{e.preventDefault();toast("Glissez ce bouton dans votre barre de favoris pour l'utiliser sur d'autres sites.","warn");};
+  $("#fx_bmcopy").onclick=()=>copy(BOOKMARKLET);
   $("#fx_clear").onclick=()=>{$("#fx_in").value="";$("#fx_res").innerHTML="";};
   $("#fx_go").onclick=()=>{
     const r=EmailFinder.extract($("#fx_in").value);
@@ -719,33 +855,75 @@ function finderVerify(){
   };
 }
 
+let CS_TAG="";
 function finderSaved(){
   const list=DB.contacts;
+  const tags=[...new Set(list.flatMap(c=>c.tags||[]))];
   $("#finderBody").innerHTML=`
   <div class="toolbar">
     <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input class="input" id="cs_q" placeholder="Rechercher un contact…"></div>
+    ${tags.length?`<select id="cs_tag" class="input" style="max-width:180px"><option value="">Toutes les listes</option>${tags.map(t=>`<option ${CS_TAG===t?'selected':''}>${esc(t)}</option>`).join("")}</select>`:""}
     <div class="spacer"></div>
+    <button class="btn ghost sm" id="cs_imp">Importer CSV</button>
+    <input type="file" id="cs_file" accept=".csv,text/csv" style="display:none">
+    <button class="btn ghost sm" id="cs_dedupe">Dédupliquer</button>
     <button class="btn ghost sm" id="cs_exp">Exporter CSV</button>
   </div>
   <div id="cs_tbl"></div>`;
   const draw=()=>{
     const q=($("#cs_q").value||"").toLowerCase();
-    const rows=list.filter(c=>!q||(c.email+c.name+c.domain).toLowerCase().includes(q));
+    const rows=list.filter(c=>(!q||(c.email+(c.name||"")+(c.domain||"")).toLowerCase().includes(q))&&(!CS_TAG||(c.tags||[]).includes(CS_TAG)));
     $("#cs_tbl").innerHTML= rows.length?`<div class="tbl-wrap"><table>
-      <thead><tr><th>Email</th><th>Nom</th><th>Domaine</th><th>Source</th><th>Ajouté</th><th></th></tr></thead>
+      <thead><tr><th>Email</th><th>Nom</th><th>Domaine</th><th>Listes</th><th>Source</th><th></th></tr></thead>
       <tbody>${rows.map(c=>`<tr>
         <td class="mono cell-strong">${esc(c.email)}</td><td>${esc(c.name||"—")}</td>
-        <td class="muted">${esc(c.domain||"—")}</td><td><span class="tag n">${esc(c.source||"—")}</span></td>
-        <td class="muted">${fmtDate(c.added)}</td>
-        <td class="rowact"><button class="btn sm ghost" onclick="copy('${c.email}')">Copier</button>
+        <td class="muted">${esc(c.domain||"—")}</td>
+        <td>${(c.tags||[]).map(t=>`<span class="tag a" style="margin:1px">${esc(t)}</span>`).join("")||'<span class="muted">—</span>'}</td>
+        <td><span class="tag n">${esc(c.source||"—")}</span></td>
+        <td class="rowact"><button class="btn sm ghost" onclick="tagContact('${c.id}')">Liste</button>
+        <button class="btn sm ghost" onclick="copy('${c.email}')">Copier</button>
         <button class="btn sm ghost" onclick="delContact('${c.id}')">✕</button></td></tr>`).join("")}</tbody></table></div>`
-      : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div>Aucun contact enregistré. Utilisez « Deviner » ou « Extraire » pour en ajouter.</div></div></div>`;
+      : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div>Aucun contact. Utilisez les onglets de recherche ou importez un CSV.</div></div></div>`;
   };
   $("#cs_q").oninput=draw;
-  $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","domain","phone","confidence","source"],list);
+  $("#cs_tag")&&($("#cs_tag").onchange=e=>{CS_TAG=e.target.value;draw();});
+  $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","domain","phone","confidence","source","tags"],list.map(c=>({...c,tags:(c.tags||[]).join(" ")})));
+  $("#cs_imp").onclick=()=>$("#cs_file").click();
+  $("#cs_file").onchange=importContactsCSV;
+  $("#cs_dedupe").onclick=()=>{const before=list.length;DB.contacts=EmailFinder.dedupe(list);const n=before-DB.contacts.length;save();renderNav();VIEWS.finder();toast(n?n+" doublon(s) supprimé(s)":"Aucun doublon");};
   draw();
 }
 window.delContact=id=>{ DB.contacts=DB.contacts.filter(c=>c.id!==id); save(); renderNav(); VIEWS.finder(); };
+window.tagContact=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c)return;
+  openModal({title:"Listes / étiquettes",body:`<div class="field"><label>Listes (séparées par des virgules)</label>
+    <input class="input" id="tg_in" value="${esc((c.tags||[]).join(", "))}" placeholder="Prospects Espagne, Salon 2026"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Enregistrer",cls:"primary",act:()=>{
+      c.tags=$("#tg_in").value.split(",").map(s=>s.trim()).filter(Boolean); save(); closeModal(); VIEWS.finder(); toast("Listes mises à jour");}}]});
+};
+function importContactsCSV(e){
+  const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
+  rd.onload=()=>{ try{
+    const lines=rd.result.replace(/^﻿/,"").split(/\r?\n/).filter(l=>l.trim());
+    if(!lines.length){toast("Fichier vide","warn");return;}
+    const head=splitCSV(lines[0]).map(h=>h.trim().toLowerCase());
+    const col=n=>head.findIndex(h=>h.includes(n));
+    const iE=col("email")>=0?col("email"):0, iN=col("nom")>=0?col("nom"):col("name"), iD=col("domain")>=0?col("domain"):col("domaine"), iP=col("phone")>=0?col("phone"):col("tel");
+    let n=0; for(let i=1;i<lines.length;i++){ const cols=splitCSV(lines[i]);
+      const email=(cols[iE]||"").trim().toLowerCase();
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+      if(DB.contacts.some(c=>c.email===email)) continue;
+      DB.contacts.unshift({id:uid(),email,name:(iN>=0?cols[iN]:"")||"",domain:(iD>=0?cols[iD]:email.split("@")[1])||"",phone:(iP>=0?cols[iP]:"")||"",confidence:"",source:"import",added:Date.now(),tags:[]}); n++;
+    }
+    logAct(`${n} contacts importés (CSV)`); save(); renderNav(); VIEWS.finder(); toast(n+" contacts importés");
+  }catch(err){toast("CSV illisible","bad");} };
+  rd.readAsText(f);
+}
+function splitCSV(line){ const out=[];let cur="",q=false;
+  for(let i=0;i<line.length;i++){const ch=line[i];
+    if(q){ if(ch==='"'&&line[i+1]==='"'){cur+='"';i++;} else if(ch==='"'){q=false;} else cur+=ch; }
+    else { if(ch==='"')q=true; else if(ch===","||ch===";"){out.push(cur);cur="";} else cur+=ch; } }
+  out.push(cur); return out;
+}
 
 /* ---------- Générique : tables entités ---------- */
 const SCHEMAS={
