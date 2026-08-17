@@ -11,20 +11,21 @@ par un seul outil, plus simple et mieux guidé.
 ## Deux façons de l'utiliser
 
 ### 1. Application simple (le plus rapide)
-Ouvrez `app/index.html` dans n'importe quel navigateur (double-clic). Tout
+Ouvrez `index.html` dans n'importe quel navigateur (double-clic). Tout
 fonctionne, sauf le scraping direct sur LinkedIn/le web (qui a besoin du mode
 extension ci-dessous). Le bookmarklet et « Extraire d'une page » couvrent déjà
 la récupération de contacts sans rien installer.
 
 ### 2. Extension Chrome (débloque le scraping LinkedIn & web)
-1. Téléchargez le dépôt (bouton **Code → Download ZIP** sur GitHub) et
-   décompressez-le.
-2. Ouvrez Chrome → `chrome://extensions` → activez **Mode développeur**.
-3. Cliquez **Charger l'extension non empaquetée** et sélectionnez le dossier
-   **`app`** (celui qui contient `manifest.json`).
+1. Sur GitHub, bouton **Code → Download ZIP**, puis décompressez le fichier.
+2. Ouvrez Chrome → `chrome://extensions` → activez **Mode développeur** (en haut
+   à droite).
+3. Cliquez **Charger l'extension non empaquetée** et sélectionnez le **dossier
+   décompressé** (celui qui contient directement `manifest.json`).
 4. Cliquez l'icône de l'extension : l'outil s'ouvre, onglet « Scraper » actif.
 
-Le `manifest.json`, le service worker et les icônes sont tous dans `app/`.
+Le `manifest.json`, le service worker et les icônes sont **à la racine** du
+dépôt — le dossier que vous décompressez est donc directement l'extension.
 
 ## Ce que fait l'outil
 
@@ -63,21 +64,29 @@ Chaque tableau (T1, T2, T3, T6, T7) offre :
   serveur, ce qui casserait l'autonomie et la gratuité. Les emails devinés sont
   donnés en **probabilité** (quasi certains via « Apprendre un modèle »).
 
-## Sauvegarde & autonomie
+## Où sont stockées mes données ? (important)
 
-Tout est enregistré en continu dans le navigateur (localStorage), en simple
-fichier comme en extension. **Exportez régulièrement** une sauvegarde (bouton
-« Sauvegarde ») pour archiver ou transférer vos données. L'outil ne dépend
-d'aucun service tiers : il ne peut pas « tomber en panne » à cause d'un autre
-logiciel.
+Vos données sont enregistrées **sur cet ordinateur**, dans le stockage du
+navigateur / de l'extension (localStorage, doublé dans `chrome.storage.local`
+en mode extension). Elles **restent** après fermeture, redémarrage, et même
+mise à jour/rechargement de l'extension.
 
-## Structure du dépôt
+**Deux cas où elles ne suivent pas toutes seules :**
+- si vous **désinstallez** l'extension,
+- si vous voulez les retrouver sur un **autre ordinateur**.
+
+La solution sûre et sans dépendance : **exporter un fichier de sauvegarde**
+(bouton « Sauvegarde », ou l'action que l'outil vous rappelle chaque semaine sur
+le tableau de bord) et le garder où vous voulez (votre Drive, une clé USB…).
+Pour restaurer / changer d'ordinateur : **Réglages → Importer une sauvegarde**.
+L'outil ne dépend ainsi d'aucun service tiers et ne peut pas « tomber en panne ».
+
+## Structure du dépôt (= l'extension, à la racine)
 
 ```
-app/
-  index.html      ← l'application complète (HTML + CSS + JS, sans dépendance)
-  manifest.json   ← extension Chrome (Manifest V3)
-  background.js   ← service worker (ouvre l'app au clic sur l'icône)
-  icons/          ← icônes de l'extension
+index.html      ← l'application complète (HTML + CSS + JS, sans dépendance)
+manifest.json   ← extension Chrome (Manifest V3)
+background.js   ← service worker (ouvre l'app au clic sur l'icône)
+icons/          ← icônes de l'extension
 README.md
 ```

@@ -225,7 +225,7 @@ const KEY = "FT_OS_DB_v1";
 const DEFAULT_DB = {
   meta:{ created:Date.now(), version:1 },
   settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35,
-    quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0,
+    quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0,
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -255,13 +255,25 @@ function migrate(db){ // garantit la présence de toutes les clés (évite les c
   for(const k in d.settings){ if(db.settings==null) db.settings={}; if(!(k in db.settings)) db.settings[k]=d.settings[k]; }
   return db;
 }
+const _hadLocal = !!localStorage.getItem(KEY);
 let DB = loadDB();
 let _saveT=null;
+function mirrorChrome(){ try{ if(typeof chrome!=="undefined" && chrome.storage && chrome.storage.local) chrome.storage.local.set({[KEY]:DB}); }catch(e){} }
 function save(){ // debounce léger pour ne pas écrire à chaque frappe
   clearTimeout(_saveT);
-  _saveT=setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } }, 120);
+  _saveT=setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } }, 120);
 }
-function saveNow(){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(e){} }
+function saveNow(){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){} }
+/* Résilience : si localStorage a été vidé mais que chrome.storage a survécu
+   (recharge/mise à jour de l'extension), on récupère les données. */
+async function hydrateFromChrome(){
+  try{
+    if(typeof chrome==="undefined" || !chrome.storage || !chrome.storage.local) return;
+    const got = await chrome.storage.local.get(KEY); const remote = got && got[KEY];
+    if(remote && !_hadLocal){ DB = migrate(remote); saveNow(); renderNav(); go(CURRENT); toast("Données restaurées depuis la sauvegarde interne"); }
+    else { mirrorChrome(); }
+  }catch(e){}
+}
 const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function logAct(msg){ DB.activity.unshift({t:Date.now(),m:msg}); DB.activity=DB.activity.slice(0,120); }
 
@@ -672,6 +684,11 @@ function nextActions(){
     add(3,"⏰",`Tâche en retard : ${t.title}`,`Échéance ${fmtDate(t.due)}`,{l:"Ouvrir",fn:`openRec('tasks','${t.id}')`}));
   // 8. Amorçage si vide
   if(!DB.partners.length) add(1,"","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
+  // 9. Rappel de sauvegarde (protège vos données en cas de désinstallation / changement d'ordinateur)
+  const hasData = DB.partners.length||DB.projects.length||DB.participants.length||DB.contacts.length||DB.quotes.length;
+  const lb=DB.settings.lastBackup||0;
+  if(hasData && (!lb || (now-lb)>7*DAY))
+    add(2,"","Exporter une sauvegarde",lb?`Dernière sauvegarde il y a ${Math.round((now-lb)/DAY)} jours — protégez vos données`:"Aucune sauvegarde encore — indispensable pour ne rien perdre",{l:"Sauvegarder",fn:`exportDB()`});
   return A.sort((a,b)=>b.pri-a.pri);
 }
 window.openRec=(entity,id)=>{ go(entity); if(id||id===null) editEntity(entity,id==="null"?null:id); };
@@ -1976,7 +1993,7 @@ VIEWS.guide=()=>{
     <ol style="margin:0;padding-left:20px;line-height:1.9;font-weight:600">
       <li>Téléchargez le dossier de l'outil (ZIP) et décompressez-le.</li>
       <li>Ouvrez Chrome → <code class="k">chrome://extensions</code> → activez « Mode développeur » (en haut à droite).</li>
-      <li>Cliquez « Charger l'extension non empaquetée » et sélectionnez le dossier <code class="k">app</code> (celui qui contient <code class="k">manifest.json</code>).</li>
+      <li>Cliquez « Charger l'extension non empaquetée » et sélectionnez le dossier décompressé (celui qui contient directement <code class="k">manifest.json</code>).</li>
       <li>Cliquez l'icône de l'extension pour ouvrir l'outil. L'onglet « Scraper LinkedIn / Web » est alors actif.</li>
     </ol>
     <p class="muted" style="font-weight:600;margin:10px 0 0">Sans extension, l'outil fonctionne quand même : utilisez le bookmarklet ou « Extraire d'une page ».</p>
@@ -2009,9 +2026,11 @@ VIEWS.settings=()=>{
     </div>
     <div class="card">
       <div class="section-title" style="margin-top:0">Sauvegarde & données</div>
-      <p class="muted" style="font-weight:600;margin-top:0">Vos données vivent dans ce navigateur. Exportez un fichier pour les archiver ou les transférer sur un autre ordinateur.</p>
-      <button class="btn primary" id="s_exp" style="width:100%;margin-bottom:10px">⤓ Exporter toutes les données (JSON)</button>
-      <button class="btn" id="s_imp" style="width:100%;margin-bottom:10px">⤒ Importer une sauvegarde</button>
+      <p class="muted" style="font-weight:600;margin-top:0">Vos données sont enregistrées <b>dans ce navigateur / cette extension</b>, sur cet ordinateur. Elles restent après fermeture et redémarrage. <b>Mais</b> si vous désinstallez l'extension ou changez d'ordinateur, elles ne suivent pas toutes seules.</p>
+      <p class="muted" style="font-weight:600">La solution sûre, sans dépendre d'aucun service : <b>exportez un fichier de sauvegarde</b> et gardez-le (sur votre Drive, une clé USB…). Pour changer d'ordinateur ou après une réinstallation : <b>importez</b> ce fichier.</p>
+      <div style="font-size:12.5px;font-weight:600;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px">Dernière sauvegarde : <b>${DB.settings.lastBackup?fmtDate(DB.settings.lastBackup):"jamais — à faire dès maintenant"}</b></div>
+      <button class="btn primary" id="s_exp" style="width:100%;margin-bottom:10px">Exporter toutes les données (fichier de sauvegarde)</button>
+      <button class="btn" id="s_imp" style="width:100%;margin-bottom:10px">Importer une sauvegarde</button>
       <input type="file" id="s_file" accept="application/json" style="display:none">
       <div class="divider"></div>
       <div class="stat-mini muted" style="font-weight:600">Contenu actuel :</div>
@@ -2032,10 +2051,12 @@ VIEWS.settings=()=>{
 
 /* ---------- Export / Import ---------- */
 function exportDB(){
+  DB.settings.lastBackup=Date.now(); saveNow();
   const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
   a.download=`formaskills-travel-os_${new Date().toISOString().slice(0,10)}.json`; a.click();
-  URL.revokeObjectURL(a.href); toast("Sauvegarde exportée");
+  URL.revokeObjectURL(a.href); toast("Sauvegarde exportée — conservez ce fichier en lieu sûr");
+  renderNav(); if(CURRENT==="dash"||CURRENT==="settings") VIEWS[CURRENT]();
 }
 function importDB(e){
   const f=e.target.files[0]; if(!f) return; const rd=new FileReader();
@@ -2082,6 +2103,7 @@ applyTheme();
 renderNav();
 go("dash");
 checkOverdue();
+hydrateFromChrome();
 window.addEventListener("beforeunload",saveNow);
 </script>
 </body>
