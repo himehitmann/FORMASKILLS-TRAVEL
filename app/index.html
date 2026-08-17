@@ -222,9 +222,23 @@ code.k{background:var(--panel-2);border:1px solid var(--line);padding:1px 6px;bo
 const KEY = "FT_OS_DB_v1";
 const DEFAULT_DB = {
   meta:{ created:Date.now(), version:1 },
-  settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35 },
+  settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35,
+    quoteSeq:1, tvaDefault:0,
+    company:{
+      name:"FORMASKILLS TRAVEL",
+      legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
+      addr1:"Siège : 10 rue du Micocoulier, 34680 Saint-Georges-d'Orques",
+      addr2:"Bureau commercial : 17 rue Danton, 34200 Sète",
+      phone:"+33 9 75 46 22 81",
+      email:"contact.travel@formaskills.fr",
+      web:"formaskills-travel.fr",
+      iban:"FR76 1695 8000 0149 0124 0764 046",
+      bic:"QNTOFRP1XXX",
+      atout:"", rcp:"", garantie:"", tvaMention:"TVA non applicable, art. 293 B du CGI"
+    }
+  },
   partners:[], projects:[], participants:[], providers:[],
-  budget:[], tasks:[], contacts:[], automations:[], activity:[]
+  budget:[], tasks:[], contacts:[], automations:[], quotes:[], docs:[], activity:[]
 };
 function loadDB(){
   try{ const raw=localStorage.getItem(KEY); if(raw){ return migrate(JSON.parse(raw)); } }
@@ -501,7 +515,8 @@ const ICONS = {
   task:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
   auto:'<path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/><circle cx="12" cy="12" r="3"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
-  guide:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>'
+  guide:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>'
 };
 const ic = k => `<svg class="ic" viewBox="0 0 24 24">${ICONS[k]||""}</svg>`;
 
@@ -514,6 +529,7 @@ const NAV = [
   {id:"projects", title:"T2 · Projets & mobilités", sub:"Séjours + conformité R1→R8", icon:"proj", entity:"projects"},
   {id:"participants", title:"T3 · Participants", sub:"Apprenants, documents, assurances", icon:"people", entity:"participants"},
   {id:"finance", title:"T4/T5 · Finances & marges", sub:"Lignes budgétaires + forfaits", icon:"money"},
+  {id:"docs", title:"Devis & documents", sub:"Devis, contrats, attestations — imprimables en PDF", icon:"doc"},
   {id:"providers", title:"T6 · Prestataires", sub:"Hôtels, guides, transporteurs", icon:"provider", entity:"providers"},
   {id:"tasks", title:"T7 · Tâches & conformité", sub:"Échéances, rappels, checklist", icon:"task", entity:"tasks"},
   {group:"Système"},
@@ -996,7 +1012,8 @@ function statusTag(entity,v){
     "En discussion":"b","En cours":"b","Contacté":"b","Préparation":"b","Reporting":"b",
     "Devis envoyé":"a","Conventions":"a","Reconnaissance":"a",
     "À contacter":"w","À signer":"w","À faire":"w","Incomplet":"w","Cadrage":"w",
-    "Urgente":"r","Haute":"r","Non":"n","Non catégorisée":"n" };
+    "Urgente":"r","Haute":"r","Non":"n","Non catégorisée":"n",
+    "Accepté":"g","Envoyé":"b","Brouillon":"n","Refusé":"r" };
   return `<span class="tag ${map[v]||'n'}">${esc(v)}</span>`;
 }
 let ENTITY_VIEW={}; // per-entity: {mode:'table'|'kanban', q:''}
@@ -1236,6 +1253,238 @@ window.editBudget=id=>{ const it=id?DB.budget.find(x=>x.id===id):{};
 };
 window.delBudget=id=>{ DB.budget=DB.budget.filter(x=>x.id!==id); save(); VIEWS.finance(); };
 
+/* ---------- Devis & documents ---------- */
+function printDocument(title, inner){
+  const w=window.open("","_blank","width=820,height=920");
+  if(!w){ toast("Autorisez les fenêtres pop-up pour imprimer / exporter en PDF","warn"); return; }
+  w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title>
+  <style>
+  *{box-sizing:border-box} body{font:13px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1a2233;margin:0;background:#eef1f6}
+  .sheet{background:#fff;max-width:800px;margin:24px auto;padding:44px 48px;box-shadow:0 6px 30px rgba(0,0,0,.12)}
+  .dhead{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;border-bottom:3px solid #1d5fd6;padding-bottom:16px}
+  .dhead .co b{font-size:20px;color:#0b3f9e;letter-spacing:.3px} .dhead .co div{font-size:11.5px;color:#556}
+  .dtitle{text-align:right} .dtitle h1{margin:0;font-size:26px;letter-spacing:2px;color:#1d5fd6} .dtitle .num{font-weight:700;font-size:14px} .dtitle .dt{font-size:12px;color:#667}
+  .blocks{display:flex;justify-content:space-between;gap:24px;margin:26px 0}
+  .block{flex:1} .block h4{margin:0 0 6px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#889} .block .bd{font-size:13px}
+  table{width:100%;border-collapse:collapse;margin-top:8px} th{background:#1d5fd6;color:#fff;text-align:left;padding:9px 12px;font-size:11px;letter-spacing:.5px;text-transform:uppercase}
+  th.r,td.r{text-align:right} td{padding:9px 12px;border-bottom:1px solid #e3e9f2}
+  .totals{margin-top:16px;margin-left:auto;width:280px} .totals div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eef}
+  .totals .grand{border:0;border-top:2px solid #1d5fd6;margin-top:4px;padding-top:10px;font-size:17px;font-weight:800;color:#0b3f9e}
+  .conditions{margin-top:26px;font-size:12px;color:#445;white-space:pre-wrap}
+  .foot{margin-top:30px;padding-top:14px;border-top:1px solid #dde;font-size:10.5px;color:#889;text-align:center;line-height:1.7}
+  .doc-body{white-space:pre-wrap;font-size:13.5px;line-height:1.8;margin-top:20px}
+  .sign{display:flex;justify-content:space-between;margin-top:40px;gap:40px} .sign div{flex:1;font-size:12px} .sign .line{margin-top:44px;border-top:1px solid #99a}
+  .noprint{position:fixed;bottom:20px;right:20px;display:flex;gap:10px}
+  .noprint button{background:#1d5fd6;color:#fff;border:0;padding:12px 20px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 4px 14px rgba(29,95,214,.4)}
+  .noprint button.g{background:#556}
+  @media print{ body{background:#fff} .sheet{box-shadow:none;margin:0;max-width:none;padding:0} .noprint{display:none} }
+  </style></head><body><div class="sheet">${inner}</div>
+  <div class="noprint"><button class="g" onclick="window.close()">Fermer</button><button onclick="window.print()">🖨️ Imprimer / PDF</button></div>
+  </body></html>`);
+  w.document.close();
+}
+function co(){ return DB.settings.company||{}; }
+function coHeaderHTML(){ const c=co();
+  return `<div class="co"><b>${esc(c.name||"")}</b>
+    <div>${esc(c.legal||"")}</div><div>${esc(c.addr1||"")}</div><div>${esc(c.addr2||"")}</div>
+    <div>${esc(c.phone||"")} · ${esc(c.email||"")} · ${esc(c.web||"")}</div></div>`;
+}
+function coFooterHTML(){ const c=co(); const bits=[c.legal,c.atout?("Atout France "+c.atout):"",c.rcp?("RCP "+c.rcp):"",c.garantie?("Garantie financière "+c.garantie):"",c.tvaMention].filter(Boolean);
+  return `<div class="foot">${esc(c.name||"")} — ${esc(bits.join(" · "))}<br>IBAN ${esc(c.iban||"")} · BIC ${esc(c.bic||"")}</div>`; }
+function quoteTotals(q){ const ht=(q.items||[]).reduce((s,it)=>s+(Number(it.qty)||0)*(Number(it.unit)||0),0);
+  const tva=ht*(Number(q.tvaRate)||0)/100; return {ht,tva,ttc:ht+tva}; }
+function quoteDocHTML(q){ const t=quoteTotals(q); const c=co();
+  return `<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1>DEVIS</h1><div class="num">${esc(q.number||"")}</div>
+    <div class="dt">Date : ${fmtDate(q.date)}<br>Validité : ${esc(q.validity||"30")} jours</div></div></div>
+  <div class="blocks">
+    <div class="block"><h4>Client</h4><div class="bd"><b>${esc(q.clientName||"—")}</b><br>${esc(q.clientAddr||"").replace(/\n/g,"<br>")}
+      ${q.clientContact?"<br>À l'attention de "+esc(q.clientContact):""}${q.clientEmail?"<br>"+esc(q.clientEmail):""}</div></div>
+    <div class="block"><h4>Objet</h4><div class="bd">${esc(q.object||"Organisation de séjour")}</div></div>
+  </div>
+  <table><thead><tr><th>Désignation</th><th class="r">Qté</th><th class="r">P.U. (€)</th><th class="r">Total (€)</th></tr></thead>
+  <tbody>${(q.items||[]).map(it=>`<tr><td>${esc(it.label||"")}</td><td class="r">${Number(it.qty)||0}</td>
+    <td class="r">${(Number(it.unit)||0).toLocaleString("fr-FR",{minimumFractionDigits:2})}</td>
+    <td class="r">${((Number(it.qty)||0)*(Number(it.unit)||0)).toLocaleString("fr-FR",{minimumFractionDigits:2})}</td></tr>`).join("")}</tbody></table>
+  <div class="totals">
+    <div><span>Total HT</span><b>${t.ht.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</b></div>
+    ${q.tvaRate?`<div><span>TVA ${q.tvaRate}%</span><b>${t.tva.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</b></div>`:`<div><span>TVA</span><b>${esc(c.tvaMention||"—")}</b></div>`}
+    <div class="grand"><span>Total ${q.tvaRate?"TTC":"net"}</span><span>${t.ttc.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</span></div>
+  </div>
+  ${q.conditions?`<div class="conditions"><b>Conditions</b>\n${esc(q.conditions)}</div>`:""}
+  <div class="sign"><div>Pour ${esc(c.name||"")}<div class="line"></div></div>
+    <div>Bon pour accord (date, signature, cachet)<div class="line"></div></div></div>
+  ${coFooterHTML()}`;
+}
+
+let DOCS_TAB="quotes";
+VIEWS.docs=()=>{
+  $("#view").innerHTML=`
+  <div class="pill-tabs" style="margin-bottom:18px">
+    ${[["quotes","🧾 Devis"],["templates","📄 Modèles de documents"],["company","🏢 Fiche société"]]
+      .map(([k,l])=>`<button data-dt="${k}" class="${DOCS_TAB===k?'active':''}">${l}</button>`).join("")}
+  </div><div id="docsBody"></div>`;
+  $$("#view [data-dt]").forEach(b=>b.onclick=()=>{DOCS_TAB=b.dataset.dt;VIEWS.docs();});
+  ({quotes:docsQuotes,templates:docsTemplates,company:docsCompany}[DOCS_TAB])();
+};
+function docsQuotes(){
+  const q=DB.quotes;
+  $("#docsBody").innerHTML=`
+  <div class="toolbar"><div class="spacer"></div><button class="btn primary" id="dq_add">+ Nouveau devis</button></div>
+  ${q.length?`<div class="tbl-wrap"><table><thead><tr><th>N°</th><th>Client</th><th>Date</th><th>Montant</th><th>Statut</th><th></th></tr></thead>
+    <tbody>${q.map(x=>{const t=quoteTotals(x);return `<tr>
+      <td class="cell-strong mono">${esc(x.number)}</td><td>${esc(x.clientName||"—")}</td><td class="muted">${fmtDate(x.date)}</td>
+      <td class="cell-strong">${eur(t.ttc)}</td><td>${statusTag("_",x.status)}</td>
+      <td class="rowact"><button class="btn sm ghost" onclick="printQuote('${x.id}')">Imprimer</button>
+      <button class="btn sm ghost" onclick="editQuote('${x.id}')">Ouvrir</button>
+      <button class="btn sm ghost" onclick="delQuote('${x.id}')">✕</button></td></tr>`;}).join("")}</tbody></table></div>`
+    :`<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.doc}</svg><div>Aucun devis. Créez votre premier devis — il sera imprimable en PDF et pré-rempli avec votre fiche société.</div></div></div>`}`;
+  $("#dq_add").onclick=()=>editQuote(null);
+}
+window.delQuote=id=>{ const q=DB.quotes.find(x=>x.id===id); confirmModal("Supprimer le devis ?",`« ${q?.number} » sera supprimé.`,()=>{DB.quotes=DB.quotes.filter(x=>x.id!==id);save();VIEWS.docs();},true); };
+window.printQuote=id=>{ const q=DB.quotes.find(x=>x.id===id); if(q) printDocument("Devis "+q.number, quoteDocHTML(q)); };
+function editQuote(id){
+  const q = id? structuredClone(DB.quotes.find(x=>x.id===id)) : {
+    number:nextQuoteNumber(), date:Date.now(), validity:"30", status:"Brouillon",
+    clientName:"",clientAddr:"",clientContact:"",clientEmail:"",object:"Organisation de séjour",
+    items:[{label:"",qty:1,unit:0}], tvaRate:DB.settings.tvaDefault||0, conditions:"Acompte de 30% à la commande, solde avant le départ.\nOffre valable pour la durée de validité indiquée." };
+  const partnerOpts=`<option value="">— Choisir un partenaire (T1) —</option>`+DB.partners.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
+  openModal({title:id?"Modifier le devis":"Nouveau devis", wide:true,
+    body:`<div class="row2">
+      <div class="field"><label>N° de devis</label><input class="input" id="q_num" value="${esc(q.number)}"></div>
+      <div class="field"><label>Statut</label><select id="q_status">${["Brouillon","Envoyé","Accepté","Refusé"].map(s=>`<option ${q.status===s?'selected':''}>${s}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label>Pré-remplir depuis un partenaire</label><select id="q_partner">${partnerOpts}</select></div>
+    <div class="row2">
+      <div class="field"><label>Client (nom / raison sociale)</label><input class="input" id="q_cn" value="${esc(q.clientName)}"></div>
+      <div class="field"><label>Contact</label><input class="input" id="q_cc" value="${esc(q.clientContact)}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Email client</label><input class="input" id="q_ce" value="${esc(q.clientEmail)}"></div>
+      <div class="field"><label>Objet</label><input class="input" id="q_obj" value="${esc(q.object)}"></div>
+    </div>
+    <div class="field"><label>Adresse client</label><textarea id="q_ca" style="min-height:52px">${esc(q.clientAddr)}</textarea></div>
+    <div class="row3">
+      <div class="field"><label>Date</label><input class="input" type="date" id="q_date" value="${new Date(q.date).toISOString().slice(0,10)}"></div>
+      <div class="field"><label>Validité (jours)</label><input class="input" id="q_val" value="${esc(q.validity)}"></div>
+      <div class="field"><label>TVA (%)</label><input class="input" type="number" id="q_tva" value="${esc(q.tvaRate)}"></div>
+    </div>
+    <div class="section-title" style="margin-top:6px">Lignes du devis</div>
+    <div id="q_items"></div>
+    <button class="btn sm ghost" id="q_addline">+ Ajouter une ligne</button>
+    <div id="q_total" style="text-align:right;font-weight:800;font-size:16px;margin-top:10px"></div>
+    <div class="field" style="margin-top:12px"><label>Conditions</label><textarea id="q_cond" style="min-height:70px">${esc(q.conditions)}</textarea></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},
+      {label:"Aperçu / Imprimer",cls:"",act:()=>{const nq=readQuoteForm(q);printDocument("Devis "+nq.number,quoteDocHTML(nq));}},
+      {label:"Enregistrer",cls:"primary",act:()=>saveQuote(id)}]});
+  // items editor
+  let items=structuredClone(q.items||[]);
+  const drawItems=()=>{
+    $("#q_items").innerHTML=items.map((it,i)=>`<div class="row3" style="grid-template-columns:1fr 70px 90px 30px;gap:8px;margin-bottom:6px">
+      <input class="input q_l" data-i="${i}" placeholder="Désignation" value="${esc(it.label)}">
+      <input class="input q_q" data-i="${i}" type="number" placeholder="Qté" value="${esc(it.qty)}">
+      <input class="input q_u" data-i="${i}" type="number" placeholder="P.U." value="${esc(it.unit)}">
+      <button class="btn sm ghost q_x" data-i="${i}">✕</button></div>`).join("");
+    $$("#q_items .q_l").forEach(el=>el.oninput=e=>{items[+e.target.dataset.i].label=e.target.value;});
+    $$("#q_items .q_q").forEach(el=>el.oninput=e=>{items[+e.target.dataset.i].qty=e.target.value;upTot();});
+    $$("#q_items .q_u").forEach(el=>el.oninput=e=>{items[+e.target.dataset.i].unit=e.target.value;upTot();});
+    $$("#q_items .q_x").forEach(el=>el.onclick=()=>{items.splice(+el.dataset.i,1);drawItems();upTot();});
+  };
+  const upTot=()=>{ const t=quoteTotals({items,tvaRate:+$("#q_tva").value||0});
+    $("#q_total").innerHTML=`Total ${(+$("#q_tva").value)?"TTC":"net"} : <span style="color:var(--brand-ink)">${eur(t.ttc)}</span>`; };
+  $("#q_addline").onclick=()=>{items.push({label:"",qty:1,unit:0});drawItems();};
+  $("#q_tva").oninput=upTot;
+  $("#q_partner").onchange=e=>{ const p=DB.partners.find(x=>x.id===e.target.value); if(p){ $("#q_cn").value=p.name||""; $("#q_cc").value=p.contactName||""; $("#q_ce").value=p.email||""; } };
+  drawItems(); upTot();
+  // expose current items for read
+  editQuote._items=()=>items;
+}
+function readQuoteForm(base){
+  return { ...base,
+    number:$("#q_num").value, status:$("#q_status").value, clientName:$("#q_cn").value, clientContact:$("#q_cc").value,
+    clientEmail:$("#q_ce").value, object:$("#q_obj").value, clientAddr:$("#q_ca").value,
+    date:new Date($("#q_date").value||Date.now()).getTime(), validity:$("#q_val").value, tvaRate:+$("#q_tva").value||0,
+    items:editQuote._items?editQuote._items():base.items, conditions:$("#q_cond").value };
+}
+function saveQuote(id){
+  const base=id?DB.quotes.find(x=>x.id===id):{};
+  const data=readQuoteForm(base);
+  if(!data.clientName.trim()){ toast("Le nom du client est requis","warn"); return; }
+  if(id){ Object.assign(DB.quotes.find(x=>x.id===id),data); logAct("Devis modifié : "+data.number); }
+  else{ DB.quotes.unshift({id:uid(),...data}); if((+data.number.replace(/\D/g,"").slice(-3))>=DB.settings.quoteSeq) DB.settings.quoteSeq++; logAct("Devis créé : "+data.number); }
+  save(); closeModal(); VIEWS.docs(); toast("Devis enregistré");
+}
+function nextQuoteNumber(){ const y=new Date().getFullYear(); const n=String(DB.settings.quoteSeq||1).padStart(3,"0"); return `D-${y}-${n}`; }
+
+/* Document templates (free text with {{variables}}) */
+const BUILTIN_TEMPLATES=[
+  {id:"attestation", name:"Attestation de présence",
+    body:`ATTESTATION DE PRÉSENCE\n\nJe soussigné(e), représentant {{societe}}, atteste que :\n\n{{participant}}\n\na bien participé au séjour / à la mobilité organisé(e) à {{lieu}},\ndu {{date_debut}} au {{date_fin}}.\n\nCette attestation est délivrée pour faire valoir ce que de droit.\n\nFait à {{fait_a}}, le {{fait_le}}.`,
+    fields:[["participant","Participant (Nom Prénom)"],["lieu","Lieu du séjour"],["date_debut","Date de début"],["date_fin","Date de fin"],["fait_a","Fait à"],["fait_le","Le"]]},
+  {id:"prospection", name:"Email de prospection (partenaire)",
+    body:`Objet : Séjours immersifs à Sète pour vos apprenants\n\nBonjour {{contact}},\n\nJe me permets de vous contacter au nom de {{societe}}. Nous organisons des séjours linguistiques et culturels immersifs dans le Sud de la France (Sète / Montpellier), pour des groupes d'apprenants.\n\nSeriez-vous disponible pour un court échange afin d'étudier une collaboration pour {{periode}} ?\n\nBien cordialement,\n{{signataire}}\n{{societe}}`,
+    fields:[["contact","Contact"],["periode","Période envisagée"],["signataire","Votre nom"]]},
+  {id:"engagement", name:"Conditions de prise en charge (participant)",
+    body:`CONDITIONS DE PRISE EN CHARGE — {{societe}}\n\nParticipant : {{participant}}\nSéjour : {{lieu}}, du {{date_debut}} au {{date_fin}}.\n\nCE QUI EST COMPRIS : hébergement, repas prévus au programme, activités et visites prévues, transports collectifs du programme, encadrement pédagogique.\n\nCE QUI N'EST PAS PRIS EN CHARGE : dépenses personnelles, repas hors programme, frais de santé (couverts par la carte CEAM et l'assurance), amendes ou dégradations.\n\nRÈGLE D'OR : toute dépense non prévue doit être validée PAR ÉCRIT par {{societe}} AVANT d'être engagée.\n\nFait à {{fait_a}}, le {{fait_le}}.\nSignature du participant (ou représentant légal si mineur) :`,
+    fields:[["participant","Participant"],["lieu","Lieu"],["date_debut","Date de début"],["date_fin","Date de fin"],["fait_a","Fait à"],["fait_le","Le"]]},
+];
+function allTemplates(){ return [...BUILTIN_TEMPLATES, ...(DB.docs||[])]; }
+function docsTemplates(){
+  $("#docsBody").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Choisissez un modèle : les champs société se remplissent tout seuls, vous complétez le reste, puis vous imprimez / exportez en PDF. Vous pouvez aussi créer vos propres modèles avec des variables <code class="k">{{ma_variable}}</code>.</div></div>
+  <div class="toolbar"><div class="spacer"></div><button class="btn ghost sm" id="dt_new">+ Modèle personnalisé</button></div>
+  <div class="grid cards">${allTemplates().map(t=>`<div class="card hover">
+    <div class="cell-strong" style="font-size:15px">${esc(t.name)}</div>
+    <div class="muted" style="font-size:12px;margin:6px 0 12px">${esc((t.body||"").slice(0,80))}…</div>
+    <button class="btn sm primary" onclick="fillTemplate('${t.id}')">Utiliser</button>
+    ${t.custom?`<button class="btn sm ghost" onclick="delTemplate('${t.id}')">Supprimer</button>`:""}</div>`).join("")}</div>`;
+  $("#dt_new").onclick=()=>editTemplate();
+}
+window.delTemplate=id=>{ DB.docs=(DB.docs||[]).filter(t=>t.id!==id); save(); VIEWS.docs(); };
+function editTemplate(){
+  openModal({title:"Nouveau modèle", wide:true,
+    body:`<div class="field"><label>Nom du modèle *</label><input class="input" id="tp_name" placeholder="Ma lettre type"></div>
+    <div class="field"><label>Contenu (utilisez {{variable}} pour les champs à remplir ; {{societe}} est automatique)</label>
+    <textarea id="tp_body" style="min-height:220px" placeholder="Cher {{contact}}, ..."></textarea></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Créer",cls:"primary",act:()=>{
+      const name=$("#tp_name").value.trim(),body=$("#tp_body").value;
+      if(!name||!body){toast("Nom et contenu requis","warn");return;}
+      const vars=[...new Set((body.match(/\{\{(\w+)\}\}/g)||[]).map(v=>v.slice(2,-2)))].filter(v=>v!=="societe");
+      DB.docs=DB.docs||[]; DB.docs.push({id:uid(),name,body,custom:true,fields:vars.map(v=>[v,v.replace(/_/g," ")])});
+      save();closeModal();VIEWS.docs();toast("Modèle créé");}}]});
+}
+window.fillTemplate=id=>{
+  const t=allTemplates().find(x=>x.id===id); if(!t)return;
+  openModal({title:t.name, wide:true,
+    body:`${(t.fields||[]).map(([k,l])=>`<div class="field"><label>${esc(l)}</label><input class="input" data-tf="${k}"></div>`).join("")||'<p class="muted">Ce modèle n\'a pas de champ à remplir.</p>'}`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Aperçu / Imprimer",cls:"primary",act:()=>{
+      const vals={societe:co().name||""}; $$(".mbody [data-tf]").forEach(el=>vals[el.dataset.tf]=el.value);
+      let out=t.body.replace(/\{\{(\w+)\}\}/g,(_,k)=>vals[k]!=null&&vals[k]!==""?vals[k]:"________");
+      const inner=`<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1 style="font-size:20px;letter-spacing:1px">${esc(t.name.toUpperCase())}</h1></div></div>
+        <div class="doc-body">${esc(out)}</div>${coFooterHTML()}`;
+      printDocument(t.name,inner);
+    }}]});
+};
+
+function docsCompany(){
+  const c=co();
+  const f=(k,l,ta)=> ta? `<div class="field" style="grid-column:1/-1"><label>${l}</label><textarea data-c="${k}" style="min-height:44px">${esc(c[k]||"")}</textarea></div>`
+    : `<div class="field"><label>${l}</label><input class="input" data-c="${k}" value="${esc(c[k]||"")}"></div>`;
+  $("#docsBody").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Ces informations alimentent <b>automatiquement</b> tous vos devis et documents — vous ne les ressaisissez jamais. Pré-rempli avec les données trouvées ; vérifiez et complétez (surtout Atout France, RCP et garantie financière, laissés vides à dessein).</div></div>
+  <div class="card"><div class="row2">
+    ${f("name","Nom / raison sociale")}${f("phone","Téléphone")}
+    ${f("email","Email")}${f("web","Site web")}
+    ${f("legal","Forme juridique & RCS",true)}
+    ${f("addr1","Adresse (siège)",true)}${f("addr2","Adresse (bureau)",true)}
+    ${f("iban","IBAN")}${f("bic","BIC")}
+    ${f("atout","N° Atout France")}${f("rcp","Assurance RC Pro")}
+    ${f("garantie","Garantie financière")}${f("tvaMention","Mention TVA",true)}
+  </div>
+  <button class="btn primary" id="dc_save" style="margin-top:8px">Enregistrer la fiche société</button></div>`;
+  $("#dc_save").onclick=()=>{ const nc={...co()}; $$("#docsBody [data-c]").forEach(el=>nc[el.dataset.c]=el.value);
+    DB.settings.company=nc; save(); toast("Fiche société enregistrée"); };
+}
+
 /* ---------- Automatisations ---------- */
 VIEWS.automations=()=>{
   $("#view").innerHTML=`
@@ -1376,6 +1625,7 @@ $("#quickAdd").onclick=()=>{
   const map={partners:"partners",projects:"projects",participants:"participants",providers:"providers",tasks:"tasks"};
   if(map[CURRENT]) return editEntity(CURRENT,null);
   if(CURRENT==="finance") return editBudget(null);
+  if(CURRENT==="docs"){ DOCS_TAB="quotes"; return editQuote(null); }
   if(CURRENT==="automations") return editAuto(null);
   if(CURRENT==="finder"){ FINDER_TAB="find"; return go("finder"); }
   // default: quick partner
