@@ -1014,7 +1014,8 @@ function statusTag(entity,v){
     "Devis envoyé":"a","Conventions":"a","Reconnaissance":"a",
     "À contacter":"w","À signer":"w","À faire":"w","Incomplet":"w","Cadrage":"w",
     "Urgente":"r","Haute":"r","Non":"n","Non catégorisée":"n",
-    "Accepté":"g","Envoyé":"b","Brouillon":"n","Refusé":"r" };
+    "Accepté":"g","Envoyé":"b","Brouillon":"n","Refusé":"r",
+    "Payée":"g","Émise":"b","En retard":"r","Annulée":"n" };
   return `<span class="tag ${map[v]||'n'}">${esc(v)}</span>`;
 }
 let ENTITY_VIEW={}; // per-entity: {mode:'table'|'kanban', q:''}
@@ -1305,9 +1306,9 @@ function coFooterHTML(){ const c=co(), s=ds();
   return `<div class="foot">${esc((c.name||"")+" — "+bits.join(" · ")+bank)}</div>`; }
 function quoteTotals(q){ const ht=(q.items||[]).reduce((s,it)=>s+(Number(it.qty)||0)*(Number(it.unit)||0),0);
   const tva=ht*(Number(q.tvaRate)||0)/100; return {ht,tva,ttc:ht+tva}; }
-function quoteDocHTML(q){ const t=quoteTotals(q); const c=co();
-  return `<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1>DEVIS</h1><div class="num">${esc(q.number||"")}</div>
-    <div class="dt">Date : ${fmtDate(q.date)}<br>Validité : ${esc(q.validity||"30")} jours</div></div></div>
+function quoteDocHTML(q){ const t=quoteTotals(q); const c=co(); const isInv=q.kind==="facture";
+  return `<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1>${isInv?"FACTURE":"DEVIS"}</h1><div class="num">${esc(q.number||"")}</div>
+    <div class="dt">Date : ${fmtDate(q.date)}<br>${isInv?("Échéance : "+(q.due?fmtDate(q.due):esc(q.validity||"30")+" jours")):("Validité : "+esc(q.validity||"30")+" jours")}</div></div></div>
   <div class="blocks">
     <div class="block"><h4>Client</h4><div class="bd"><b>${esc(q.clientName||"—")}</b><br>${esc(q.clientAddr||"").replace(/\n/g,"<br>")}
       ${q.clientContact?"<br>À l'attention de "+esc(q.clientContact):""}${q.clientEmail?"<br>"+esc(q.clientEmail):""}</div></div>
@@ -1338,32 +1339,51 @@ VIEWS.docs=()=>{
   $$("#view [data-dt]").forEach(b=>b.onclick=()=>{DOCS_TAB=b.dataset.dt;VIEWS.docs();});
   ({quotes:docsQuotes,templates:docsTemplates,company:docsCompany,style:docsStyle}[DOCS_TAB])();
 };
+let DOCS_KIND="devis";
 function docsQuotes(){
-  const q=DB.quotes;
+  const q=DB.quotes.filter(x=>(x.kind||"devis")===DOCS_KIND);
+  const isInv=DOCS_KIND==="facture";
   $("#docsBody").innerHTML=`
-  <div class="toolbar"><div class="spacer"></div><button class="btn primary" id="dq_add">+ Nouveau devis</button></div>
+  <div class="toolbar">
+    <div class="pill-tabs"><button data-k="devis" class="${!isInv?'active':''}">Devis</button><button data-k="facture" class="${isInv?'active':''}">Factures</button></div>
+    <div class="spacer"></div><button class="btn primary" id="dq_add">+ ${isInv?"Nouvelle facture":"Nouveau devis"}</button></div>
   ${q.length?`<div class="tbl-wrap"><table><thead><tr><th>N°</th><th>Client</th><th>Date</th><th>Montant</th><th>Statut</th><th></th></tr></thead>
     <tbody>${q.map(x=>{const t=quoteTotals(x);return `<tr>
       <td class="cell-strong mono">${esc(x.number)}</td><td>${esc(x.clientName||"—")}</td><td class="muted">${fmtDate(x.date)}</td>
       <td class="cell-strong">${eur(t.ttc)}</td><td>${statusTag("_",x.status)}</td>
       <td class="rowact"><button class="btn sm ghost" onclick="printQuote('${x.id}')">Imprimer</button>
+      ${!isInv?`<button class="btn sm ghost" onclick="convertToInvoice('${x.id}')">→ Facture</button>`:""}
       <button class="btn sm ghost" onclick="editQuote('${x.id}')">Ouvrir</button>
       <button class="btn sm ghost" onclick="delQuote('${x.id}')">✕</button></td></tr>`;}).join("")}</tbody></table></div>`
-    :`<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.doc}</svg><div>Aucun devis. Créez votre premier devis — il sera imprimable en PDF et pré-rempli avec votre fiche société.</div></div></div>`}`;
-  $("#dq_add").onclick=()=>editQuote(null);
+    :`<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.doc}</svg><div>Aucun ${isInv?"e facture":" devis"}. ${isInv?"Créez-en une, ou convertissez un devis accepté.":"Créez votre premier devis — imprimable en PDF, pré-rempli avec votre fiche société."}</div></div></div>`}`;
+  $$("#docsBody [data-k]").forEach(b=>b.onclick=()=>{DOCS_KIND=b.dataset.k;VIEWS.docs();});
+  $("#dq_add").onclick=()=>editQuote(null,DOCS_KIND);
 }
+window.convertToInvoice=id=>{
+  const d=DB.quotes.find(x=>x.id===id); if(!d)return;
+  const inv={...structuredClone(d),id:uid(),kind:"facture",number:nextQuoteNumber("facture"),status:"Émise",date:Date.now(),
+    due:Date.now()+30*864e5, sourceQuote:d.number};
+  DB.quotes.unshift(inv); DB.settings.invoiceSeq=(DB.settings.invoiceSeq||1)+1;
+  logAct(`Facture ${inv.number} créée depuis le devis ${d.number}`); save();
+  DOCS_KIND="facture"; VIEWS.docs(); toast("Facture "+inv.number+" créée");
+};
 window.delQuote=id=>{ const q=DB.quotes.find(x=>x.id===id); confirmModal("Supprimer le devis ?",`« ${q?.number} » sera supprimé.`,()=>{DB.quotes=DB.quotes.filter(x=>x.id!==id);save();VIEWS.docs();},true); };
 window.printQuote=id=>{ const q=DB.quotes.find(x=>x.id===id); if(q) printDocument("Devis "+q.number, quoteDocHTML(q)); };
-function editQuote(id){
+function editQuote(id,kind){
+  const k = id? (DB.quotes.find(x=>x.id===id)?.kind||"devis") : (kind||"devis");
+  const isInv=k==="facture";
   const q = id? structuredClone(DB.quotes.find(x=>x.id===id)) : {
-    number:nextQuoteNumber(), date:Date.now(), validity:"30", status:"Brouillon",
+    kind:k, number:nextQuoteNumber(k), date:Date.now(), validity:"30", due:Date.now()+30*864e5,
+    status:isInv?"Émise":"Brouillon",
     clientName:"",clientAddr:"",clientContact:"",clientEmail:"",object:"Organisation de séjour",
-    items:[{label:"",qty:1,unit:0}], tvaRate:DB.settings.tvaDefault||0, conditions:"Acompte de 30% à la commande, solde avant le départ.\nOffre valable pour la durée de validité indiquée." };
+    items:[{label:"",qty:1,unit:0}], tvaRate:DB.settings.tvaDefault||0,
+    conditions:isInv?"Règlement à réception, par virement (coordonnées bancaires en pied de page).":"Acompte de 30% à la commande, solde avant le départ.\nOffre valable pour la durée de validité indiquée." };
+  const statusOpts = isInv? ["Émise","Payée","En retard","Annulée"] : ["Brouillon","Envoyé","Accepté","Refusé"];
   const partnerOpts=`<option value="">— Choisir un partenaire (T1) —</option>`+DB.partners.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
-  openModal({title:id?"Modifier le devis":"Nouveau devis", wide:true,
+  openModal({title:(id?"Modifier ":"Nouveau/nouvelle ")+(isInv?"facture":"devis"), wide:true,
     body:`<div class="row2">
-      <div class="field"><label>N° de devis</label><input class="input" id="q_num" value="${esc(q.number)}"></div>
-      <div class="field"><label>Statut</label><select id="q_status">${["Brouillon","Envoyé","Accepté","Refusé"].map(s=>`<option ${q.status===s?'selected':''}>${s}</option>`).join("")}</select></div>
+      <div class="field"><label>N° ${isInv?"de facture":"de devis"}</label><input class="input" id="q_num" value="${esc(q.number)}"></div>
+      <div class="field"><label>Statut</label><select id="q_status">${statusOpts.map(s=>`<option ${q.status===s?'selected':''}>${s}</option>`).join("")}</select></div>
     </div>
     <div class="field"><label>Pré-remplir depuis un partenaire</label><select id="q_partner">${partnerOpts}</select></div>
     <div class="row2">
@@ -1407,7 +1427,8 @@ function editQuote(id){
   $("#q_tva").oninput=upTot;
   $("#q_partner").onchange=e=>{ const p=DB.partners.find(x=>x.id===e.target.value); if(p){ $("#q_cn").value=p.name||""; $("#q_cc").value=p.contactName||""; $("#q_ce").value=p.email||""; } };
   drawItems(); upTot();
-  // expose current items for read
+  // expose current draft + items for read
+  editQuote._draft=q;
   editQuote._items=()=>items;
 }
 function readQuoteForm(base){
@@ -1418,14 +1439,19 @@ function readQuoteForm(base){
     items:editQuote._items?editQuote._items():base.items, conditions:$("#q_cond").value };
 }
 function saveQuote(id){
-  const base=id?DB.quotes.find(x=>x.id===id):{};
+  const base=id?DB.quotes.find(x=>x.id===id):(editQuote._draft||{kind:"devis"});
   const data=readQuoteForm(base);
   if(!data.clientName.trim()){ toast("Le nom du client est requis","warn"); return; }
-  if(id){ Object.assign(DB.quotes.find(x=>x.id===id),data); logAct("Devis modifié : "+data.number); }
-  else{ DB.quotes.unshift({id:uid(),...data}); if((+data.number.replace(/\D/g,"").slice(-3))>=DB.settings.quoteSeq) DB.settings.quoteSeq++; logAct("Devis créé : "+data.number); }
-  save(); closeModal(); VIEWS.docs(); toast("Devis enregistré");
+  const label=data.kind==="facture"?"Facture":"Devis";
+  if(id){ Object.assign(DB.quotes.find(x=>x.id===id),data); logAct(label+" modifié : "+data.number); }
+  else{ DB.quotes.unshift({id:uid(),...data});
+    if(data.kind==="facture") DB.settings.invoiceSeq=(DB.settings.invoiceSeq||1)+1; else DB.settings.quoteSeq=(DB.settings.quoteSeq||1)+1;
+    logAct(label+" créé : "+data.number); }
+  save(); closeModal(); DOCS_KIND=data.kind||"devis"; VIEWS.docs(); toast(label+" enregistré");
 }
-function nextQuoteNumber(){ const y=new Date().getFullYear(); const n=String(DB.settings.quoteSeq||1).padStart(3,"0"); return `D-${y}-${n}`; }
+function nextQuoteNumber(kind){ const y=new Date().getFullYear();
+  const seq = kind==="facture" ? (DB.settings.invoiceSeq||1) : (DB.settings.quoteSeq||1);
+  return `${kind==="facture"?"F":"D"}-${y}-${String(seq).padStart(3,"0")}`; }
 
 /* Document templates (free text with {{variables}}) */
 const BUILTIN_TEMPLATES=[
