@@ -1175,6 +1175,7 @@ function bulkEdit(entity){
       const k=$("#be_field").value; const el=$("#be_val"); let v=el.value;
       const f=fieldsOf(entity).find(x=>x.k===k); if(f?.type==="date"&&v) v=new Date(v).getTime();
       let n=0; DB[entity].forEach(it=>{ if(st.sel.has(it.id)){ it[k]=v; n++; } });
+      st.sel.clear();
       logAct(`${n} ${SCHEMAS[entity].label}(s) modifié(s) en masse`); save(); renderNav(); closeModal(); entityView(entity); toast(n+" élément(s) modifié(s)");
     }}]});
   const sync=()=>{ const f=fieldsOf(entity).find(x=>x.k===$("#be_field").value); const w=$("#be_valwrap");
