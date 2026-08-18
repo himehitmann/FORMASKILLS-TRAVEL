@@ -84,9 +84,15 @@ L'outil ne dépend ainsi d'aucun service tiers et ne peut pas « tomber en panne
 ## Structure du dépôt (= l'extension, à la racine)
 
 ```
-index.html      ← l'application complète (HTML + CSS + JS, sans dépendance)
+index.html      ← la page de l'application (HTML + CSS)
+app.js          ← toute la logique (chargée par index.html ; sans dépendance)
 manifest.json   ← extension Chrome (Manifest V3)
 background.js   ← service worker (ouvre l'app au clic sur l'icône)
 icons/          ← icônes de l'extension
 README.md
 ```
+
+> Note technique : les extensions Chrome (Manifest V3) interdisent le code
+> « inline ». C'est pourquoi la logique vit dans `app.js` (chargé par la page)
+> et non dans une balise `<script>` interne — sinon l'extension afficherait une
+> page vide. Le tout reste 100 % local, sans aucune dépendance externe.
