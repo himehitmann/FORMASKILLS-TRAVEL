@@ -132,6 +132,22 @@ window.importLastDomain=()=>importAllContacts(window.__lastDomain||[]);
 /* Bookmarklet « sur toute page » : extrait emails + téléphones (liens mailto/tel
    inclus) de la page courante et les affiche dans une fenêtre. 100% local. */
 const BOOKMARKLET="javascript:(function(){var t=document.body.innerText+' '+[].map.call(document.querySelectorAll('a[href^=\"mailto:\"],a[href^=\"tel:\"]'),function(a){return decodeURIComponent(a.getAttribute('href').replace(/^(mailto|tel):/,''))}).join(' ');var e=[...new Set((t.match(/[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}/g)||[]).map(function(x){return x.toLowerCase()}))];var p=[...new Set((t.match(/(?:(?:\\+|00)\\d{1,3}[\\s.\\-]?)?(?:\\(?\\d{1,4}\\)?[\\s.\\-]?){2,5}\\d{2,4}/g)||[]).map(function(x){return x.trim()}).filter(function(x){var d=x.replace(/\\D/g,'');return d.length>=9&&d.length<=15}))];var o='EMAILS ('+e.length+')\\n'+e.join('\\n')+'\\n\\nTELEPHONES ('+p.length+')\\n'+p.join('\\n');var w=window.open('','_blank','width=480,height=600');w.document.write('<title>Contacts</title><pre style=\"font:13px/1.6 monospace;padding:18px;white-space:pre-wrap\">'+o.replace(/[&<]/g,function(c){return c=='&'?'&amp;':'&lt;'})+'</pre>');})();";
+/* Détection stricte des numéros de téléphone (français + international).
+   Rejette les suites de chiffres qui n'en sont pas (années, identifiants…). */
+function ftPhones(text){
+  if(!text) return [];
+  const out=new Set(), re=/(?:\+|00|0)(?:[ . ().\/\-]?\d){7,13}/g; let m;
+  while((m=re.exec(text))){
+    let d=m[0].replace(/[^\d+]/g,"");
+    if(d.startsWith("00")) d="+"+d.slice(2);
+    if(d.startsWith("+330")) d="+33"+d.slice(4);
+    let v=null;
+    if(/^0\d{9}$/.test(d)) v=d.replace(/(\d{2})(?=\d)/g,"$1 ").trim();
+    else if(/^\+\d{9,14}$/.test(d) && !/^\+(\d)\1{7,}$/.test(d)) v=d;
+    if(v) out.add(v);
+  }
+  return [...out];
+}
 const EmailFinder = (()=> {
   const deburr = s => (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"");
   // patterns d'email d'entreprise les plus fréquents, avec poids de confiance
@@ -200,10 +216,7 @@ const EmailFinder = (()=> {
   function extract(text){
     const raw = text||"";
     const emails = [...new Set((raw.match(RE_EMAIL)||[]).map(cleanEmail))];
-    // téléphones : filtrer les faux positifs (trop courts)
-    const phones = [...new Set((raw.match(RE_PHONE)||[])
-      .map(p=>p.trim())
-      .filter(p=>{ const d=p.replace(/\D/g,""); return d.length>=9 && d.length<=15; }))];
+    const phones = ftPhones(raw);
     const urls = [...new Set(raw.match(RE_URL)||[])];
     const socials = urls.filter(u=>/(linkedin|facebook|instagram|twitter|x\.com|youtube|tiktok)\./i.test(u));
     const sites = urls.filter(u=>!socials.includes(u));
@@ -260,7 +273,7 @@ const EmailFinder = (()=> {
     const raw=(text||"").replace(/\r/g,"");
     const lines=raw.split("\n").map(s=>s.trim()).filter(Boolean);
     const emails=[...new Set((raw.match(RE_EMAIL)||[]).map(cleanEmail))];
-    const phones=[...new Set((raw.match(RE_PHONE)||[]).map(p=>p.trim()).filter(p=>{const d=p.replace(/\D/g,"");return d.length>=9&&d.length<=15;}))];
+    const phones=ftPhones(raw);
     // nom : 1re ligne "prénom nom" plausible (2-3 mots, lettres, pas d'@, pas de chiffre)
     let name="";
     for(const l of lines){
@@ -290,30 +303,8 @@ const EmailFinder = (()=> {
    l'onglet propose une solution de repli (bookmarklet + collage).
    ============================================================ */
 const IS_EXT = (typeof chrome!=="undefined" && chrome.runtime && chrome.runtime.id && chrome.tabs && chrome.scripting);
-/* Fonction injectée DANS la page cible (doit être autonome, sans variable externe) */
-function ftPageScrape(){
-  try{
-    const txt=(document.body&&document.body.innerText)||"";
-    const mailtos=[].slice.call(document.querySelectorAll('a[href^="mailto:"]')).map(a=>{try{return decodeURIComponent(a.getAttribute("href").slice(7).split("?")[0]);}catch(e){return "";}});
-    const tels=[].slice.call(document.querySelectorAll('a[href^="tel:"]')).map(a=>a.getAttribute("href").slice(4));
-    const blob=txt+" "+mailtos.join(" ")+" "+tels.join(" ");
-    const emails=Array.from(new Set((blob.match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g)||[]).map(e=>e.toLowerCase().replace(/[.,;:)]+$/,"")))).filter(e=>!/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(e));
-    const phones=Array.from(new Set((blob.match(/(?:(?:\+|00)\d{1,3}[\s.\-]?)?(?:\(?\d{1,4}\)?[\s.\-]?){2,5}\d{2,4}/g)||[]).map(p=>p.trim()).filter(p=>{var d=p.replace(/\D/g,"");return d.length>=9&&d.length<=15;})));
-    let name="", headline="", company="";
-    const host=location.hostname;
-    if(/linkedin\./.test(host)){
-      const h1=document.querySelector("h1"); if(h1) name=h1.innerText.trim();
-      const hl=document.querySelector(".text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium, .top-card-layout__headline");
-      if(hl) headline=hl.innerText.trim();
-      const cm=document.querySelector('[aria-label^="Current company"], .pv-text-details__right-panel a[href*="/company/"]');
-      if(cm) company=cm.innerText.trim();
-    } else {
-      const h1=document.querySelector("h1"); if(h1) name=h1.innerText.trim().slice(0,80);
-    }
-    const links=Array.from(new Set([].slice.call(document.querySelectorAll("a[href]")).map(a=>a.href).filter(h=>/^https?:/.test(h))));
-    return {url:location.href, title:document.title, host, name, headline, company, emails, phones, links};
-  }catch(e){ return {url:location.href, error:String(e), emails:[], phones:[], links:[]}; }
-}
+/* ftPageScrape est défini dans scrape-core.js (chargé avant app.js) et
+   partagé avec la popup de l'extension, pour une seule source de vérité. */
 const Scraper = (()=>{
   const appUrl = IS_EXT ? chrome.runtime.getURL("index.html") : "";
   function waitTab(tabId,timeout=18000){ return new Promise(res=>{ const t0=Date.now();
@@ -619,8 +610,11 @@ function finderScrape(){
   (SCRAPE_MODE==="tab"?scrapeTabUI:scrapeWebUI)();
 }
 async function scrapeTabUI(){
-  $("#scBody").innerHTML=`<div class="card"><div style="display:flex;align-items:center"><div class="section-title" style="margin:0">Vos onglets ouverts</div><div class="spacer"></div><button class="btn sm ghost" id="sc_refresh">Rafraîchir</button></div>
-    <p class="muted" style="font-weight:600">Ouvrez un profil LinkedIn (ou tout site/annuaire) dans un onglet, puis cliquez « Scraper » ici. Les emails, téléphones et le nom sont extraits.</p>
+  $("#scBody").innerHTML=`
+  <div class="helpbox" style="background:var(--accent-soft);color:var(--accent)">${ic2("info")}
+    <div><b>Le plus simple pour LinkedIn :</b> allez sur la page LinkedIn (résultats de recherche ou profil) et <b>cliquez l'icône de l'extension</b> en haut à droite de Chrome. Une bulle s'ouvre, détecte tous les profils, et vous les enregistrez dans une liste en un clic — comme Skrapp.</div></div>
+  <div class="card"><div style="display:flex;align-items:center"><div class="section-title" style="margin:0">Ou : scraper un onglet ouvert</div><div class="spacer"></div><button class="btn sm ghost" id="sc_refresh">Rafraîchir</button></div>
+    <p class="muted" style="font-weight:600">Sélectionnez un onglet (LinkedIn, annuaire, site…) et cliquez « Scraper ». Emails, téléphones et nom sont extraits.</p>
     <div id="sc_tabs" class="muted">Chargement…</div></div><div id="sc_out" style="margin-top:16px"></div>`;
   $("#sc_refresh").onclick=scrapeTabUI;
   let tabs=[]; try{ tabs=await Scraper.listTabs(); }catch(e){}
@@ -1810,7 +1804,7 @@ VIEWS.guide=()=>{
       <li>Téléchargez le dossier de l'outil (ZIP) et décompressez-le.</li>
       <li>Ouvrez Chrome → <code class="k">chrome://extensions</code> → activez « Mode développeur » (en haut à droite).</li>
       <li>Cliquez « Charger l'extension non empaquetée » et sélectionnez le dossier décompressé (celui qui contient directement <code class="k">manifest.json</code>).</li>
-      <li>Cliquez l'icône de l'extension pour ouvrir l'outil. L'onglet « Scraper LinkedIn / Web » est alors actif.</li>
+      <li>Cliquez l'icône de l'extension (en haut à droite de Chrome) : une <b>bulle</b> s'ouvre pour récupérer les contacts de la page en cours (LinkedIn, annuaire, site). Le lien « Ouvrir l'outil » dans la bulle ouvre l'application complète (CRM, devis, etc.).</li>
     </ol>
     <p class="muted" style="font-weight:600;margin:10px 0 0">Sans extension, l'outil fonctionne quand même : utilisez le bookmarklet ou « Extraire d'une page ».</p>
   </div>
@@ -1921,3 +1915,15 @@ go("dash");
 checkOverdue();
 hydrateFromChrome();
 window.addEventListener("beforeunload",saveNow);
+/* Synchronisation live : quand la popup de l'extension enregistre des contacts,
+   l'application ouverte se met à jour automatiquement. */
+try{ if(typeof chrome!=="undefined" && chrome.storage && chrome.storage.onChanged){
+  chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area!=="local" || !changes[KEY] || !changes[KEY].newValue) return;
+    const nv=changes[KEY].newValue;
+    if(JSON.stringify(nv.contacts||[])===JSON.stringify(DB.contacts||[])) return;
+    DB=migrate(nv); try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){}
+    renderNav(); if(VIEWS[CURRENT]) VIEWS[CURRENT]();
+    toast("Contacts synchronisés depuis l'extension");
+  });
+} }catch(e){}
