@@ -148,6 +148,45 @@ function ftPhones(text){
   }
   return [...out];
 }
+/* Enrichissement hors-ligne (équivalent des colonnes "AI" de Skrapp, en règles,
+   sans crédit ni API) : déduit la séniorité et la fonction depuis l'intitulé de
+   poste, et le statut depuis l'email. */
+function inferSeniority(text){
+  const t=(text||"").toLowerCase();
+  if(/(ceo|cto|cfo|coo|cmo|cxo|chief|pr[ée]sident|founder|fondat|owner|propri[ée]taire|g[ée]rant|managing director|directeur g[ée]n[ée]ral|\bdg\b|dirigeant)/.test(t)) return "Direction";
+  if(/(\bvp\b|vice[- ]?pr[ée]sident|head of|directeur|director|directrice|daf|drh)/.test(t)) return "Directeur";
+  if(/(manager|responsable|lead|\bchef\b|principal|superviseur|coordinateur|coordinatrice)/.test(t)) return "Manager";
+  if(/(senior|confirm[ée]|exp[ée]riment)/.test(t)) return "Senior";
+  if(/(junior|assistant|stagiaire|intern|entry|apprenti|alternant|d[ée]butant)/.test(t)) return "Débutant";
+  return "";
+}
+function inferFunction(text){
+  const t=(text||"").toLowerCase();
+  const map=[
+    ["Direction",/ceo|g[ée]rant|founder|fondat|pr[ée]sident|directeur g[ée]n|managing|propri[ée]taire|dirigeant/],
+    ["Commercial",/sales|commercial|vente|business development|account manager|d[ée]veloppement comm/],
+    ["Marketing",/market|communicat|growth|acquisition|digital|\bseo\b|\bbrand\b|social media/],
+    ["RH",/\brh\b|human resources|recrut|talent acquisition|ressources humaines|\bdrh\b/],
+    ["Finance",/financ|compta|accounting|tr[ée]sor|controlling|audit|\bdaf\b/],
+    ["IT / Tech",/informatique|d[ée]velopp|software|\bdata\b|ing[ée]nieur|engineer|\bit\b|\bcto\b|devops/],
+    ["Opérations",/op[ée]rations|logistique|supply|production|qualit[ée]/],
+    ["Formation",/formation|[ée]ducation|p[ée]dagog|enseign|training|professeur|teacher|formateur/],
+    ["Santé / Social",/infirmi|m[ée]dico|social|\bsoin|aide[- ]soignant|[ée]ducateur/],
+    ["Beauté / Esthétique",/esth[ée]ti|beaut[ée]|institut de beaut|coiffure|\bspa\b/],
+    ["Achats",/achat|procurement|purchasing/],
+    ["Juridique",/juridique|\blegal\b|avocat|compliance|rgpd/],
+  ];
+  for(const [lab,re] of map){ if(re.test(t)) return lab; }
+  return "";
+}
+function emailStatut(email){
+  if(!email) return {l:"—",c:"n"};
+  const v=EmailFinder.verify(email);
+  return v.status==="probable"?{l:"Valide",c:"g"}
+    : v.status==="générique"?{l:"Catch-All",c:"w"}
+    : v.status==="perso"?{l:"Perso",c:"b"}
+    : {l:"Invalide",c:"r"};
+}
 const EmailFinder = (()=> {
   const deburr = s => (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"");
   // patterns d'email d'entreprise les plus fréquents, avec poids de confiance
@@ -935,45 +974,107 @@ function finderVerify(){
   };
 }
 
-let CS_TAG="";
+let CS_TAG="", CS_STATUS="", CS_PAGE=1, CS_PER=25;
+let CS_SEL=new Set();
+function csRows(){
+  const q=(($("#cs_q")&&$("#cs_q").value)||"").toLowerCase();
+  return DB.contacts.filter(c=>{
+    if(CS_TAG && !(c.tags||[]).includes(CS_TAG)) return false;
+    if(CS_STATUS && emailStatut(c.email).l!==CS_STATUS) return false;
+    if(q && !(c.email+(c.name||"")+(c.domain||"")+(c.service||"")).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
 function finderSaved(){
-  const list=DB.contacts;
-  const tags=[...new Set(list.flatMap(c=>c.tags||[]))];
+  const tags=[...new Set(DB.contacts.flatMap(c=>c.tags||[]))];
+  const chip=(id,lab,n,active)=>`<button class="lchip ${active?'on':''}" data-list="${esc(id)}">${esc(lab)}<span class="lc">${n}</span></button>`;
   $("#finderBody").innerHTML=`
+  <div class="lists-bar">
+    ${chip("","Tous les contacts",DB.contacts.length,CS_TAG==="")}
+    ${tags.map(t=>chip(t,t,DB.contacts.filter(c=>(c.tags||[]).includes(t)).length,CS_TAG===t)).join("")}
+    <button class="btn ghost sm" id="cs_newlist">+ Nouvelle liste</button>
+  </div>
   <div class="toolbar">
-    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input class="input" id="cs_q" placeholder="Rechercher un contact…"></div>
-    ${tags.length?`<select id="cs_tag" class="input" style="max-width:180px"><option value="">Toutes les listes</option>${tags.map(t=>`<option ${CS_TAG===t?'selected':''}>${esc(t)}</option>`).join("")}</select>`:""}
+    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input class="input" id="cs_q" placeholder="Rechercher…" value="${esc(csQVal())}"></div>
+    <select id="cs_status" class="input" style="max-width:150px">
+      ${["","Valide","Catch-All","Perso","Invalide"].map(s=>`<option value="${s}" ${CS_STATUS===s?'selected':''}>${s||"Tous les statuts"}</option>`).join("")}</select>
     <div class="spacer"></div>
     <button class="btn ghost sm" id="cs_imp">Importer CSV</button>
     <input type="file" id="cs_file" accept=".csv,text/csv" style="display:none">
     <button class="btn ghost sm" id="cs_dedupe">Dédupliquer</button>
     <button class="btn ghost sm" id="cs_exp">Exporter CSV</button>
   </div>
-  <div id="cs_tbl"></div>`;
-  const draw=()=>{
-    const q=($("#cs_q").value||"").toLowerCase();
-    const rows=list.filter(c=>(!q||(c.email+(c.name||"")+(c.domain||"")).toLowerCase().includes(q))&&(!CS_TAG||(c.tags||[]).includes(CS_TAG)));
-    $("#cs_tbl").innerHTML= rows.length?`<div class="tbl-wrap"><table>
-      <thead><tr><th>Email</th><th>Nom</th><th>Domaine</th><th>Listes</th><th>Source</th><th></th></tr></thead>
-      <tbody>${rows.map(c=>`<tr>
-        <td class="mono cell-strong">${esc(c.email)}</td><td>${esc(c.name||"—")}</td>
-        <td class="muted">${esc(c.domain||"—")}</td>
-        <td>${(c.tags||[]).map(t=>`<span class="tag a" style="margin:1px">${esc(t)}</span>`).join("")||'<span class="muted">—</span>'}</td>
-        <td><span class="tag n">${esc(c.source||"—")}</span></td>
-        <td class="rowact"><button class="btn sm ghost" data-call="tagContact('${c.id}')">Liste</button>
-        <button class="btn sm ghost" data-call="copy('${c.email}')">Copier</button>
-        <button class="btn sm ghost" data-call="delContact('${c.id}')">✕</button></td></tr>`).join("")}</tbody></table></div>`
-      : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div>Aucun contact. Utilisez les onglets de recherche ou importez un CSV.</div></div></div>`;
-  };
-  $("#cs_q").oninput=draw;
-  $("#cs_tag")&&($("#cs_tag").onchange=e=>{CS_TAG=e.target.value;draw();});
-  $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","domain","phone","confidence","source","tags"],list.map(c=>({...c,tags:(c.tags||[]).join(" ")})));
+  <div id="cs_bulk"></div>
+  <div id="cs_tbl"></div>
+  <div id="cs_pager"></div>`;
+  $("#cs_q").oninput=()=>{CS_PAGE=1;csDraw();};
+  $("#cs_status").onchange=e=>{CS_STATUS=e.target.value;CS_PAGE=1;csDraw();};
+  $$("#finderBody .lchip").forEach(b=>b.onclick=()=>{CS_TAG=b.dataset.list;CS_PAGE=1;CS_SEL.clear();finderSaved();});
+  $("#cs_newlist").onclick=()=>{ const n=prompt("Nom de la nouvelle liste :"); if(n&&n.trim()){ CS_TAG=n.trim(); toast("Liste « "+n.trim()+" » — ajoutez-y des contacts via « Déplacer »"); finderSaved(); } };
+  $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","domain","phone","service","statut","seniorite","fonction","source","tags"],
+    csRows().map(c=>({...c,statut:emailStatut(c.email).l,seniorite:inferSeniority(c.service),fonction:inferFunction(c.service),tags:(c.tags||[]).join(" ")})));
   $("#cs_imp").onclick=()=>$("#cs_file").click();
   $("#cs_file").onchange=importContactsCSV;
-  $("#cs_dedupe").onclick=()=>{const before=list.length;DB.contacts=EmailFinder.dedupe(list);const n=before-DB.contacts.length;save();renderNav();VIEWS.finder();toast(n?n+" doublon(s) supprimé(s)":"Aucun doublon");};
-  draw();
+  $("#cs_dedupe").onclick=()=>{const before=DB.contacts.length;DB.contacts=EmailFinder.dedupe(DB.contacts);const n=before-DB.contacts.length;save();renderNav();finderSaved();toast(n?n+" doublon(s) supprimé(s)":"Aucun doublon");};
+  csDraw();
 }
-window.delContact=id=>{ DB.contacts=DB.contacts.filter(c=>c.id!==id); save(); renderNav(); VIEWS.finder(); };
+function csQVal(){ return (($("#cs_q")&&$("#cs_q").value)||""); }
+function csDraw(){
+  const rows=csRows();
+  const pages=Math.max(1,Math.ceil(rows.length/CS_PER));
+  if(CS_PAGE>pages) CS_PAGE=pages;
+  const slice=rows.slice((CS_PAGE-1)*CS_PER, CS_PAGE*CS_PER);
+  const allSel=slice.length && slice.every(c=>CS_SEL.has(c.id));
+  const tbl=$("#cs_tbl"); if(!tbl) return;
+  tbl.innerHTML = rows.length?`<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th style="width:34px"><span class="chk ${allSel?'on':''}" id="cs_all" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></th>
+      <th>Nom</th><th>Entreprise / domaine</th><th>Email</th><th>Statut</th><th>Séniorité</th><th>Fonction</th><th>Téléphone</th><th></th></tr></thead>
+    <tbody>${slice.map(c=>{const st=emailStatut(c.email);const sen=inferSeniority(c.service);const fn=inferFunction(c.service);
+      return `<tr class="${CS_SEL.has(c.id)?'selrow':''}">
+      <td><span class="chk ${CS_SEL.has(c.id)?'on':''}" data-csel="${c.id}" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></td>
+      <td class="cell-strong">${esc(c.name||"—")}${c.service?`<div class="muted" style="font-size:11.5px;font-weight:500">${esc(c.service.slice(0,44))}</div>`:""}</td>
+      <td class="muted">${esc(c.domain||"—")}</td>
+      <td class="mono" style="font-size:12.5px">${c.email?esc(c.email):'<span class="muted">—</span>'}</td>
+      <td><span class="tag ${st.c}">${st.l}</span></td>
+      <td>${sen?`<span class="tag n">${sen}</span>`:'<span class="muted">—</span>'}</td>
+      <td>${fn?`<span class="tag b">${fn}</span>`:'<span class="muted">—</span>'}</td>
+      <td class="muted">${esc(c.phone||"—")}</td>
+      <td class="rowact"><button class="btn sm ghost" data-call="tagContact('${c.id}')">Liste</button>
+        ${c.email?`<button class="btn sm ghost" data-call="copy('${c.email}')">Copier</button>`:""}
+        <button class="btn sm ghost" data-call="delContact('${c.id}')">✕</button></td></tr>`;}).join("")}</tbody></table></div>`
+    : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div>Aucun contact${CS_TAG||CS_STATUS||csQVal()?" pour ce filtre":""}. Utilisez la bulle de l'extension, les onglets de recherche, ou importez un CSV.</div></div></div>`;
+  // pager
+  const pg=$("#cs_pager");
+  pg.innerHTML = rows.length>CS_PER?`<div style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:12px">
+    <span class="muted" style="font-weight:600;font-size:12px">${(CS_PAGE-1)*CS_PER+1}–${Math.min(CS_PAGE*CS_PER,rows.length)} sur ${rows.length}</span>
+    <button class="btn sm ghost" id="cs_prev" ${CS_PAGE<=1?"disabled":""}>‹</button>
+    <span style="font-weight:700">${CS_PAGE}/${pages}</span>
+    <button class="btn sm ghost" id="cs_next" ${CS_PAGE>=pages?"disabled":""}>›</button></div>`:"";
+  $("#cs_prev")&&($("#cs_prev").onclick=()=>{CS_PAGE--;csDraw();});
+  $("#cs_next")&&($("#cs_next").onclick=()=>{CS_PAGE++;csDraw();});
+  $$("#cs_tbl [data-csel]").forEach(el=>el.onclick=()=>{const id=el.dataset.csel;CS_SEL.has(id)?CS_SEL.delete(id):CS_SEL.add(id);csDraw();});
+  $("#cs_all")&&($("#cs_all").onclick=()=>{ if(allSel) slice.forEach(c=>CS_SEL.delete(c.id)); else slice.forEach(c=>CS_SEL.add(c.id)); csDraw(); });
+  csBulk();
+}
+function csBulk(){
+  const bar=$("#cs_bulk"); if(!bar) return; const n=CS_SEL.size;
+  if(!n){ bar.innerHTML=""; return; }
+  bar.innerHTML=`<div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;border-left:4px solid var(--brand);padding:10px 14px">
+    <b>${n} sélectionné(s)</b><div class="spacer"></div>
+    <button class="btn sm" id="cs_move">Déplacer vers une liste</button>
+    <button class="btn sm ghost" id="cs_expsel">Exporter</button>
+    <button class="btn sm ghost" id="cs_delsel" style="color:var(--bad)">Supprimer</button>
+    <button class="btn sm ghost" id="cs_clr">Annuler</button></div>`;
+  $("#cs_clr").onclick=()=>{CS_SEL.clear();csDraw();};
+  $("#cs_delsel").onclick=()=>confirmModal("Supprimer ?",n+" contact(s) seront supprimés.",()=>{DB.contacts=DB.contacts.filter(c=>!CS_SEL.has(c.id));CS_SEL.clear();save();renderNav();finderSaved();},true);
+  $("#cs_expsel").onclick=()=>exportCSV("contacts-selection",["email","name","domain","phone","service","statut","seniorite","fonction","tags"],
+    DB.contacts.filter(c=>CS_SEL.has(c.id)).map(c=>({...c,statut:emailStatut(c.email).l,seniorite:inferSeniority(c.service),fonction:inferFunction(c.service),tags:(c.tags||[]).join(" ")})));
+  $("#cs_move").onclick=()=>{ const name=prompt("Déplacer vers la liste (nom) :", CS_TAG||"Prospection"); if(!name||!name.trim())return; const L=name.trim();
+    DB.contacts.forEach(c=>{ if(CS_SEL.has(c.id)){ c.tags=c.tags||[]; if(!c.tags.includes(L)) c.tags.push(L); } });
+    save(); renderNav(); toast(CS_SEL.size+" contact(s) ajoutés à « "+L+" »"); CS_SEL.clear(); finderSaved(); };
+}
+window.delContact=id=>{ DB.contacts=DB.contacts.filter(c=>c.id!==id); CS_SEL.delete(id); save(); renderNav(); finderSaved(); };
 window.tagContact=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c)return;
   openModal({title:"Listes / étiquettes",body:`<div class="field"><label>Listes (séparées par des virgules)</label>
     <input class="input" id="tg_in" value="${esc((c.tags||[]).join(", "))}" placeholder="Prospects Espagne, Salon 2026"></div>`,

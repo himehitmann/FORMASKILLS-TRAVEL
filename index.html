@@ -100,6 +100,13 @@ tbody tr:hover{background:var(--panel-2)}
 tbody tr:last-child td{border-bottom:0}
 tbody tr.selrow{background:var(--brand-soft)}
 .chk.on svg{opacity:1}
+.lists-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.lchip{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:20px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-weight:700;font-size:12.5px;cursor:pointer;transition:all .16s var(--ease)}
+.lchip:hover{background:var(--panel-2);transform:translateY(-1px)}
+.lchip.on{background:var(--brand-soft);border-color:transparent;color:var(--brand-ink)}
+.lchip .lc{background:var(--panel-2);border:1px solid var(--line);border-radius:20px;padding:0 7px;font-size:11px;min-width:20px;text-align:center}
+.lchip.on .lc{background:#fff;border-color:transparent;color:var(--brand-ink)}
+:root[data-theme="dark"] .lchip.on .lc{background:var(--panel)}
 .cell-strong{font-weight:700}
 .muted{color:var(--muted)}
 .rowact{opacity:0;transition:opacity .16s}
