@@ -6,7 +6,7 @@ const KEY = "FT_OS_DB_v1";
 const DEFAULT_DB = {
   meta:{ created:Date.now(), version:1 },
   settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35,
-    quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0,
+    quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0, syncEnabled:false, lastSync:0,
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -42,7 +42,7 @@ let _saveT=null;
 function mirrorChrome(){ try{ if(typeof chrome!=="undefined" && chrome.storage && chrome.storage.local) chrome.storage.local.set({[KEY]:DB}); }catch(e){} }
 function save(){ // debounce léger pour ne pas écrire à chaque frappe
   clearTimeout(_saveT);
-  _saveT=setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } }, 120);
+  _saveT=setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } scheduleSync(); }, 120);
 }
 function saveNow(){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){} }
 /* Résilience : si localStorage a été vidé mais que chrome.storage a survécu
@@ -57,6 +57,103 @@ async function hydrateFromChrome(){
 }
 const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function logAct(msg){ DB.activity.unshift({t:Date.now(),m:msg}); DB.activity=DB.activity.slice(0,120); }
+
+/* ============================================================
+   1b. SYNCHRONISATION FICHIER (anti-perte de données)
+   L'outil écrit dans un fichier que vous placez dans votre dossier
+   Google Drive : Drive le synchronise sur tous vos PC et pour vos
+   collègues, sans serveur ni API. Fusion "union" : aucun enregistrement
+   n'est jamais perdu quand on rapproche deux copies.
+   ============================================================ */
+const FS_OK = (typeof window!=="undefined" && "showSaveFilePicker" in window);
+const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","quotes","docs"];
+function mergeDB(local, remote){
+  if(!remote) return local;
+  const out=structuredClone(local);
+  for(const k of COLLECTIONS){
+    const L=Array.isArray(local[k])?local[k]:[], R=Array.isArray(remote[k])?remote[k]:[];
+    const map=new Map();
+    R.forEach(x=>{ if(x&&x.id!=null) map.set(x.id,x); });
+    L.forEach(x=>{ if(x&&x.id!=null) map.set(x.id,x); }); // local écrase en cas de conflit d'id
+    out[k]=[...map.values()];
+  }
+  // réglages : garde les locaux mais récupère les compteurs les plus hauts
+  out.settings=Object.assign({}, remote.settings||{}, local.settings||{});
+  out.settings.quoteSeq=Math.max(local.settings?.quoteSeq||1, remote.settings?.quoteSeq||1);
+  out.settings.invoiceSeq=Math.max(local.settings?.invoiceSeq||1, remote.settings?.invoiceSeq||1);
+  if(remote.customFields){ out.customFields=out.customFields||{}; for(const e in remote.customFields){
+    const seen=new Set((out.customFields[e]||[]).map(f=>f.k));
+    out.customFields[e]=(out.customFields[e]||[]).concat((remote.customFields[e]||[]).filter(f=>!seen.has(f.k))); } }
+  return migrate(out);
+}
+/* Mini-store IndexedDB pour conserver la référence au fichier de synchro */
+function idbReq(fn){ return new Promise((res,rej)=>{ const r=indexedDB.open("ft_sync",1);
+  r.onupgradeneeded=()=>{ try{ r.result.createObjectStore("h"); }catch(e){} };
+  r.onsuccess=()=>{ try{ fn(r.result, res, rej); }catch(e){ rej(e); } }; r.onerror=()=>rej(r.error); }); }
+function idbSet(k,v){ return idbReq((db,res,rej)=>{ const t=db.transaction("h","readwrite"); t.objectStore("h").put(v,k); t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
+function idbGet(k){ return idbReq((db,res)=>{ const t=db.transaction("h","readonly"); const q=t.objectStore("h").get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>res(null); }); }
+function idbDel(k){ return idbReq((db,res)=>{ const t=db.transaction("h","readwrite"); t.objectStore("h").delete(k); t.oncomplete=()=>res(); }); }
+
+let SYNC_HANDLE=null, _syncT=null;
+async function perm(handle,mode){ try{ return await handle.queryPermission({mode}); }catch(e){ return "denied"; } }
+async function permAsk(handle,mode){ try{ return await handle.requestPermission({mode}); }catch(e){ return "denied"; } }
+async function writeSyncFile(){
+  if(!SYNC_HANDLE) return false;
+  try{
+    if((await perm(SYNC_HANDLE,"readwrite"))!=="granted") return false;
+    const w=await SYNC_HANDLE.createWritable(); await w.write(JSON.stringify(DB,null,2)); await w.close();
+    DB.settings.lastSync=Date.now(); try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){}
+    return true;
+  }catch(e){ return false; }
+}
+function scheduleSync(){ if(!SYNC_HANDLE) return; clearTimeout(_syncT); _syncT=setTimeout(writeSyncFile,800); }
+async function readSyncFile(){ if(!SYNC_HANDLE) return null;
+  try{ if((await perm(SYNC_HANDLE,"read"))!=="granted") return null; const f=await SYNC_HANDLE.getFile(); const txt=await f.text(); return txt?JSON.parse(txt):null; }catch(e){ return null; } }
+async function chooseSyncFile(){
+  if(!FS_OK){ toast("Ce navigateur ne gère pas la synchro fichier. Utilisez Export/Import.","warn"); return; }
+  try{
+    const h=await window.showSaveFilePicker({suggestedName:"formaskills-travel-os.json",
+      types:[{description:"Sauvegarde Travel OS",accept:{"application/json":[".json"]}}]});
+    SYNC_HANDLE=h; await idbSet("sync",h);
+    // si le fichier existe déjà et contient des données, on fusionne
+    const remote=await readSyncFile(); if(remote) DB=mergeDB(DB,remote);
+    DB.settings.syncEnabled=true; await writeSyncFile(); saveNow(); renderNav();
+    toast("Synchronisation activée. Placez ce fichier dans votre dossier Google Drive.");
+    if(CURRENT==="settings") VIEWS.settings();
+  }catch(e){ /* annulé par l'utilisateur */ }
+}
+async function openSyncFile(){
+  if(!FS_OK){ toast("Navigateur non compatible — utilisez Import.","warn"); return; }
+  try{
+    const [h]=await window.showOpenFilePicker({types:[{description:"Sauvegarde Travel OS",accept:{"application/json":[".json"]}}]});
+    SYNC_HANDLE=h; await idbSet("sync",h); const remote=await readSyncFile();
+    if(remote){ DB=mergeDB(DB,remote); DB.settings.syncEnabled=true; await writeSyncFile(); saveNow(); renderNav(); go("dash"); toast("Données synchronisées depuis le fichier."); }
+  }catch(e){}
+}
+async function disableSync(){ SYNC_HANDLE=null; await idbDel("sync"); DB.settings.syncEnabled=false; save(); if(CURRENT==="settings") VIEWS.settings(); toast("Synchronisation désactivée (les données locales restent)."); }
+async function reconnectSync(){ // 1 clic par session pour ré-autoriser l'accès au fichier
+  if(!SYNC_HANDLE){ const h=await idbGet("sync"); if(h) SYNC_HANDLE=h; }
+  if(!SYNC_HANDLE){ return chooseSyncFile(); }
+  const p=await permAsk(SYNC_HANDLE,"readwrite");
+  if(p==="granted"){ const remote=await readSyncFile(); if(remote){ DB=mergeDB(DB,remote); saveNow(); } await writeSyncFile(); renderNav(); syncBanner(); if(VIEWS[CURRENT])VIEWS[CURRENT](); toast("Synchronisation reconnectée."); }
+  else toast("Autorisation refusée.","warn");
+}
+async function initSync(){
+  try{ const h=await idbGet("sync"); if(!h) return; SYNC_HANDLE=h;
+    if((await perm(h,"readwrite"))==="granted"){ const remote=await readSyncFile(); if(remote){ DB=mergeDB(DB,remote); saveNow(); renderNav(); if(VIEWS[CURRENT])VIEWS[CURRENT](); } await writeSyncFile(); }
+    syncBanner();
+  }catch(e){}
+}
+function syncBanner(){
+  const host=$("#syncBanner"); if(!host) return;
+  if(SYNC_HANDLE && DB.settings.syncEnabled){
+    perm(SYNC_HANDLE,"readwrite").then(p=>{
+      host.innerHTML = p==="granted" ? "" :
+        `<div class="helpbox" style="cursor:pointer;background:var(--warn-soft);color:var(--warn)"><div>Synchronisation fichier en pause — cliquez ici pour la reconnecter (1 fois par session).</div></div>`;
+      const el=host.firstElementChild; if(el) el.onclick=reconnectSync;
+    });
+  } else host.innerHTML="";
+}
 
 /* ============================================================
    2. UTILITAIRES UI
@@ -1938,7 +2035,7 @@ VIEWS.settings=()=>{
     <div class="card">
       <div class="section-title" style="margin-top:0">Sauvegarde & données</div>
       <p class="muted" style="font-weight:600;margin-top:0">Vos données sont enregistrées <b>dans ce navigateur / cette extension</b>, sur cet ordinateur. Elles restent après fermeture et redémarrage. <b>Mais</b> si vous désinstallez l'extension ou changez d'ordinateur, elles ne suivent pas toutes seules.</p>
-      <p class="muted" style="font-weight:600">La solution sûre, sans dépendre d'aucun service : <b>exportez un fichier de sauvegarde</b> et gardez-le (sur votre Drive, une clé USB…). Pour changer d'ordinateur ou après une réinstallation : <b>importez</b> ce fichier.</p>
+      <p class="muted" style="font-weight:600">Deux façons de ne rien perdre : (1) la <b>synchronisation automatique</b> ci-dessous (recommandée, multi-PC) ; (2) l'<b>export/import manuel</b> ci-dessous.</p>
       <div style="font-size:12.5px;font-weight:600;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px">Dernière sauvegarde : <b>${DB.settings.lastBackup?fmtDate(DB.settings.lastBackup):"jamais — à faire dès maintenant"}</b></div>
       <button class="btn primary" id="s_exp" style="width:100%;margin-bottom:10px">Exporter toutes les données (fichier de sauvegarde)</button>
       <button class="btn" id="s_imp" style="width:100%;margin-bottom:10px">Importer une sauvegarde</button>
@@ -1951,6 +2048,18 @@ VIEWS.settings=()=>{
       <div class="divider"></div>
       <button class="btn ghost" id="s_reset" style="color:var(--bad)">Réinitialiser toutes les données</button>
     </div>
+    <div class="card" style="grid-column:1/-1;border-left:4px solid var(--accent)">
+      <div class="section-title" style="margin-top:0">Synchronisation automatique (anti-perte) — recommandé</div>
+      <p class="muted" style="font-weight:600;margin-top:0">Choisissez un <b>fichier de synchronisation</b> et placez-le dans votre <b>dossier Google Drive</b>. L'outil y écrit tout automatiquement à chaque changement. Google Drive le synchronise alors sur <b>tous vos PC</b> et pour vos <b>collègues</b> — sans serveur, sans compte à configurer. Sur un autre PC : installez l'outil, cliquez « Ouvrir un fichier existant » et pointez le même fichier Drive : tout revient. Fusion intelligente : <b>aucun contact n'est jamais perdu</b>.</p>
+      ${!FS_OK?`<div class="tag w">Votre navigateur ne gère pas cette fonction. Utilisez Chrome ou Edge (l'extension), ou l'export/import ci-dessus.</div>`:`
+      <div style="font-size:12.5px;font-weight:600;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+        État : <b style="color:${DB.settings.syncEnabled?'var(--ok)':'var(--muted)'}">${DB.settings.syncEnabled?'activée':'non activée'}</b>${DB.settings.lastSync?` · dernière synchro ${fmtDate(DB.settings.lastSync)}`:''}</div>
+      <div class="row2">
+        <button class="btn primary" id="sy_choose">${DB.settings.syncEnabled?'Changer le fichier de synchro':'Activer la synchro (choisir le fichier)'}</button>
+        <button class="btn" id="sy_open">Ouvrir un fichier existant (autre PC)</button>
+      </div>
+      ${DB.settings.syncEnabled?`<div class="row2" style="margin-top:10px"><button class="btn ghost" id="sy_now">Synchroniser maintenant</button><button class="btn ghost" id="sy_off" style="color:var(--bad)">Désactiver</button></div>`:''}`}
+    </div>
   </div>`;
   $("#s_save").onclick=()=>{ Object.assign(DB.settings,{caTarget:+$("#s_ca").value||0,panier:+$("#s_panier").value||1,
     convDevis:+$("#s_cd").value||.3,convRdv:+$("#s_cr").value||.25,convContact:+$("#s_cc").value||.35}); save(); toast("Réglages enregistrés"); };
@@ -1958,6 +2067,10 @@ VIEWS.settings=()=>{
   $("#s_imp").onclick=()=>$("#s_file").click();
   $("#s_file").onchange=importDB;
   $("#s_reset").onclick=()=>confirmModal("Tout réinitialiser ?","Toutes vos données seront effacées de ce navigateur. Exportez d'abord une sauvegarde !",()=>{DB=structuredClone(DEFAULT_DB);saveNow();renderNav();go("dash");toast("Réinitialisé");},true);
+  $("#sy_choose")&&($("#sy_choose").onclick=chooseSyncFile);
+  $("#sy_open")&&($("#sy_open").onclick=openSyncFile);
+  $("#sy_now")&&($("#sy_now").onclick=async()=>{ const ok=await writeSyncFile(); toast(ok?"Synchronisé.":"Cliquez pour reconnecter l'accès au fichier."); if(!ok) reconnectSync(); VIEWS.settings(); });
+  $("#sy_off")&&($("#sy_off").onclick=disableSync);
 };
 
 /* ---------- Export / Import ---------- */
@@ -2015,6 +2128,7 @@ renderNav();
 go("dash");
 checkOverdue();
 hydrateFromChrome();
+initSync();
 window.addEventListener("beforeunload",saveNow);
 /* Synchronisation live : quand la popup de l'extension enregistre des contacts,
    l'application ouverte se met à jour automatiquement. */
