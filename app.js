@@ -6,7 +6,7 @@ const KEY = "FT_OS_DB_v1";
 const DEFAULT_DB = {
   meta:{ created:Date.now(), version:1 },
   settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35,
-    quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0, syncEnabled:false, lastSync:0,
+    quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0, syncEnabled:false, lastSync:0, lastDailyRun:"",
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -486,50 +486,182 @@ const Scraper = (()=>{
 })();
 
 /* ============================================================
-   4. MOTEUR D'AUTOMATISATIONS (remplace Make, côté client)
-   Règles simples : QUAND <event> [SI condition] ALORS <actions>.
-   Déclenché à chaque mutation d'entité.
+   4. MOTEUR D'AUTOMATISATIONS MULTI-ÉTAPES (esprit n8n, côté client)
+   Une règle = QUAND <déclencheur> [SI conditions] ALORS <suite d'actions>.
+   Plusieurs déclencheurs, conditions multiples (ET/OU), actions en
+   séquence. 100 % local, sans serveur ni API. n8n lui-même n'est pas
+   intégrable (serveur Node.js) : on en reproduit l'esprit dans l'outil.
    ============================================================ */
 const Automations = (()=>{
   const EVENTS = {
-    "partner.status": "Statut partenaire changé",
-    "project.created":"Projet créé",
-    "task.overdue":  "Tâche en retard (au chargement)",
+    "contact.created":    "Contact ajouté",
+    "partner.status":     "Statut partenaire changé",
+    "project.created":    "Projet créé",
     "participant.created":"Participant ajouté",
+    "quote.accepted":     "Devis accepté",
+    "invoice.overdue":    "Facture en retard (à l'ouverture)",
+    "task.overdue":       "Tâche en retard (à l'ouverture)",
+    "deadline.soon":      "Échéance de départ proche (à l'ouverture)",
+    "daily":              "Planning quotidien (une fois par jour)",
   };
-  const ACTIONS = {
-    "task": "Créer une tâche",
-    "toast":"Afficher une notification",
-    "flag": "Marquer / étiqueter",
+  // Variables disponibles dans les modèles {variable} selon le déclencheur
+  const EV_VARS = {
+    "contact.created":    "{email} {name} {domain} {phone}",
+    "partner.status":     "{name} {status} {type} {email}",
+    "project.created":    "{name} {status} {start} {country}",
+    "participant.created":"{name} {status} {email}",
+    "quote.accepted":     "{number} {clientName} {clientEmail} {object}",
+    "invoice.overdue":    "{number} {clientName} {clientEmail} {daysLate}",
+    "task.overdue":       "{title} {priority}",
+    "deadline.soon":      "{name} {daysLeft} {start} {country}",
+    "daily":              "{date} {taches} {retards} {prospects} {contacts}",
   };
-  function run(eventKey, ctx){
-    const active = DB.automations.filter(a=>a.on && a.event===eventKey);
-    for(const a of active){
-      if(a.condField && a.condValue){
-        const v = (ctx?.[a.condField] ?? "").toString().toLowerCase();
-        if(!v.includes(a.condValue.toLowerCase())) continue;
-      }
-      applyAction(a, ctx);
-      logAct(`Auto « ${a.name} » déclenchée`);
-    }
-  }
-  function applyAction(a, ctx){
-    if(a.action==="task"){
-      DB.tasks.push({id:uid(), title:tpl(a.actionValue||"Suite à automatisation", ctx),
-        status:"À faire", due:Date.now()+3*864e5, priority:"Normale", auto:true});
-      save();
-    } else if(a.action==="toast"){
-      toast(tpl(a.actionValue||"Automatisation déclenchée", ctx),"ok");
-    } else if(a.action==="flag"){
-      if(ctx?._entity && ctx?._id){
-        const arr=DB[ctx._entity]; const it=arr?.find(x=>x.id===ctx._id);
-        if(it){ it.flag=a.actionValue||"Prioritaire"; save(); }
-      }
-    }
-  }
+  const OPS = {
+    contient:   "contient",
+    egal:       "est égal à",
+    different:  "est différent de",
+    commence:   "commence par",
+    nonvide:    "n'est pas vide",
+    vide:       "est vide",
+    sup:        "est supérieur à (nombre)",
+    inf:        "est inférieur à (nombre)",
+  };
+  const STEP_ACTIONS = {
+    task:      "Créer une tâche",
+    notify:    "Afficher une notification",
+    setField:  "Modifier un champ de la fiche",
+    flag:      "Étiqueter la fiche",
+    addToList: "Ajouter le contact à une liste",
+    email:     "Préparer un email (brouillon)",
+    genDoc:    "Générer un document depuis un modèle",
+  };
+
   const tpl=(s,ctx)=> (s||"").replace(/\{(\w+)\}/g,(_,k)=> (ctx?.[k]??"").toString());
-  return {run,EVENTS,ACTIONS};
+
+  // Compatibilité ascendante : les anciennes règles (action/actionValue/
+  // condField/condValue) sont converties à la volée au format multi-étapes.
+  function norm(a){
+    if(a && Array.isArray(a.steps)) {
+      return { event:a.event, condLogic:a.condLogic||"all",
+        conditions:Array.isArray(a.conditions)?a.conditions:[],
+        steps:a.steps };
+    }
+    const conditions=[];
+    if(a && a.condField && a.condValue) conditions.push({field:a.condField, op:"contient", value:a.condValue});
+    const act=a?.action==="toast"?"notify":(a?.action||"task");
+    const steps=[{ action:act, value:a?.actionValue||"" }];
+    return { event:a?.event, condLogic:"all", conditions, steps };
+  }
+
+  function evalCond(c, ctx){
+    if(!c || !c.field) return true;
+    const raw = ctx?.[c.field];
+    const v = (raw==null?"":String(raw)).toLowerCase();
+    const t = (c.value==null?"":String(c.value)).toLowerCase();
+    switch(c.op){
+      case "egal":      return v===t;
+      case "different": return v!==t;
+      case "commence":  return v.startsWith(t);
+      case "vide":      return v==="";
+      case "nonvide":   return v!=="";
+      case "sup":       return parseFloat(raw)>parseFloat(c.value);
+      case "inf":       return parseFloat(raw)<parseFloat(c.value);
+      default:          return v.includes(t);
+    }
+  }
+  function condsMatch(n, ctx){
+    const cs=(n.conditions||[]).filter(c=>c && c.field);
+    if(!cs.length) return true;
+    return n.condLogic==="any" ? cs.some(c=>evalCond(c,ctx)) : cs.every(c=>evalCond(c,ctx));
+  }
+  // Évite de recréer la même tâche/brouillon à chaque ouverture de l'app.
+  function openAutoTaskExists(title){
+    return DB.tasks.some(t=>t.auto && t.status!=="Fait" && t.title===title);
+  }
+  function sanitizeCtx(ctx){
+    const o={}; if(!ctx) return o;
+    for(const k in ctx){ if(k[0]==="_") continue; const v=ctx[k];
+      if(v==null || typeof v==="object" || typeof v==="function") continue; o[k]=v; }
+    return o;
+  }
+  function ctxRecord(ctx){
+    if(ctx?._entity && ctx?._id) return DB[ctx._entity]?.find(x=>x.id===ctx._id)||null;
+    return null;
+  }
+
+  function applyStep(st, ctx){
+    const A=st.action;
+    if(A==="task"){
+      const title=tpl(st.value||"Tâche automatique", ctx);
+      if(openAutoTaskExists(title)) return;
+      DB.tasks.unshift({id:uid(), title, status:"À faire",
+        priority:st.priority||"Normale", due:Date.now()+((+st.dueDays||3)*DAY), auto:true});
+    } else if(A==="notify"){
+      toast(tpl(st.value||"Automatisation déclenchée", ctx),"ok");
+    } else if(A==="setField"){
+      const it=ctxRecord(ctx);
+      if(it && st.field){ it[st.field]=tpl(st.value||"", ctx); }
+    } else if(A==="flag"){
+      const it=ctxRecord(ctx);
+      if(it){ it.flag=tpl(st.value||"Prioritaire", ctx); }
+    } else if(A==="addToList"){
+      const listName=tpl(st.value||"", ctx).trim();
+      if(!listName) return;
+      let c=null;
+      if(ctx?._entity==="contacts" && ctx?._id) c=DB.contacts.find(x=>x.id===ctx._id);
+      else if(ctx?.email) c=DB.contacts.find(x=>x.email===ctx.email);
+      if(c){ c.tags=c.tags||[]; if(!c.tags.includes(listName)) c.tags.push(listName); }
+    } else if(A==="email"){
+      const to=tpl(st.to||ctx?.email||ctx?.clientEmail||"", ctx).trim();
+      const subject=tpl(st.subject||"", ctx);
+      const body=tpl(st.body||"", ctx);
+      const mailto="mailto:"+encodeURIComponent(to)+"?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body);
+      const title="Email à "+(to||"—")+(subject?(" — "+subject):"");
+      if(openAutoTaskExists(title)) return;
+      DB.tasks.unshift({id:uid(), title, status:"À faire", priority:"Normale",
+        due:Date.now()+DAY, auto:true, kind:"email-draft", mailto});
+    } else if(A==="genDoc"){
+      const t=allTemplates().find(x=>x.id===st.template); if(!t) return;
+      const who=ctx?.name||ctx?.clientName||"";
+      const title="Document : "+t.name+(who?(" — "+who):"");
+      if(openAutoTaskExists(title)) return;
+      DB.tasks.unshift({id:uid(), title, status:"À faire", priority:"Normale",
+        due:Date.now()+2*DAY, auto:true, kind:"doc-draft", docTpl:t.id, docCtx:sanitizeCtx(ctx)});
+    }
+  }
+
+  function run(eventKey, ctx){
+    let fired=false;
+    const active=(DB.automations||[]).filter(a=>a.on!==false && norm(a).event===eventKey);
+    for(const a of active){
+      const n=norm(a);
+      if(!condsMatch(n, ctx)) continue;
+      for(const st of (n.steps||[])) applyStep(st, ctx);
+      logAct(`Auto « ${a.name} » déclenchée`);
+      fired=true;
+    }
+    if(fired) save();
+    return fired;
+  }
+
+  return {run, norm, EVENTS, EV_VARS, OPS, STEP_ACTIONS};
 })();
+
+window.writeAutoEmail=id=>{ const t=DB.tasks.find(x=>x.id===id); if(t && t.mailto){ window.location.href=t.mailto; } };
+window.openAutoDoc=id=>{
+  const t=DB.tasks.find(x=>x.id===id); if(!t || !t.docTpl){ toast("Brouillon introuvable","warn"); return; }
+  const tp=allTemplates().find(x=>x.id===t.docTpl); if(!tp){ toast("Modèle supprimé","warn"); return; }
+  const ctx=t.docCtx||{};
+  const vals={ societe:co().name||"", ...ctx };
+  // alias courants pour maximiser le pré-remplissage des modèles
+  if(ctx.name){ vals.participant=vals.participant||ctx.name; vals.nom=vals.nom||ctx.name; vals.client=vals.client||ctx.name; }
+  if(ctx.clientName){ vals.client=vals.client||ctx.clientName; }
+  if(ctx.start){ vals.date=vals.date||fmtDate(ctx.start); vals.dateDebut=vals.dateDebut||fmtDate(ctx.start); }
+  let out=(tp.body||"").replace(/\{\{(\w+)\}\}/g,(_,k)=>vals[k]!=null&&vals[k]!==""?vals[k]:"________");
+  const inner=`<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1 style="font-size:20px;letter-spacing:1px">${esc(tp.name.toUpperCase())}</h1></div></div>
+    <div class="doc-body">${esc(out)}</div>${coFooterHTML()}`;
+  printDocument(tp.name, inner);
+};
 
 /* ============================================================
    5. VUES
@@ -618,9 +750,15 @@ function nextActions(){
   // 6. Dossiers participants incomplets
   DB.participants.filter(p=>["Incomplet","En cours",""].includes(p.status||"")).forEach(p=>
     add(1,"",`Compléter le dossier de ${p.name}`,`Statut : ${p.status||"Incomplet"}`,{l:"Ouvrir",fn:`openRec('participants','${p.id}')`}));
-  // 7. Tâches en retard
-  DB.tasks.filter(t=>t.status!=="Fait" && t.due && t.due<now).forEach(t=>
-    add(3,"⏰",`Tâche en retard : ${t.title}`,`Échéance ${fmtDate(t.due)}`,{l:"Ouvrir",fn:`openRec('tasks','${t.id}')`}));
+  // 7. Tâches en retard (hors brouillons d'automatisation, traités ci-dessous)
+  DB.tasks.filter(t=>t.status!=="Fait" && t.due && t.due<now && t.kind!=="email-draft" && t.kind!=="doc-draft").forEach(t=>
+    add(3,"",`Tâche en retard : ${t.title}`,`Échéance ${fmtDate(t.due)}`,{l:"Ouvrir",fn:`openRec('tasks','${t.id}')`}));
+  // 7b. Brouillons d'email préparés par une automatisation
+  DB.tasks.filter(t=>t.kind==="email-draft" && t.status!=="Fait").forEach(t=>
+    add(2,"",t.title||"Email à préparer","Brouillon préparé par une automatisation",{l:"Écrire l'email",fn:`writeAutoEmail('${t.id}')`}));
+  // 7c. Documents pré-remplis par une automatisation
+  DB.tasks.filter(t=>t.kind==="doc-draft" && t.status!=="Fait").forEach(t=>
+    add(2,"",t.title||"Document à générer","Document pré-rempli par une automatisation",{l:"Ouvrir le document",fn:`openAutoDoc('${t.id}')`}));
   // 8. Amorçage si vide
   if(!DB.partners.length) add(1,"","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
   // 9. Rappel de sauvegarde (protège vos données en cas de désinstallation / changement d'ordinateur)
@@ -956,8 +1094,10 @@ const scoreBar=c=>{
 };
 window.saveContact=(email,name,domain,conf)=>{
   if(DB.contacts.some(c=>c.email===email)){ toast("Déjà dans les contacts","warn"); return; }
-  DB.contacts.unshift({id:uid(),email,name,domain,confidence:conf||"",source:"finder",added:Date.now(),phone:"",note:""});
+  const c={id:uid(),email,name,domain,confidence:conf||"",source:"finder",added:Date.now(),phone:"",note:"",tags:[]};
+  DB.contacts.unshift(c);
   logAct(`Contact ajouté : ${email}`); save(); renderNav(); toast("Contact enregistré");
+  Automations.run("contact.created",{...c,_entity:"contacts",_id:c.id});
 };
 
 function finderExtract(){
@@ -1009,8 +1149,10 @@ function finderExtract(){
   };
 }
 window.importAllContacts=(list)=>{
-  let n=0; for(const c of list){ if(!DB.contacts.some(x=>x.email===c.email)){ DB.contacts.unshift({id:uid(),email:c.email,name:c.guessName||"",domain:c.domain,confidence:70,source:"extract",added:Date.now(),phone:"",note:""}); n++; } }
+  let n=0; const added=[];
+  for(const c of list){ if(!DB.contacts.some(x=>x.email===c.email)){ const rec={id:uid(),email:c.email,name:c.guessName||"",domain:c.domain,confidence:70,source:"extract",added:Date.now(),phone:"",note:"",tags:[]}; DB.contacts.unshift(rec); added.push(rec); n++; } }
   logAct(`${n} contacts importés (extraction)`); save(); renderNav(); toast(n+" contacts ajoutés au CRM");
+  added.forEach(rec=>Automations.run("contact.created",{...rec,_entity:"contacts",_id:rec.id}));
 };
 
 function finderLearn(){
@@ -1186,13 +1328,15 @@ function importContactsCSV(e){
     const head=splitCSV(lines[0]).map(h=>h.trim().toLowerCase());
     const col=n=>head.findIndex(h=>h.includes(n));
     const iE=col("email")>=0?col("email"):0, iN=col("nom")>=0?col("nom"):col("name"), iD=col("domain")>=0?col("domain"):col("domaine"), iP=col("phone")>=0?col("phone"):col("tel");
-    let n=0; for(let i=1;i<lines.length;i++){ const cols=splitCSV(lines[i]);
+    let n=0; const added=[]; for(let i=1;i<lines.length;i++){ const cols=splitCSV(lines[i]);
       const email=(cols[iE]||"").trim().toLowerCase();
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
       if(DB.contacts.some(c=>c.email===email)) continue;
-      DB.contacts.unshift({id:uid(),email,name:(iN>=0?cols[iN]:"")||"",domain:(iD>=0?cols[iD]:email.split("@")[1])||"",phone:(iP>=0?cols[iP]:"")||"",confidence:"",source:"import",added:Date.now(),tags:[]}); n++;
+      const rec={id:uid(),email,name:(iN>=0?cols[iN]:"")||"",domain:(iD>=0?cols[iD]:email.split("@")[1])||"",phone:(iP>=0?cols[iP]:"")||"",confidence:"",source:"import",added:Date.now(),tags:[]};
+      DB.contacts.unshift(rec); added.push(rec); n++;
     }
     logAct(`${n} contacts importés (CSV)`); save(); renderNav(); VIEWS.finder(); toast(n+" contacts importés");
+    added.forEach(rec=>Automations.run("contact.created",{...rec,_entity:"contacts",_id:rec.id}));
   }catch(err){toast("CSV illisible","bad");} };
   rd.readAsText(f);
 }
@@ -1805,11 +1949,17 @@ function saveQuote(id){
   const data=readQuoteForm(base);
   if(!data.clientName.trim()){ toast("Le nom du client est requis","warn"); return; }
   const label=data.kind==="facture"?"Facture":"Devis";
-  if(id){ Object.assign(DB.quotes.find(x=>x.id===id),data); logAct(label+" modifié : "+data.number); }
+  const prevStatus=id?(base.status||""):"";
+  let acceptedNow=false;
+  if(id){ Object.assign(DB.quotes.find(x=>x.id===id),data); logAct(label+" modifié : "+data.number);
+    if((data.kind||"devis")==="devis" && prevStatus!=="Accepté" && data.status==="Accepté") acceptedNow=true; }
   else{ DB.quotes.unshift({id:uid(),...data});
     if(data.kind==="facture") DB.settings.invoiceSeq=(DB.settings.invoiceSeq||1)+1; else DB.settings.quoteSeq=(DB.settings.quoteSeq||1)+1;
-    logAct(label+" créé : "+data.number); }
+    logAct(label+" créé : "+data.number);
+    if((data.kind||"devis")==="devis" && data.status==="Accepté") acceptedNow=true; }
   save(); closeModal(); DOCS_KIND=data.kind||"devis"; VIEWS.docs(); toast(label+" enregistré");
+  if(acceptedNow){ const q=DB.quotes.find(x=>x.number===data.number)||data;
+    Automations.run("quote.accepted",{...q,_entity:"quotes",_id:q.id}); }
 }
 function nextQuoteNumber(kind){ const y=new Date().getFullYear();
   const seq = kind==="facture" ? (DB.settings.invoiceSeq||1) : (DB.settings.quoteSeq||1);
@@ -1940,45 +2090,171 @@ function docsCompany(){
 }
 
 /* ---------- Automatisations ---------- */
+/* Modèles prêts à l'emploi (démarrage rapide) */
+const AUTO_PRESETS=[
+  {name:"Bienvenue nouveau contact", event:"contact.created", condLogic:"all", conditions:[],
+   steps:[{action:"task",value:"Contacter {name} ({email})",priority:"Normale",dueDays:2},
+          {action:"addToList",value:"À contacter"}]},
+  {name:"Relance devis accepté", event:"quote.accepted", condLogic:"all", conditions:[],
+   steps:[{action:"task",value:"Préparer la facture pour {clientName} (devis {number})",priority:"Haute",dueDays:2},
+          {action:"notify",value:"Devis {number} accepté — pensez à facturer {clientName}"}]},
+  {name:"Facture en retard → relance", event:"invoice.overdue", condLogic:"all", conditions:[],
+   steps:[{action:"task",value:"Relancer {clientName} — facture {number} ({daysLate} j de retard)",priority:"Haute",dueDays:1},
+          {action:"email",to:"{clientEmail}",subject:"Relance facture {number}",
+           body:"Bonjour,\n\nSauf erreur de notre part, la facture {number} demeure impayée.\nNous vous remercions de bien vouloir régulariser.\n\nCordialement,"}]},
+  {name:"Départ proche → check-list", event:"deadline.soon", condLogic:"all",
+   conditions:[{field:"daysLeft",op:"inf",value:"21"}],
+   steps:[{action:"task",value:"Préparer le départ « {name} » (J-{daysLeft})",priority:"Haute",dueDays:2}]},
+];
+
 VIEWS.automations=()=>{
   $("#view").innerHTML=`
-  <div class="helpbox">${ic2("info")}<div>Créez des règles <b>QUAND … ALORS …</b> qui s'exécutent automatiquement dans l'outil, sans Make ni Zapier. Ex : « Quand un partenaire passe en <i>Devis envoyé</i>, alors créer une tâche de relance ».</div></div>
-  <div class="toolbar"><div class="spacer"></div><button class="btn primary" id="au_add">+ Automatisation</button></div>
+  <div class="helpbox">${ic2("info")}<div>Créez des <b>scénarios automatiques multi-étapes</b> (esprit n8n, 100 % dans l'outil, sans Make/Zapier ni serveur) : un <b>déclencheur</b>, des <b>conditions</b> (ET/OU) puis une <b>suite d'actions</b> exécutées dans l'ordre — créer une tâche, préparer un email, changer un champ, ajouter à une liste, générer un document, notifier.</div></div>
+  <div class="toolbar"><div class="spacer"></div><button class="btn ghost" id="au_preset">Ajouter un modèle</button><button class="btn primary" id="au_add">+ Automatisation</button></div>
   <div id="au_list"></div>`;
   $("#au_add").onclick=()=>editAuto(null);
+  $("#au_preset").onclick=presetPicker;
   drawAutos();
 };
+function presetPicker(){
+  openModal({title:"Modèles d'automatisation", wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">Choisissez un scénario prêt à l'emploi : il sera ajouté et vous pourrez l'ajuster ensuite.</p>
+    <div id="au_presets">${AUTO_PRESETS.map((p,i)=>`<div class="result-row" style="align-items:center">
+      <div style="flex:1"><div class="cell-strong">${esc(p.name)}</div>
+      <div class="muted" style="font-size:12px">QUAND ${esc(Automations.EVENTS[p.event]||p.event)} → ${p.steps.map(s=>esc(Automations.STEP_ACTIONS[s.action]||s.action)).join(" › ")}</div></div>
+      <button class="btn sm primary" data-preset="${i}">Ajouter</button></div>`).join("")}</div>`,
+    footer:[{label:"Fermer",cls:"ghost",act:closeModal}]});
+  $$("#au_presets [data-preset]").forEach(b=>b.onclick=()=>{
+    const p=AUTO_PRESETS[+b.dataset.preset];
+    DB.automations.push({id:uid(), on:true, name:p.name, event:p.event, condLogic:p.condLogic||"all",
+      conditions:structuredClone(p.conditions||[]), steps:structuredClone(p.steps||[])});
+    save(); closeModal(); drawAutos(); toast("Automatisation ajoutée — ajustez-la si besoin");
+  });
+}
+function autoSummary(a){
+  const n=Automations.norm(a);
+  const conds=(n.conditions||[]).filter(c=>c && c.field);
+  const condTxt=conds.length? ` · SI ${conds.map(c=>`${esc(c.field)} ${esc(Automations.OPS[c.op]||c.op)}${["vide","nonvide"].includes(c.op)?"":" « "+esc(c.value)+" »"}`).join(n.condLogic==="any"?" OU ":" ET ")}`:"";
+  const steps=(n.steps||[]).map((s,i)=>`<span class="tag n">${i+1}. ${esc(Automations.STEP_ACTIONS[s.action]||s.action)}</span>`).join(" ");
+  return `<div class="muted" style="font-size:12.5px;margin-top:2px">QUAND <b>${esc(Automations.EVENTS[n.event]||n.event)}</b>${condTxt}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${steps||'<span class="muted" style="font-size:12px">Aucune action</span>'}</div>`;
+}
 function drawAutos(){
   const a=DB.automations;
-  $("#au_list").innerHTML=a.length? a.map(x=>`<div class="card" style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
-    <div class="switch ${x.on?'on':''}" data-toggle="${x.id}"><i></i></div>
-    <div style="flex:1">
+  $("#au_list").innerHTML=a.length? a.map(x=>`<div class="card" style="display:flex;align-items:flex-start;gap:14px;margin-bottom:10px">
+    <div class="switch ${x.on!==false?'on':''}" data-toggle="${x.id}" style="margin-top:2px"><i></i></div>
+    <div style="flex:1;min-width:0">
       <div class="cell-strong">${esc(x.name)}</div>
-      <div class="muted" style="font-size:12.5px;margin-top:2px">QUAND <b>${esc(Automations.EVENTS[x.event]||x.event)}</b>${x.condField?` · SI ${esc(x.condField)} contient « ${esc(x.condValue)} »`:""} → <b>${esc(Automations.ACTIONS[x.action]||x.action)}</b>${x.actionValue?` : ${esc(x.actionValue)}`:""}</div>
+      ${autoSummary(x)}
     </div>
     <button class="btn sm ghost" data-edit="${x.id}">Modifier</button>
     <button class="btn sm ghost" data-del="${x.id}">✕</button></div>`).join("")
-    : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.auto}</svg><div>Aucune automatisation. Créez votre première règle.</div></div></div>`;
-  $$("#au_list [data-toggle]").forEach(b=>b.onclick=()=>{const x=DB.automations.find(y=>y.id===b.dataset.toggle);x.on=!x.on;save();drawAutos();toast(x.on?"Activée":"Désactivée");});
+    : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.auto}</svg><div>Aucune automatisation. Créez votre première règle, ou partez d'un modèle.</div></div></div>`;
+  $$("#au_list [data-toggle]").forEach(b=>b.onclick=()=>{const x=DB.automations.find(y=>y.id===b.dataset.toggle);x.on=x.on===false;save();drawAutos();toast(x.on?"Activée":"Désactivée");});
   $$("#au_list [data-edit]").forEach(b=>b.onclick=()=>editAuto(b.dataset.edit));
-  $$("#au_list [data-del]").forEach(b=>b.onclick=()=>{DB.automations=DB.automations.filter(y=>y.id!==b.dataset.del);save();drawAutos();});
+  $$("#au_list [data-del]").forEach(b=>b.onclick=()=>confirmModal("Supprimer ?","Cette automatisation sera supprimée.",()=>{DB.automations=DB.automations.filter(y=>y.id!==b.dataset.del);save();drawAutos();},true));
 }
 function editAuto(id){
-  const it=id?DB.automations.find(x=>x.id===id):{on:true,event:"partner.status",action:"task"};
-  const evOpts=Object.entries(Automations.EVENTS).map(([k,v])=>`<option value="${k}" ${it.event===k?'selected':''}>${esc(v)}</option>`).join("");
-  const acOpts=Object.entries(Automations.ACTIONS).map(([k,v])=>`<option value="${k}" ${it.action===k?'selected':''}>${esc(v)}</option>`).join("");
+  const src=id?DB.automations.find(x=>x.id===id):null;
+  const n=src?Automations.norm(src):{event:"contact.created",condLogic:"all",conditions:[],steps:[{action:"task",value:"",priority:"Normale",dueDays:3}]};
+  // modèle de travail mutable (clone pour ne pas toucher au stockage avant validation)
+  const w={ name:src?.name||"", event:n.event||"contact.created", condLogic:n.condLogic||"all",
+    conditions:structuredClone(n.conditions||[]), steps:structuredClone(n.steps&&n.steps.length?n.steps:[{action:"task",value:"",priority:"Normale",dueDays:3}]) };
+
+  const evOpts=Object.entries(Automations.EVENTS).map(([k,v])=>`<option value="${k}" ${w.event===k?'selected':''}>${esc(v)}</option>`).join("");
   openModal({title:id?"Modifier l'automatisation":"Nouvelle automatisation", wide:true,
-    body:`<div class="field"><label>Nom de la règle *</label><input class="input" id="a_name" value="${esc(it.name||"")}" placeholder="Relance après devis"></div>
-    <div class="row2"><div class="field"><label>QUAND (déclencheur)</label><select id="a_ev">${evOpts}</select></div>
-    <div class="field"><label>ALORS (action)</label><select id="a_ac">${acOpts}</select></div></div>
-    <div class="row2"><div class="field"><label>SI (champ, optionnel)</label><input class="input" id="a_cf" value="${esc(it.condField||"")}" placeholder="status"></div>
-    <div class="field"><label>… contient</label><input class="input" id="a_cv" value="${esc(it.condValue||"")}" placeholder="Devis"></div></div>
-    <div class="field"><label>Valeur de l'action (texte de la tâche / notification). Variables : {name}, {status}…</label><input class="input" id="a_av" value="${esc(it.actionValue||"")}" placeholder="Relancer {name} sur le devis"></div>`,
+    body:`<div class="field"><label>Nom de la règle *</label><input class="input" id="a_name" value="${esc(w.name)}" placeholder="Ex : Relance après devis"></div>
+    <div class="field"><label>QUAND (déclencheur)</label><select id="a_ev">${evOpts}</select>
+      <p class="muted" id="a_vars" style="font-size:12px;font-weight:600;margin:6px 0 0"></p></div>
+    <div class="field"><label>SI (conditions)</label>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <select id="a_logic" style="max-width:220px"><option value="all" ${w.condLogic!=="any"?"selected":""}>Toutes les conditions (ET)</option><option value="any" ${w.condLogic==="any"?"selected":""}>Au moins une (OU)</option></select>
+        <div class="spacer"></div><button class="btn sm ghost" id="a_addcond">+ Condition</button></div>
+      <div id="a_conds"></div></div>
+    <div class="field"><label>ALORS (actions, exécutées dans l'ordre)</label>
+      <div id="a_steps"></div>
+      <button class="btn sm ghost" id="a_addstep" style="margin-top:6px">+ Ajouter une étape</button></div>`,
     footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Enregistrer",cls:"primary",act:()=>{
+      syncFromDOM();
       const name=$("#a_name").value.trim(); if(!name){toast("Nom requis","warn");return;}
-      const obj={name,event:$("#a_ev").value,action:$("#a_ac").value,condField:$("#a_cf").value.trim(),condValue:$("#a_cv").value.trim(),actionValue:$("#a_av").value.trim(),on:it.on!==false};
-      if(id){Object.assign(it,obj);}else{DB.automations.push({id:uid(),...obj});}
+      const steps=w.steps.filter(s=>s.action);
+      if(!steps.length){toast("Ajoutez au moins une action","warn");return;}
+      const obj={name, event:$("#a_ev").value, condLogic:w.condLogic,
+        conditions:w.conditions.filter(c=>c.field||["vide","nonvide"].includes(c.op)), steps, on:src?src.on!==false:true};
+      if(id){ const t=DB.automations.find(x=>x.id===id);
+        // retire les anciens champs du format simple pour éviter toute ambiguïté
+        delete t.action; delete t.actionValue; delete t.condField; delete t.condValue;
+        Object.assign(t,obj); }
+      else{ DB.automations.push({id:uid(),...obj}); }
       save();closeModal();drawAutos();toast("Automatisation enregistrée");}}]});
+
+  const OPS=Automations.OPS, STEP_ACTIONS=Automations.STEP_ACTIONS;
+  function updVars(){ $("#a_vars").textContent="Variables disponibles : "+(Automations.EV_VARS[$("#a_ev").value]||""); }
+  function condRow(c,i){
+    const opOpts=Object.entries(OPS).map(([k,l])=>`<option value="${k}" ${c.op===k?'selected':''}>${esc(l)}</option>`).join("");
+    const noVal=["vide","nonvide"].includes(c.op);
+    return `<div class="result-row" data-crow="${i}" style="gap:8px;align-items:center;flex-wrap:wrap">
+      <input class="input" data-cf placeholder="champ (ex : status, email, name)" value="${esc(c.field||"")}" style="flex:1;min-width:140px">
+      <select data-co style="min-width:150px">${opOpts}</select>
+      <input class="input" data-cv placeholder="valeur" value="${esc(c.value||"")}" style="flex:1;min-width:120px;${noVal?"visibility:hidden":""}">
+      <button class="btn sm ghost" data-crm="${i}">✕</button></div>`;
+  }
+  function stepFields(st,i){
+    const inp=(k,ph,val)=>`<input class="input" data-sf data-k="${k}" placeholder="${esc(ph)}" value="${esc(val==null?"":val)}">`;
+    if(st.action==="task") return `${inp("value","Titre de la tâche (variables {name}, {status}…)",st.value)}
+      <div class="row2" style="margin-top:8px"><select data-sf data-k="priority">${["Basse","Normale","Haute"].map(p=>`<option ${st.priority===p?'selected':''}>${p}</option>`).join("")}</select>
+      ${inp("dueDays","Échéance dans (jours), ex : 3",st.dueDays)}</div>`;
+    if(st.action==="notify") return inp("value","Message de notification",st.value);
+    if(st.action==="setField") return `<div class="row2">${inp("field","Champ à modifier (ex : status)",st.field)}${inp("value","Nouvelle valeur",st.value)}</div>`;
+    if(st.action==="flag") return inp("value","Étiquette (ex : Prioritaire)",st.value);
+    if(st.action==="addToList") return inp("value","Nom de la liste de contacts",st.value);
+    if(st.action==="email") return `${inp("to","Destinataire ({email} = adresse du contact)",st.to)}
+      <div style="margin-top:8px">${inp("subject","Objet de l'email",st.subject)}</div>
+      <textarea data-sf data-k="body" placeholder="Message (variables {name}…)" style="min-height:80px;margin-top:8px">${esc(st.body||"")}</textarea>`;
+    if(st.action==="genDoc"){ const opts=allTemplates().map(t=>`<option value="${t.id}" ${st.template===t.id?'selected':''}>${esc(t.name)}</option>`).join("");
+      return `<select data-sf data-k="template">${opts||'<option value="">Aucun modèle</option>'}</select>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Le document est pré-rempli (société + champs correspondants) et proposé dans « À faire maintenant ».</p>`; }
+    return "";
+  }
+  function stepRow(st,i){
+    const acOpts=Object.entries(STEP_ACTIONS).map(([k,l])=>`<option value="${k}" ${st.action===k?'selected':''}>${esc(l)}</option>`).join("");
+    return `<div class="card" data-srow="${i}" style="padding:12px;margin-bottom:8px;background:var(--panel-2)">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <span class="tag b">Étape ${i+1}</span>
+        <select data-sa style="flex:1">${acOpts}</select>
+        <button class="btn sm ghost" data-sup="${i}" title="Monter">↑</button>
+        <button class="btn sm ghost" data-sdn="${i}" title="Descendre">↓</button>
+        <button class="btn sm ghost" data-srm="${i}">✕</button></div>
+      <div>${stepFields(st,i)}</div></div>`;
+  }
+  function renderConds(){
+    $("#a_conds").innerHTML=w.conditions.length? w.conditions.map((c,i)=>condRow(c,i)).join("")
+      : `<div class="muted" style="font-size:12px">Aucune condition — la règle s'applique à chaque déclenchement.</div>`;
+    $$("#a_conds [data-co]").forEach(s=>s.onchange=()=>{ syncFromDOM(); renderConds(); });
+    $$("#a_conds [data-crm]").forEach(b=>b.onclick=()=>{ syncFromDOM(); w.conditions.splice(+b.dataset.crm,1); renderConds(); });
+  }
+  function renderSteps(){
+    $("#a_steps").innerHTML=w.steps.map((st,i)=>stepRow(st,i)).join("");
+    $$("#a_steps [data-sa]").forEach(s=>s.onchange=()=>{ syncFromDOM(); const i=+s.closest("[data-srow]").dataset.srow; w.steps[i]={action:s.value}; if(s.value==="task"){w.steps[i].priority="Normale";w.steps[i].dueDays=3;} renderSteps(); });
+    $$("#a_steps [data-srm]").forEach(b=>b.onclick=()=>{ syncFromDOM(); w.steps.splice(+b.dataset.srm,1); if(!w.steps.length) w.steps.push({action:"task",value:"",priority:"Normale",dueDays:3}); renderSteps(); });
+    $$("#a_steps [data-sup]").forEach(b=>b.onclick=()=>{ syncFromDOM(); const i=+b.dataset.sup; if(i>0){[w.steps[i-1],w.steps[i]]=[w.steps[i],w.steps[i-1]];} renderSteps(); });
+    $$("#a_steps [data-sdn]").forEach(b=>b.onclick=()=>{ syncFromDOM(); const i=+b.dataset.sdn; if(i<w.steps.length-1){[w.steps[i+1],w.steps[i]]=[w.steps[i],w.steps[i+1]];} renderSteps(); });
+  }
+  function syncFromDOM(){
+    w.condLogic=$("#a_logic")?.value||w.condLogic;
+    w.conditions=$$("#a_conds [data-crow]").map(row=>({
+      field:(row.querySelector("[data-cf]")?.value||"").trim(),
+      op:row.querySelector("[data-co]")?.value||"contient",
+      value:(row.querySelector("[data-cv]")?.value||"").trim() }));
+    w.steps=$$("#a_steps [data-srow]").map(row=>{
+      const st={action:row.querySelector("[data-sa]")?.value||"task"};
+      row.querySelectorAll("[data-sf]").forEach(el=>{ st[el.dataset.k]=el.value; });
+      return st; });
+  }
+  $("#a_ev").onchange=updVars;
+  $("#a_addcond").onclick=()=>{ syncFromDOM(); w.conditions.push({field:"",op:"contient",value:""}); renderConds(); };
+  $("#a_addstep").onclick=()=>{ syncFromDOM(); w.steps.push({action:"task",value:"",priority:"Normale",dueDays:3}); renderSteps(); };
+  updVars(); renderConds(); renderSteps();
 }
 
 /* ---------- Guide ---------- */
@@ -2116,9 +2392,26 @@ $("#quickAdd").onclick=()=>{
   editEntity("partners",null);
 };
 
-// check overdue tasks on load (task.overdue automations)
-function checkOverdue(){ const od=DB.tasks.filter(t=>t.status!=="Fait"&&t.due&&t.due<Date.now());
-  od.forEach(t=>Automations.run("task.overdue",{...t,_entity:"tasks",_id:t.id})); }
+// Déclencheurs "à l'ouverture" : tâches/factures en retard, échéances de
+// départ proches, planning quotidien (une seule fois par jour).
+function checkOverdue(){
+  const now=Date.now();
+  DB.tasks.filter(t=>t.status!=="Fait" && t.due && t.due<now && t.kind!=="email-draft" && t.kind!=="doc-draft")
+    .forEach(t=>Automations.run("task.overdue",{...t,_entity:"tasks",_id:t.id}));
+  DB.quotes.filter(q=>q.kind==="facture" && (q.status==="Émise"||q.status==="En retard") && q.due && q.due<now)
+    .forEach(q=>Automations.run("invoice.overdue",{...q,daysLate:Math.round((now-q.due)/DAY),_entity:"quotes",_id:q.id}));
+  DB.projects.filter(p=>p.start && p.start>now && (p.start-now)<30*DAY)
+    .forEach(p=>Automations.run("deadline.soon",{...p,daysLeft:Math.round((p.start-now)/DAY),_entity:"projects",_id:p.id}));
+  const today=new Date().toDateString();
+  if(DB.settings.lastDailyRun!==today){
+    Automations.run("daily",{
+      date:new Date().toLocaleDateString("fr-FR"),
+      taches:DB.tasks.filter(t=>t.status!=="Fait").length,
+      retards:DB.tasks.filter(t=>t.status!=="Fait"&&t.due&&t.due<now).length,
+      prospects:DB.partners.length, contacts:DB.contacts.length });
+    DB.settings.lastDailyRun=today; save();
+  }
+}
 
 // Seed demo activity note on very first run
 if(!localStorage.getItem(KEY)){ logAct("Bienvenue — Travel OS initialisé."); saveNow(); }

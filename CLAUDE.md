@@ -79,13 +79,26 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
     enregistre des contacts.
 
 ## CE QUI N'EST PAS FAIT / À CONTINUER (par priorité)
-1. **Automatisations façon n8n (workflows multi-étapes)** — le moteur actuel est
-   simple (QUAND → ALORS, 1 action). À enrichir : plusieurs déclencheurs
-   (contact ajouté, devis accepté, facture en retard, échéance, planning quotidien),
-   conditions multiples, **actions en séquence** (créer tâche, préparer un email
-   `mailto:`/brouillon, changer un champ, ajouter à une liste, générer un document
-   depuis un modèle, notifier). n8n lui-même n'est PAS intégrable (serveur Node.js) —
-   on reproduit l'esprit dans l'outil.
+1. ~~**Automatisations façon n8n (workflows multi-étapes)**~~ — **FAIT & TESTÉ**
+   (29/29 checks sous CSP, 0 violation, 0 pageerror). Moteur multi-étapes dans
+   `Automations` (app.js) : déclencheurs **contact ajouté, statut partenaire,
+   projet créé, participant ajouté, devis accepté, facture en retard, tâche en
+   retard, échéance de départ proche, planning quotidien** ; **conditions
+   multiples ET/OU** (opérateurs contient/égal/différent/commence par/vide/non
+   vide/supérieur/inférieur) ; **actions en séquence** : créer tâche (priorité +
+   échéance), notifier, modifier un champ de la fiche, étiqueter, ajouter le
+   contact à une liste, **préparer un email** (brouillon `mailto:` surfacé dans
+   l'Assistant via « Écrire l'email »), **générer un document depuis un modèle**
+   (pré-rempli société + ctx, surfacé via « Ouvrir le document »). Éditeur visuel
+   (ajout/suppression/réordonnancement d'étapes, tout câblé en délégation, aucun
+   handler inline), **modèles prêts à l'emploi**, résumé lisible dans la liste,
+   **dé-doublonnage** des tâches auto (pas de doublon à chaque ouverture),
+   **compatibilité ascendante** avec les anciennes règles (format simple converti
+   à la volée par `Automations.norm`). n8n lui-même n'est PAS intégrable (serveur
+   Node.js) — on en reproduit l'esprit, 100 % local. À valider par l'utilisatrice.
+   Note honnête : les contacts arrivant via la bulle (chrome.storage.onChanged)
+   ne redéclenchent pas encore `contact.created` (fusion de DB) — à brancher si
+   souhaité.
 2. **Validation réelle de la bulle LinkedIn** — testée seulement sur page LinkedIn
    *simulée* (pas de vrai compte dans l'environnement). Faire tester par
    l'utilisatrice ; ajuster les sélecteurs de `scrape-core.js` (`ftPageScrape`,
@@ -129,6 +142,9 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   (l'outil est autonome) ; demander une reconnexion côté claude.ai si besoin de relire le Drive.
 
 ## Prochaine action suggérée
-Enchaîner sur le point **1 (automatisations multi-étapes façon n8n)**, puis proposer
-le point **3 (export CSV auto vers Drive)**. Avant de coder une nouvelle UI :
-relire cette liste, vérifier qu'aucun handler inline n'est introduit, tester sous CSP.
+Le point **1 (automatisations multi-étapes façon n8n)** est **livré et testé**.
+Enchaîner sur le point **3 (export CSV auto vers Drive)** ou le point **6
+(documents participants pré-remplis depuis le projet — l'action « générer un
+document » du moteur d'automatisation fournit déjà l'ossature)**. Avant de coder
+une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
+introduit, tester sous CSP.
