@@ -7,6 +7,8 @@ const DEFAULT_DB = {
   meta:{ created:Date.now(), version:1 },
   settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35,
     quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0, syncEnabled:false, lastSync:0, lastDailyRun:"",
+    scrape:{ minDelay:900, maxDelay:2600, dailyLimit:200 }, scrapeCount:{ day:"", n:0 },
+    senders:[], defaultSender:"",
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -22,7 +24,7 @@ const DEFAULT_DB = {
     docStyle:{ logo:"", accent:"#1d5fd6", headerExtra:"", footerMode:"auto", footerText:"", showBank:true }
   },
   partners:[], projects:[], participants:[], providers:[],
-  budget:[], tasks:[], contacts:[], automations:[], quotes:[], docs:[], activity:[],
+  budget:[], tasks:[], contacts:[], automations:[], campaigns:[], quotes:[], docs:[], activity:[],
   customFields:{ partners:[], projects:[], participants:[], providers:[], tasks:[] }
 };
 function loadDB(){
@@ -66,7 +68,7 @@ function logAct(msg){ DB.activity.unshift({t:Date.now(),m:msg}); DB.activity=DB.
    n'est jamais perdu quand on rapproche deux copies.
    ============================================================ */
 const FS_OK = (typeof window!=="undefined" && "showSaveFilePicker" in window);
-const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","quotes","docs"];
+const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns","quotes","docs"];
 function mergeDB(local, remote){
   if(!remote) return local;
   const out=structuredClone(local);
@@ -465,20 +467,34 @@ const Scraper = (()=>{
         out.push({email:"", name:res.name||"", phone:ph, company:res.company||domain, service:svc, source:src}); });
     }
   }
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  // Cadence "polie" : on espace les visites (délai aléatoire) et on respecte une
+  // limite quotidienne. But = ne pas marteler les sites (moins de blocages) en
+  // restant honnête — aucune falsification d'empreinte, aucun proxy.
+  function cadenceDelay(){ const c=(DB.settings&&DB.settings.scrape)||{}; const lo=Math.max(0,+c.minDelay||0), hi=Math.max(lo,+c.maxDelay||lo); return lo+Math.floor(Math.random()*(hi-lo+1)); }
+  function budget(){ const s=DB.settings; if(!s.scrapeCount) s.scrapeCount={day:"",n:0};
+    const today=new Date().toDateString(); if(s.scrapeCount.day!==today){ s.scrapeCount.day=today; s.scrapeCount.n=0; }
+    const lim=Math.max(0,+((s.scrape||{}).dailyLimit)||0); return { hitLimit:()=> lim>0 && s.scrapeCount.n>=lim, count:()=>{ s.scrapeCount.n++; save(); }, remaining:()=> lim>0?Math.max(0,lim-s.scrapeCount.n):Infinity }; }
   async function crawl(opts,onProgress){
     const {engine,query,pages,perPage,visit}=opts; const out=[], seen=new Set();
+    const b=budget();
     for(let pg=0; pg<pages; pg++){
-      onProgress&&onProgress(`Recherche — page ${pg+1}/${pages}`);
+      if(b.hitLimit()){ onProgress&&onProgress(`Limite quotidienne atteinte (${(DB.settings.scrape||{}).dailyLimit}) — réglable dans Réglages.`); break; }
+      onProgress&&onProgress(`Recherche — page ${pg+1}/${pages}${b.remaining()!==Infinity?` · ${b.remaining()} visites restantes aujourd'hui`:""}`);
       let tab; try{ tab=await chrome.tabs.create({url:searchURL(engine,query,pg),active:false}); }catch(e){ continue; }
-      await waitTab(tab.id); const res=await scrapeTab(tab.id);
+      await waitTab(tab.id); const res=await scrapeTab(tab.id); b.count();
       if(res){ mergeContacts(out,seen,res);
         if(visit){ const links=externalLinks(res).slice(0,perPage);
-          for(let i=0;i<links.length;i++){ onProgress&&onProgress(`Page ${pg+1} — site ${i+1}/${links.length} · ${out.length} contact(s)`);
+          for(let i=0;i<links.length;i++){
+            if(b.hitLimit()){ onProgress&&onProgress(`Limite quotidienne atteinte — arrêt propre. ${out.length} contact(s).`); try{ await chrome.tabs.remove(tab.id); }catch(e){} return out; }
+            await sleep(cadenceDelay());
+            onProgress&&onProgress(`Page ${pg+1} — site ${i+1}/${links.length} · ${out.length} contact(s)`);
             let t2; try{ t2=await chrome.tabs.create({url:links[i],active:false}); }catch(e){ continue; }
-            await waitTab(t2.id); const r2=await scrapeTab(t2.id); if(r2) mergeContacts(out,seen,r2);
+            await waitTab(t2.id); const r2=await scrapeTab(t2.id); b.count(); if(r2) mergeContacts(out,seen,r2);
             try{ await chrome.tabs.remove(t2.id); }catch(e){} } } }
       try{ await chrome.tabs.remove(tab.id); }catch(e){}
       if(engine==="duckduckgo") break; // DDG html n'a pas de pagination par start
+      if(pg<pages-1) await sleep(cadenceDelay());
     }
     return out;
   }
@@ -615,11 +631,11 @@ const Automations = (()=>{
       const to=tpl(st.to||ctx?.email||ctx?.clientEmail||"", ctx).trim();
       const subject=tpl(st.subject||"", ctx);
       const body=tpl(st.body||"", ctx);
-      const mailto="mailto:"+encodeURIComponent(to)+"?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body);
+      const d=ftEmailDraft({to, subject, body, senderId:st.sender});
       const title="Email à "+(to||"—")+(subject?(" — "+subject):"");
       if(openAutoTaskExists(title)) return;
       DB.tasks.unshift({id:uid(), title, status:"À faire", priority:"Normale",
-        due:Date.now()+DAY, auto:true, kind:"email-draft", mailto});
+        due:Date.now()+DAY, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:""});
     } else if(A==="genDoc"){
       const t=allTemplates().find(x=>x.id===st.template); if(!t) return;
       const who=ctx?.name||ctx?.clientName||"";
@@ -664,6 +680,61 @@ window.openAutoDoc=id=>{
 };
 
 /* ============================================================
+   4b. MULTI-EXPÉDITEURS (identités d'envoi pour l'outreach)
+   Honnête : mailto: ne peut pas forcer le compte expéditeur (c'est le
+   client mail qui décide). On gère donc l'identité "responsable" + la
+   SIGNATURE ajoutée au message, et on ouvre le brouillon prêt à partir.
+   ============================================================ */
+function ftSenders(){ return (DB.settings.senders||[]); }
+function ftSender(id){ const l=ftSenders(); return l.find(s=>s.id===id) || l.find(s=>s.id===DB.settings.defaultSender) || l[0] || null; }
+function ftEmailDraft({to,subject,body,senderId}){
+  const s=ftSender(senderId);
+  let full=body||"";
+  if(s && s.signature) full = full + (full?"\n\n":"") + s.signature;
+  const mailto="mailto:"+encodeURIComponent(to||"")+"?subject="+encodeURIComponent(subject||"")+"&body="+encodeURIComponent(full);
+  return { mailto, sender:s };
+}
+
+/* ============================================================
+   4c. CAMPAGNES DE RELANCE (séquences d'emails espacées)
+   Une campagne = une liste de contacts + une suite d'étapes (J+n, objet,
+   message). À chaque ouverture, les étapes arrivées à échéance créent un
+   brouillon d'email (mailto) qui remonte dans « À faire maintenant ».
+   100 % local, aucun envoi automatique : vous gardez la main.
+   ============================================================ */
+function campContacts(tag){ return DB.contacts.filter(c=>(c.tags||[]).includes(tag)); }
+function enrollCampaign(cpId){
+  const cp=DB.campaigns.find(x=>x.id===cpId); if(!cp) return 0;
+  cp.enrolled=cp.enrolled||[]; const have=new Set(cp.enrolled.map(e=>e.contactId));
+  let n=0; campContacts(cp.listTag).forEach(c=>{ if(!have.has(c.id)){ cp.enrolled.push({contactId:c.id,startedAt:Date.now()}); n++; } });
+  if(n){ logAct(`Campagne « ${cp.name} » : ${n} contact(s) enrôlé(s)`); save(); }
+  return n;
+}
+function processCampaigns(){
+  const now=Date.now(); let made=0;
+  const fill=(s,ctx)=>(s||"").replace(/\{(\w+)\}/g,(_,k)=>(ctx?.[k]??"").toString());
+  for(const cp of (DB.campaigns||[])){
+    if(cp.on===false) continue;
+    for(const en of (cp.enrolled||[])){
+      const c=DB.contacts.find(x=>x.id===en.contactId); if(!c) continue;
+      (cp.steps||[]).forEach((st,si)=>{
+        const due=(en.startedAt||now)+((+st.offsetDays||0)*DAY);
+        if(now<due) return;
+        const key=`camp:${cp.id}:${en.contactId}:${si}`;
+        if(DB.tasks.some(t=>t.campKey===key)) return;
+        const subject=fill(st.subject,c), body=fill(st.body,c);
+        const d=ftEmailDraft({to:c.email,subject,body,senderId:cp.senderId});
+        DB.tasks.unshift({id:uid(), campKey:key, title:`Relance « ${cp.name} » (étape ${si+1}) — ${c.email||c.name||""}`,
+          status:"À faire", priority:"Normale", due, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:""});
+        made++;
+      });
+    }
+  }
+  if(made) save();
+  return made;
+}
+
+/* ============================================================
    5. VUES
    ============================================================ */
 const ICONS = {
@@ -696,6 +767,7 @@ const NAV = [
   {id:"tasks", title:"T7 · Tâches & conformité", sub:"Échéances, rappels, checklist", icon:"task", entity:"tasks"},
   {group:"Système"},
   {id:"automations", title:"Automatisations", sub:"Règles automatiques (remplace Make)", icon:"auto"},
+  {id:"campaigns", title:"Campagnes de relance", sub:"Séquences d'emails espacées (J+3, J+7…)", icon:"finder"},
   {id:"guide", title:"Guide & aide", sub:"Comment utiliser chaque écran", icon:"guide"},
   {id:"settings", title:"Réglages & sauvegarde", sub:"Thème, objectifs, export/import", icon:"gear"},
 ];
@@ -2208,9 +2280,12 @@ function editAuto(id){
     if(st.action==="setField") return `<div class="row2">${inp("field","Champ à modifier (ex : status)",st.field)}${inp("value","Nouvelle valeur",st.value)}</div>`;
     if(st.action==="flag") return inp("value","Étiquette (ex : Prioritaire)",st.value);
     if(st.action==="addToList") return inp("value","Nom de la liste de contacts",st.value);
-    if(st.action==="email") return `${inp("to","Destinataire ({email} = adresse du contact)",st.to)}
+    if(st.action==="email"){ const sopts=`<option value="">Expéditeur par défaut</option>`+ftSenders().map(se=>`<option value="${se.id}" ${st.sender===se.id?'selected':''}>${esc(se.name)}${se.email?` <${esc(se.email)}>`:""}</option>`).join("");
+      return `${inp("to","Destinataire ({email} = adresse du contact)",st.to)}
       <div style="margin-top:8px">${inp("subject","Objet de l'email",st.subject)}</div>
-      <textarea data-sf data-k="body" placeholder="Message (variables {name}…)" style="min-height:80px;margin-top:8px">${esc(st.body||"")}</textarea>`;
+      <textarea data-sf data-k="body" placeholder="Message (variables {name}…)" style="min-height:80px;margin-top:8px">${esc(st.body||"")}</textarea>
+      <div style="margin-top:8px"><select data-sf data-k="sender">${sopts}</select></div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">La signature de l'expéditeur est ajoutée au message. (Le compte d'envoi réel reste choisi par votre logiciel mail.)</p>`; }
     if(st.action==="genDoc"){ const opts=allTemplates().map(t=>`<option value="${t.id}" ${st.template===t.id?'selected':''}>${esc(t.name)}</option>`).join("");
       return `<select data-sf data-k="template">${opts||'<option value="">Aucun modèle</option>'}</select>
       <p class="muted" style="font-size:12px;margin:6px 0 0">Le document est pré-rempli (société + champs correspondants) et proposé dans « À faire maintenant ».</p>`; }
@@ -2255,6 +2330,94 @@ function editAuto(id){
   $("#a_addcond").onclick=()=>{ syncFromDOM(); w.conditions.push({field:"",op:"contient",value:""}); renderConds(); };
   $("#a_addstep").onclick=()=>{ syncFromDOM(); w.steps.push({action:"task",value:"",priority:"Normale",dueDays:3}); renderSteps(); };
   updVars(); renderConds(); renderSteps();
+}
+
+/* ---------- Campagnes de relance ---------- */
+function contactTags(){ return [...new Set(DB.contacts.flatMap(c=>c.tags||[]))].sort((a,b)=>a.localeCompare(b,"fr")); }
+VIEWS.campaigns=()=>{
+  $("#view").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Créez des <b>séquences de relance</b> : une liste de contacts + des étapes espacées (J+3, J+7…). À chaque ouverture, les étapes arrivées à échéance préparent un <b>brouillon d'email</b> qui remonte dans « À faire maintenant ». <b>Aucun envoi automatique</b> — vous gardez la main, 100 % local.</div></div>
+  <div class="toolbar"><div class="spacer"></div><button class="btn primary" id="cp_add">+ Campagne</button></div>
+  <div id="cp_list"></div>`;
+  $("#cp_add").onclick=()=>editCampaign(null);
+  drawCampaigns();
+};
+function drawCampaigns(){
+  const a=DB.campaigns||[];
+  $("#cp_list").innerHTML=a.length? a.map(x=>{
+    const enrolled=(x.enrolled||[]).length, steps=(x.steps||[]).length, avail=campContacts(x.listTag).length;
+    return `<div class="card" style="display:flex;align-items:flex-start;gap:14px;margin-bottom:10px">
+      <div class="switch ${x.on!==false?'on':''}" data-cptoggle="${x.id}" style="margin-top:2px"><i></i></div>
+      <div style="flex:1;min-width:0">
+        <div class="cell-strong">${esc(x.name)}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px">Liste « ${esc(x.listTag||"—")} » · ${steps} étape(s) · <b>${enrolled}</b> contact(s) enrôlé(s)${avail>enrolled?` · ${avail-enrolled} en attente d'enrôlement`:""}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${(x.steps||[]).map((s,i)=>`<span class="tag n">J+${+s.offsetDays||0} · ${esc((s.subject||"(sans objet)").slice(0,40))}</span>`).join("")||'<span class="muted" style="font-size:12px">Aucune étape</span>'}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button class="btn sm" data-cpenroll="${x.id}">Enrôler la liste</button>
+        <button class="btn sm ghost" data-cprun="${x.id}">Traiter maintenant</button>
+        <button class="btn sm ghost" data-cpedit="${x.id}">Modifier</button>
+        <button class="btn sm ghost" data-cpdel="${x.id}">Supprimer</button>
+      </div></div>`; }).join("")
+    : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.finder}</svg><div>Aucune campagne. Créez une séquence de relance à partir d'une de vos listes de contacts.</div></div></div>`;
+  $$("#cp_list [data-cptoggle]").forEach(b=>b.onclick=()=>{const x=DB.campaigns.find(y=>y.id===b.dataset.cptoggle);x.on=x.on===false;save();drawCampaigns();toast(x.on?"Activée":"Désactivée");});
+  $$("#cp_list [data-cpedit]").forEach(b=>b.onclick=()=>editCampaign(b.dataset.cpedit));
+  $$("#cp_list [data-cpenroll]").forEach(b=>b.onclick=()=>{ const n=enrollCampaign(b.dataset.cpenroll); drawCampaigns(); toast(n?`${n} contact(s) enrôlé(s)`:"Aucun nouveau contact dans cette liste","ok"); });
+  $$("#cp_list [data-cprun]").forEach(b=>b.onclick=()=>{ const n=processCampaigns(); drawCampaigns(); renderNav(); toast(n?`${n} brouillon(s) préparé(s) — voir « À faire maintenant »`:"Aucune étape arrivée à échéance"); });
+  $$("#cp_list [data-cpdel]").forEach(b=>b.onclick=()=>confirmModal("Supprimer ?","La campagne sera supprimée (les contacts et brouillons déjà créés restent).",()=>{DB.campaigns=DB.campaigns.filter(y=>y.id!==b.dataset.cpdel);save();drawCampaigns();},true));
+}
+function editCampaign(id){
+  const src=id?DB.campaigns.find(x=>x.id===id):null;
+  const w={ name:src?.name||"", listTag:src?.listTag||"", senderId:src?.senderId||"",
+    steps:structuredClone(src?.steps&&src.steps.length?src.steps:[{offsetDays:0,subject:"",body:""}]) };
+  const tagOpts=`<option value="">— choisir une liste —</option>`+contactTags().map(t=>`<option value="${esc(t)}" ${w.listTag===t?'selected':''}>${esc(t)} (${campContacts(t).length})</option>`).join("");
+  const sndOpts=`<option value="">Expéditeur par défaut</option>`+ftSenders().map(se=>`<option value="${se.id}" ${w.senderId===se.id?'selected':''}>${esc(se.name)}</option>`).join("");
+  openModal({title:id?"Modifier la campagne":"Nouvelle campagne", wide:true,
+    body:`<div class="field"><label>Nom de la campagne *</label><input class="input" id="cp_name" value="${esc(w.name)}" placeholder="Ex : Relance CFA coiffure"></div>
+    <div class="row2">
+      <div class="field"><label>Liste de contacts (source)</label><select id="cp_list_sel">${tagOpts}</select>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">Les listes viennent de l'onglet Contacts (étiquettes). Après enregistrement, cliquez « Enrôler la liste ».</p></div>
+      <div class="field"><label>Expéditeur</label><select id="cp_sender">${sndOpts}</select></div>
+    </div>
+    <div class="field"><label>Étapes de la séquence</label>
+      <div id="cp_steps"></div>
+      <button class="btn sm ghost" id="cp_addstep" style="margin-top:6px">+ Ajouter une étape</button></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Enregistrer",cls:"primary",act:()=>{
+      syncSteps();
+      const name=$("#cp_name").value.trim(); if(!name){toast("Nom requis","warn");return;}
+      const listTag=$("#cp_list_sel").value;
+      const steps=w.steps.filter(s=>(s.subject||"").trim()||(s.body||"").trim());
+      if(!steps.length){toast("Ajoutez au moins une étape avec un objet ou un message","warn");return;}
+      const obj={name, listTag, senderId:$("#cp_sender").value, steps, on:src?src.on!==false:true, enrolled:src?src.enrolled||[]:[]};
+      if(id){ Object.assign(DB.campaigns.find(x=>x.id===id),obj); }
+      else{ DB.campaigns.push({id:uid(),...obj}); }
+      save();closeModal();drawCampaigns();toast("Campagne enregistrée — pensez à « Enrôler la liste »");}}]});
+  function stepRow(st,i){
+    return `<div class="card" data-cprow="${i}" style="padding:12px;margin-bottom:8px;background:var(--panel-2)">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <span class="tag b">Étape ${i+1}</span>
+        <label class="muted" style="font-size:12px;font-weight:700">Envoyer à J+</label>
+        <input class="input" data-cs="offsetDays" type="number" min="0" value="${esc(st.offsetDays==null?0:st.offsetDays)}" style="max-width:90px">
+        <div class="spacer"></div>
+        <button class="btn sm ghost" data-csup="${i}">↑</button><button class="btn sm ghost" data-csdn="${i}">↓</button>
+        <button class="btn sm ghost" data-csrm="${i}">✕</button></div>
+      <input class="input" data-cs="subject" placeholder="Objet de l'email (variables {name}…)" value="${esc(st.subject||"")}">
+      <textarea data-cs="body" placeholder="Message (variables {name}, {email}…)" style="min-height:80px;margin-top:8px">${esc(st.body||"")}</textarea></div>`;
+  }
+  function renderSteps(){
+    $("#cp_steps").innerHTML=w.steps.map((s,i)=>stepRow(s,i)).join("");
+    $$("#cp_steps [data-csrm]").forEach(b=>b.onclick=()=>{ syncSteps(); w.steps.splice(+b.dataset.csrm,1); if(!w.steps.length) w.steps.push({offsetDays:0,subject:"",body:""}); renderSteps(); });
+    $$("#cp_steps [data-csup]").forEach(b=>b.onclick=()=>{ syncSteps(); const i=+b.dataset.csup; if(i>0){[w.steps[i-1],w.steps[i]]=[w.steps[i],w.steps[i-1]];} renderSteps(); });
+    $$("#cp_steps [data-csdn]").forEach(b=>b.onclick=()=>{ syncSteps(); const i=+b.dataset.csdn; if(i<w.steps.length-1){[w.steps[i+1],w.steps[i]]=[w.steps[i],w.steps[i+1]];} renderSteps(); });
+  }
+  function syncSteps(){
+    w.steps=$$("#cp_steps [data-cprow]").map(row=>{
+      const st={};
+      row.querySelectorAll("[data-cs]").forEach(el=>{ st[el.dataset.cs]= el.dataset.cs==="offsetDays" ? (+el.value||0) : el.value; });
+      return st; });
+  }
+  $("#cp_addstep").onclick=()=>{ syncSteps(); w.steps.push({offsetDays:0,subject:"",body:""}); renderSteps(); };
+  renderSteps();
 }
 
 /* ---------- Guide ---------- */
@@ -2319,7 +2482,7 @@ VIEWS.settings=()=>{
       <div class="divider"></div>
       <div class="stat-mini muted" style="font-weight:600">Contenu actuel :</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
-        ${["partners","projects","participants","providers","budget","tasks","contacts","automations"].map(k=>`<span class="tag n">${k} : ${DB[k].length}</span>`).join("")}
+        ${["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns"].map(k=>`<span class="tag n">${k} : ${(DB[k]||[]).length}</span>`).join("")}
       </div>
       <div class="divider"></div>
       <button class="btn ghost" id="s_reset" style="color:var(--bad)">Réinitialiser toutes les données</button>
@@ -2336,6 +2499,23 @@ VIEWS.settings=()=>{
       </div>
       ${DB.settings.syncEnabled?`<div class="row2" style="margin-top:10px"><button class="btn ghost" id="sy_now">Synchroniser maintenant</button><button class="btn ghost" id="sy_off" style="color:var(--bad)">Désactiver</button></div>`:''}`}
     </div>
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Cadence du scraper (politesse)</div>
+      <p class="muted" style="font-weight:600;margin-top:0">Espace les visites de pages et limite le volume quotidien. But : ne pas marteler les sites (donc être bloquée moins souvent) en restant <b>honnête</b> — aucune falsification d'empreinte, aucun proxy (ce que font Multilogin/Dolphin, hors périmètre et impossible hors-ligne).</p>
+      <div class="row3">
+        <div class="field"><label>Délai min (ms)</label><input class="input" type="number" id="sc_min" min="0" value="${esc((s.scrape||{}).minDelay||0)}"></div>
+        <div class="field"><label>Délai max (ms)</label><input class="input" type="number" id="sc_max" min="0" value="${esc((s.scrape||{}).maxDelay||0)}"></div>
+        <div class="field"><label>Limite / jour (0 = illimité)</label><input class="input" type="number" id="sc_lim" min="0" value="${esc((s.scrape||{}).dailyLimit||0)}"></div>
+      </div>
+      <div style="font-size:12.5px;font-weight:600;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px">Aujourd'hui : <b>${(s.scrapeCount&&s.scrapeCount.day===new Date().toDateString())?s.scrapeCount.n:0}</b> visite(s)${(s.scrape||{}).dailyLimit?` / ${s.scrape.dailyLimit}`:""}</div>
+      <button class="btn primary" id="sc_save">Enregistrer la cadence</button>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <div class="section-title" style="margin-top:0">Expéditeurs (outreach multi-identités)</div>
+      <p class="muted" style="font-weight:600;margin-top:0">Gérez plusieurs identités d'envoi (vous, vos collègues) : nom, adresse et <b>signature</b>. Les brouillons d'email (automatisations, campagnes) utilisent l'expéditeur choisi et ajoutent sa signature. Honnête : <b>mailto: ne force pas le compte d'envoi</b> — c'est votre logiciel mail qui l'utilise ; on prépare le message prêt à partir.</p>
+      <div id="snd_list"></div>
+      <button class="btn" id="snd_add" style="margin-top:10px">+ Ajouter un expéditeur</button>
+    </div>
   </div>`;
   $("#s_save").onclick=()=>{ Object.assign(DB.settings,{caTarget:+$("#s_ca").value||0,panier:+$("#s_panier").value||1,
     convDevis:+$("#s_cd").value||.3,convRdv:+$("#s_cr").value||.25,convContact:+$("#s_cc").value||.35}); save(); toast("Réglages enregistrés"); };
@@ -2347,7 +2527,39 @@ VIEWS.settings=()=>{
   $("#sy_open")&&($("#sy_open").onclick=openSyncFile);
   $("#sy_now")&&($("#sy_now").onclick=async()=>{ const ok=await writeSyncFile(); toast(ok?"Synchronisé.":"Cliquez pour reconnecter l'accès au fichier."); if(!ok) reconnectSync(); VIEWS.settings(); });
   $("#sy_off")&&($("#sy_off").onclick=disableSync);
+  $("#sc_save")&&($("#sc_save").onclick=()=>{ const mn=Math.max(0,+$("#sc_min").value||0), mx=Math.max(mn,+$("#sc_max").value||0);
+    DB.settings.scrape={ minDelay:mn, maxDelay:mx, dailyLimit:Math.max(0,+$("#sc_lim").value||0) }; save(); toast("Cadence enregistrée"); VIEWS.settings(); });
+  $("#snd_add")&&($("#snd_add").onclick=()=>editSender(null));
+  drawSenders();
 };
+function drawSenders(){
+  const box=$("#snd_list"); if(!box) return;
+  const l=ftSenders();
+  box.innerHTML=l.length? l.map(se=>`<div class="result-row" style="align-items:center">
+    <div style="flex:1;min-width:0"><div class="cell-strong">${esc(se.name)}${DB.settings.defaultSender===se.id?' <span class="tag b">par défaut</span>':''}</div>
+    <div class="muted" style="font-size:12.5px">${esc(se.email||"—")}${se.signature?` · signature (${se.signature.length} car.)`:""}</div></div>
+    ${DB.settings.defaultSender!==se.id?`<button class="btn sm ghost" data-snddef="${se.id}">Par défaut</button>`:""}
+    <button class="btn sm ghost" data-sndedit="${se.id}">Modifier</button>
+    <button class="btn sm ghost" data-snddel="${se.id}">✕</button></div>`).join("")
+    : `<div class="muted" style="font-weight:600;font-size:12.5px">Aucun expéditeur. Ajoutez-en un pour signer vos emails d'outreach.</div>`;
+  $$("#snd_list [data-sndedit]").forEach(b=>b.onclick=()=>editSender(b.dataset.sndedit));
+  $$("#snd_list [data-snddef]").forEach(b=>b.onclick=()=>{ DB.settings.defaultSender=b.dataset.snddef; save(); drawSenders(); toast("Expéditeur par défaut mis à jour"); });
+  $$("#snd_list [data-snddel]").forEach(b=>b.onclick=()=>confirmModal("Supprimer ?","Cet expéditeur sera supprimé.",()=>{ DB.settings.senders=ftSenders().filter(x=>x.id!==b.dataset.snddel); if(DB.settings.defaultSender===b.dataset.snddel) DB.settings.defaultSender=""; save(); drawSenders(); },true));
+}
+function editSender(id){
+  const se=id?ftSenders().find(x=>x.id===id):{name:"",email:"",signature:""};
+  openModal({title:id?"Modifier l'expéditeur":"Nouvel expéditeur", wide:true,
+    body:`<div class="row2"><div class="field"><label>Nom affiché *</label><input class="input" id="snd_name" value="${esc(se.name||"")}" placeholder="Ex : Laurence — Formaskills Travel"></div>
+    <div class="field"><label>Adresse email</label><input class="input" id="snd_email" value="${esc(se.email||"")}" placeholder="prenom@formaskills.fr"></div></div>
+    <div class="field"><label>Signature (ajoutée en bas des emails)</label><textarea id="snd_sig" style="min-height:120px" placeholder="Cordialement,\nPrénom Nom\nFormaskills Travel\n+33 ...">${esc(se.signature||"")}</textarea></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Enregistrer",cls:"primary",act:()=>{
+      const name=$("#snd_name").value.trim(); if(!name){toast("Nom requis","warn");return;}
+      const obj={name, email:$("#snd_email").value.trim(), signature:$("#snd_sig").value};
+      DB.settings.senders=DB.settings.senders||[];
+      if(id){ Object.assign(ftSenders().find(x=>x.id===id),obj); }
+      else{ const nid=uid(); DB.settings.senders.push({id:nid,...obj}); if(!DB.settings.defaultSender) DB.settings.defaultSender=nid; }
+      save(); closeModal(); drawSenders(); toast("Expéditeur enregistré"); }}]});
+}
 
 /* ---------- Export / Import ---------- */
 function exportDB(){
@@ -2387,6 +2599,7 @@ $("#quickAdd").onclick=()=>{
   if(CURRENT==="finance") return editBudget(null);
   if(CURRENT==="docs"){ DOCS_TAB="quotes"; return editQuote(null); }
   if(CURRENT==="automations") return editAuto(null);
+  if(CURRENT==="campaigns") return editCampaign(null);
   if(CURRENT==="finder"){ FINDER_TAB="find"; return go("finder"); }
   // default: quick partner
   editEntity("partners",null);
@@ -2411,6 +2624,7 @@ function checkOverdue(){
       prospects:DB.partners.length, contacts:DB.contacts.length });
     DB.settings.lastDailyRun=today; save();
   }
+  processCampaigns();
 }
 
 // Seed demo activity note on very first run

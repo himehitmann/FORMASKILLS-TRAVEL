@@ -77,6 +77,22 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
     (aucun enregistrement perdu). Bannière « reconnecter » 1×/session.
   - Synchro live : `chrome.storage.onChanged` rafraîchit l'app quand la bulle
     enregistre des contacts.
+- **Cadence polie du scraper** (`Scraper.crawl`, réglable dans Réglages) : délai
+  aléatoire min/max entre visites + **limite quotidienne** (compteur `scrapeCount`
+  remis à zéro chaque jour). But : ne pas marteler les sites (moins de blocages)
+  en restant honnête — **aucune falsification d'empreinte, aucun proxy** (à
+  l'inverse de Multilogin/Dolphin Anty, hors périmètre et impossibles hors-ligne).
+- **Multi-expéditeurs (outreach)** : `DB.settings.senders` + `defaultSender`,
+  gérés dans Réglages (nom, email, **signature**). Les brouillons d'email
+  (automatisations + campagnes) utilisent l'expéditeur choisi et **ajoutent sa
+  signature** (`ftEmailDraft`). Honnête : `mailto:` ne force pas le compte d'envoi
+  (c'est le client mail qui décide) — on prépare le message prêt à partir.
+- **Campagnes de relance** (nav « Campagnes de relance », `DB.campaigns`) :
+  séquences d'emails espacées (J+0, J+3, J+7…) sur une **liste de contacts**
+  (étiquette). « Enrôler la liste » ajoute les contacts ; `processCampaigns()`
+  (au chargement + bouton « Traiter maintenant ») crée un **brouillon d'email**
+  par étape arrivée à échéance, surfacé dans « À faire maintenant », **dé-doublonné**
+  par `campKey`. Aucun envoi automatique — l'utilisatrice garde la main.
 
 ## CE QUI N'EST PAS FAIT / À CONTINUER (par priorité)
 1. ~~**Automatisations façon n8n (workflows multi-étapes)**~~ — **FAIT & TESTÉ**
@@ -118,6 +134,13 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   syntaxe + heuristiques : jetable/générique/perso/pro).
 - Vraie synchro cloud multi-utilisateurs temps réel = exigerait un serveur payant
   + OAuth (source de bugs) : on s'appuie sur le fichier + Google Drive à la place.
+- **Navigateurs anti-détection** (Multilogin, Dolphin Anty) : HORS PÉRIMÈTRE. Leur
+  cœur (falsifier l'empreinte canvas/WebGL/UA, isoler des profils, router des
+  proxies pour échapper aux anti-abus des plateformes) est (1) techniquement
+  impossible dans une extension MV3/fichier local sans serveur et (2) de
+  l'évasion de détection qu'on ne code pas. On a repris seulement les intentions
+  légitimes et compatibles : cadence polie du scraper, multi-expéditeurs,
+  campagnes de relance.
 
 ## Comment tester (obligatoire avant chaque commit)
 - Node dispo. Playwright : `/opt/node22/lib/node_modules/playwright`, Chromium :
