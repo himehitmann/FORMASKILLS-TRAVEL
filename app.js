@@ -345,6 +345,23 @@ const EmailFinder = (()=> {
   const ROLE_HINTS = ["contact","info","hello","bonjour","sales","vente","commercial","support","admin","direction","rh","recrutement","accueil","secretariat","compta","noreply","no-reply","postmaster","webmaster"];
   const DISPOSABLE = ["mailinator.com","yopmail.com","guerrillamail.com","10minutemail.com","trashmail.com","tempmail.com","getnada.com","sharklasers.com","temp-mail.org"];
   function cleanEmail(e){ return e.toLowerCase().replace(/[.,;:)]+$/,""); }
+  // Dé-obfuscation : reconstruit les emails masqués (« nom [at] boite [point] fr »,
+  // « nom(at)boite.fr », entités HTML &#64;, ＠…) — technique clé des scrapers pour
+  // récupérer les emails que les sites cachent aux robots. Conservateur : ne
+  // transforme que des formes clairement « email obfusqué » (pas la prose).
+  function deobfuscate(text){
+    let s=String(text||"");
+    s=s.replace(/&#0*64;|&#x0*40;/gi,"@").replace(/&#0*46;|&#x0*2e;/gi,".").replace(/＠/g,"@").replace(/[․﹒．]/g,".");
+    // 0) espaces autour d'un @ nu, quand un domaine.tld suit (« rh @ boite.fr »)
+    s=s.replace(/([a-z0-9._%+\-]+)\s*@\s*([a-z0-9][a-z0-9.\-]*\.[a-z]{2,24})\b/gi,"$1@$2");
+    // 1) "at" entre crochets/parenthèses : le point peut être littéral ou en toutes lettres
+    s=s.replace(/([a-z0-9._%+\-]+)\s*[\[({]\s*(?:at|arobase)\s*[\])}]\s*([a-z0-9.\-]+?)\s*(?:[\[({]\s*(?:dot|point)\s*[\])}]|\.|\s+(?:dot|point)\s+)\s*([a-z]{2,24})\b/gi,
+      (_m,a,b,c)=>`${a}@${b}.${c}`);
+    // 2) "at" en toutes lettres avec espaces : le point DOIT être en toutes lettres (évite la prose « … at site.com »)
+    s=s.replace(/([a-z0-9._%+\-]+)\s+(?:at|arobase)\s+([a-z0-9.\-]+?)\s*(?:[\[({]\s*(?:dot|point)\s*[\])}]|\s+(?:dot|point)\s+)\s*([a-z]{2,24})\b/gi,
+      (_m,a,b,c)=>`${a}@${b}.${c}`);
+    return s;
+  }
   function classify(email){
     const [local,domain]=email.split("@");
     const isRole = ROLE_HINTS.some(r=> local===r || local.startsWith(r+".") || local.startsWith(r+"-") || local===r.replace("-",""));
@@ -353,7 +370,7 @@ const EmailFinder = (()=> {
     return {isRole,isDisp,free,domain};
   }
   function extract(text){
-    const raw = text||"";
+    const raw = deobfuscate(text||"");
     const emails = [...new Set((raw.match(RE_EMAIL)||[]).map(cleanEmail))];
     const phones = ftPhones(raw);
     const urls = [...new Set(raw.match(RE_URL)||[])];
@@ -432,7 +449,7 @@ const EmailFinder = (()=> {
       email:emails[0]||"", phone:phones[0]||"", allEmails:emails, allPhones:phones };
   }
   function dedupe(list){ const seen=new Set(); return list.filter(c=>{const k=(c.email||"").toLowerCase(); if(!k||seen.has(k))return false; seen.add(k); return true;}); }
-  return {candidates,learnPattern,applyLearned,extract,verify,PATTERNS,domainSearch,bulkFind,parseProfile,dedupe,cleanDomain};
+  return {candidates,learnPattern,applyLearned,extract,verify,PATTERNS,domainSearch,bulkFind,parseProfile,dedupe,cleanDomain,deobfuscate};
 })();
 
 /* ============================================================
@@ -457,6 +474,17 @@ const Scraper = (()=>{
   function decodeLink(href){ try{ if(/duckduckgo\.com\/l\//.test(href)){ const u=new URL(href); const t=u.searchParams.get("uddg"); if(t) return decodeURIComponent(t); } }catch(e){} return href; }
   const JUNK=/(google\.|gstatic\.|googleusercontent|youtube\.|ytimg|duckduckgo\.|bing\.|microsoft\.|facebook\.com\/tr|w3\.org|schema\.org|gmpg\.org|wordpress\.org)/i;
   function externalLinks(res){ return Array.from(new Set((res.links||[]).map(decodeLink).filter(h=>/^https?:/.test(h)&&!JUNK.test(h)))); }
+  // Pages internes riches en emails (contact, mentions légales, équipe…) —
+  // en France l'email de contact est légalement obligatoire sur ces pages.
+  const SUBPAGE=/(contact|mentions?-?l[eé]gales?|mentions|coordonn[eé]es|nous-?[eé]crire|nous-?contacter|[eé]quipe|team|[àa]-?propos|a-?propos|about|qui-?sommes|impressum|legal)/i;
+  function siteHost(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
+  function contactSubLinks(links, host, cap){
+    const h=(host||"").replace(/^www\./,""); const seen=new Set(), out=[];
+    (links||[]).forEach(u=>{ if(!/^https?:/.test(u)) return; const uh=siteHost(u); if(h && uh!==h) return;
+      let pathq=""; try{ const url=new URL(u); pathq=url.pathname+url.search; }catch(e){ pathq=u; }
+      if(!SUBPAGE.test(pathq)) return; const k=u.split("#")[0]; if(seen.has(k))return; seen.add(k); out.push(k); });
+    return out.slice(0, cap||3);
+  }
   function mergeContacts(out,seen,res){
     const src=res.url||"", domain=(res.host||(src.split("/")[2]||"")).replace(/^www\./,"");
     const svc=res.headline||"";
@@ -492,14 +520,24 @@ const Scraper = (()=>{
             onProgress&&onProgress(`Page ${pg+1} — site ${i+1}/${links.length} · ${out.length} contact(s)`);
             let t2; try{ t2=await chrome.tabs.create({url:links[i],active:false}); }catch(e){ continue; }
             await waitTab(t2.id); const r2=await scrapeTab(t2.id); b.count(); if(r2) mergeContacts(out,seen,r2);
-            try{ await chrome.tabs.remove(t2.id); }catch(e){} } } }
+            try{ await chrome.tabs.remove(t2.id); }catch(e){}
+            // Exploration profonde : suivre /contact, /mentions-légales… du même site
+            if(opts.deep && r2){ const subs=contactSubLinks(r2.links, r2.host, 3);
+              for(let j=0;j<subs.length;j++){
+                if(b.hitLimit()) break;
+                await sleep(cadenceDelay());
+                onProgress&&onProgress(`Page ${pg+1} — site ${i+1}/${links.length} · page interne ${j+1}/${subs.length} · ${out.length} contact(s)`);
+                let t3; try{ t3=await chrome.tabs.create({url:subs[j],active:false}); }catch(e){ continue; }
+                await waitTab(t3.id); const r3=await scrapeTab(t3.id); b.count(); if(r3) mergeContacts(out,seen,r3);
+                try{ await chrome.tabs.remove(t3.id); }catch(e){}
+              } } } } }
       try{ await chrome.tabs.remove(tab.id); }catch(e){}
       if(engine==="duckduckgo") break; // DDG html n'a pas de pagination par start
       if(pg<pages-1) await sleep(cadenceDelay());
     }
     return out;
   }
-  return {IS_EXT, listTabs, scrapeTab, crawl, mergeContacts, externalLinks};
+  return {IS_EXT, listTabs, scrapeTab, crawl, mergeContacts, externalLinks, contactSubLinks};
 })();
 
 /* ============================================================
@@ -1046,13 +1084,15 @@ async function scrapeWebUI(){
       <div class="field"><label>Sites à visiter / page</label><input class="input" type="number" id="sw_per" value="5" min="0" max="15"></div>
       <div class="field"><label>Visiter les sites ?</label><select id="sw_visit"><option value="1">Oui (recommandé)</option><option value="0">Non (SERP seulement)</option></select></div>
     </div>
+    <div class="checkline" style="cursor:pointer;margin:2px 0 12px" id="sw_deepline"><div class="chk on" id="sw_deep"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div><div>Explorer aussi les pages <b>/contact</b>, <b>/mentions-légales</b>, <b>/équipe</b> de chaque site (plus d'emails, un peu plus long)</div></div>
     <button class="btn primary" id="sw_go" style="width:100%">Lancer le run</button>
     <div id="sw_prog" class="muted" style="font-weight:600;margin-top:12px"></div>
   </div>
   <div id="sw_out" style="margin-top:16px"></div>`;
+  $("#sw_deepline").onclick=()=>$("#sw_deep").classList.toggle("on");
   $("#sw_go").onclick=async()=>{
     const q=$("#sw_q").value.trim(); if(!q){toast("Entrez une recherche","warn");return;}
-    const opts={engine:$("#sw_eng").value,query:q,pages:Math.max(1,+$("#sw_pages").value||1),perPage:+$("#sw_per").value||0,visit:$("#sw_visit").value==="1"};
+    const opts={engine:$("#sw_eng").value,query:q,pages:Math.max(1,+$("#sw_pages").value||1),perPage:+$("#sw_per").value||0,visit:$("#sw_visit").value==="1",deep:$("#sw_deep").classList.contains("on")};
     const go=$("#sw_go"); go.disabled=true; go.textContent="Run en cours…";
     const prog=$("#sw_prog");
     try{

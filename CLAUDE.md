@@ -98,6 +98,15 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
     garde le **nom seul** d'une fiche profil (avant : ignorés, « aucun contact »).
     Import (`importScraped`) conserve les profils sans email, déduit `source`
     (linkedin/scraper), pose l'étape « À contacter », déclenche `contact.created`.
+  - **Dé-obfuscation des emails** (`EmailFinder.deobfuscate` + inline dans
+    `ftPageScrape`) : reconstruit les emails masqués — `nom [at] boite [point] fr`,
+    `nom(at)boite.fr`, entités HTML `&#64;`/`&#46;`, `＠`, ` arobase `/` point `,
+    `@` espacé — pour récupérer les emails que les sites cachent aux robots.
+    Conservateur (ne transforme pas la prose « … at … »). Testé.
+  - **Exploration profonde d'un site** (case « Explorer /contact, /mentions-
+    légales… » dans Recherche web) : `Scraper.contactSubLinks` suit les pages
+    internes riches en emails (contact, mentions légales, équipe, à-propos) du
+    même domaine — beaucoup plus d'emails, dans la limite de cadence/quotidien.
   - **Suivi de prospection** dans l'onglet Contacts : colonne **Étape**
     (À contacter / Contacté / Relancé / En discussion / Gagné / Perdu) éditable
     en ligne, **filtre par étape**, **source + date** sous le nom, action
@@ -151,6 +160,14 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   syntaxe + heuristiques : jetable/générique/perso/pro).
 - Vraie synchro cloud multi-utilisateurs temps réel = exigerait un serveur payant
   + OAuth (source de bugs) : on s'appuie sur le fichier + Google Drive à la place.
+- **Waalaxy / robots LinkedIn** (auto-connexion, auto-messages en masse,
+  séquences sur LinkedIn) : HORS PÉRIMÈTRE — viole les CGU de LinkedIn et fait
+  bannir les comptes. On ne code pas d'automatisation abusive de plateforme.
+  L'outreach se fait via brouillons `mailto:` + campagnes (l'humain garde la main).
+- **Copie de code de scrapers GitHub** : non — la plupart sont en Python
+  (serveur) et sous licence GPL/AGPL (contaminerait le dépôt). Les techniques
+  utiles (dé-obfuscation, exploration de site) sont ré-implémentées proprement
+  en JS local (clean-room), sans coller de code tiers.
 - **Navigateurs anti-détection** (Multilogin, Dolphin Anty) : HORS PÉRIMÈTRE. Leur
   cœur (falsifier l'empreinte canvas/WebGL/UA, isoler des profils, router des
   proxies pour échapper aux anti-abus des plateformes) est (1) techniquement

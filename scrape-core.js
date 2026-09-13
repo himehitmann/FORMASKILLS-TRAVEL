@@ -22,7 +22,17 @@ function ftPageScrape(){
       return Object.keys(out);
     }
 
-    var txt=(doc.body&&doc.body.innerText)||"";
+    // Dé-obfuscation : révèle les emails masqués (« nom [at] boite [point] fr »,
+    // « nom(at)boite.fr », entités HTML, ＠…). Conservateur pour éviter la prose.
+    function deob(s){
+      s=String(s||"");
+      s=s.replace(/&#0*64;|&#x0*40;/gi,"@").replace(/&#0*46;|&#x0*2e;/gi,".").replace(/＠/g,"@").replace(/[․﹒．]/g,".");
+      s=s.replace(/([a-z0-9._%+\-]+)\s*@\s*([a-z0-9][a-z0-9.\-]*\.[a-z]{2,24})\b/gi,"$1@$2");
+      s=s.replace(/([a-z0-9._%+\-]+)\s*[\[({]\s*(?:at|arobase)\s*[\])}]\s*([a-z0-9.\-]+?)\s*(?:[\[({]\s*(?:dot|point)\s*[\])}]|\.|\s+(?:dot|point)\s+)\s*([a-z]{2,24})\b/gi,function(_m,a,b,c){return a+"@"+b+"."+c;});
+      s=s.replace(/([a-z0-9._%+\-]+)\s+(?:at|arobase)\s+([a-z0-9.\-]+?)\s*(?:[\[({]\s*(?:dot|point)\s*[\])}]|\s+(?:dot|point)\s+)\s*([a-z]{2,24})\b/gi,function(_m,a,b,c){return a+"@"+b+"."+c;});
+      return s;
+    }
+    var txt=deob((doc.body&&doc.body.innerText)||"");
     var mailtos=[].slice.call(doc.querySelectorAll('a[href^="mailto:"]')).map(function(a){try{return decodeURIComponent(a.getAttribute("href").slice(7).split("?")[0]);}catch(e){return "";}});
     var tels=[].slice.call(doc.querySelectorAll('a[href^="tel:"]')).map(function(a){return a.getAttribute("href").slice(4);});
     // Domaines "bruit" : outils techniques, exemples, images sprite — jamais des vrais contacts.
