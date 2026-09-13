@@ -219,6 +219,7 @@ document.addEventListener("click", e=>{
   if(call && typeof window[call.fn]==="function"){ e.preventDefault(); window[call.fn](...call.args); }
 });
 window.finderGoto=t=>{ FINDER_TAB=t; VIEWS.finder(); };
+window.goContacts=()=>{ FINDER_TAB="saved"; CS_STAGE="À contacter"; CS_PAGE=1; go("finder"); };
 window.importLastExtract=()=>importAllContacts(window.__lastExtract||[]);
 window.importLastDomain=()=>importAllContacts(window.__lastDomain||[]);
 
@@ -831,6 +832,9 @@ function nextActions(){
   // 7c. Documents pré-remplis par une automatisation
   DB.tasks.filter(t=>t.kind==="doc-draft" && t.status!=="Fait").forEach(t=>
     add(2,"",t.title||"Document à générer","Document pré-rempli par une automatisation",{l:"Ouvrir le document",fn:`openAutoDoc('${t.id}')`}));
+  // 7d. Prospects trouvés à contacter (première prise de contact)
+  const toContact=DB.contacts.filter(c=>c.email && (c.stage||"À contacter")==="À contacter");
+  if(toContact.length) add(2,"",`${toContact.length} contact(s) prospecté(s) à relancer`,"Emails trouvés, première prise de contact à faire",{l:"Ouvrir la liste",fn:`goContacts()`});
   // 8. Amorçage si vide
   if(!DB.partners.length) add(1,"","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
   // 9. Rappel de sauvegarde (protège vos données en cas de désinstallation / changement d'ordinateur)
@@ -972,18 +976,32 @@ async function scrapeTabUI(){
   $$("#sc_tabs [data-tab]").forEach(b=>b.onclick=async()=>{ b.textContent="…";
     const res=await Scraper.scrapeTab(+b.dataset.tab); b.textContent="Scraper";
     if(!res){ toast("Impossible de lire cet onglet","bad"); return; }
-    const out=[], seen=new Set(); Scraper.mergeContacts(out,seen,res);
-    SCRAPE_ROWS=out; renderScrapeResults($("#sc_out"), res); });
+    renderScrapeResults($("#sc_out"), res); });
+}
+/* Construit les lignes exploitables d'un scan (parité avec la bulle) :
+   profils LinkedIn (nom+poste, sans email), puis emails/téléphones, puis
+   à défaut le nom seul d'une fiche profil. */
+function scrapeRows(res){
+  const rows=[], seen=new Set();
+  const dom=(res.host||"").replace(/^www\./,"");
+  (res.profiles||[]).forEach(p=>{ const k="li|"+p.url; if(seen.has(k))return; seen.add(k);
+    rows.push({email:"",name:p.name||"",phone:"",company:res.company||dom,service:p.headline||"",source:p.url}); });
+  const mc=[], mcseen=new Set(); Scraper.mergeContacts(mc,mcseen,res);
+  mc.forEach(r=>{ const k=r.email||("tel:"+r.phone); if(seen.has(k))return; seen.add(k); rows.push(r); });
+  if(!rows.length && res.name){ rows.push({email:"",name:res.name,phone:(res.phones&&res.phones[0])||"",company:res.company||dom,service:res.headline||"",source:res.url}); }
+  return rows;
 }
 function renderScrapeResults(container,res){
-  const rows=[], seen=new Set(); Scraper.mergeContacts(rows,seen,res); SCRAPE_ROWS=rows;
+  const rows=scrapeRows(res); SCRAPE_ROWS=rows;
+  const isLIsearch=res.isLinkedIn&&res.isSearch;
   container.innerHTML=`<div class="card">
     <div class="grid cards" style="margin-bottom:12px">
-      ${kpi("Emails",(res.emails||[]).length,"finder","var(--brand)")}
+      ${kpi(isLIsearch?"Profils":"Emails",isLIsearch?(res.profiles||[]).length:(res.emails||[]).length,"finder","var(--brand)")}
       ${kpi("Téléphones",(res.phones||[]).length,"finder","var(--accent)")}
       ${kpi("Contacts",rows.length,"finder","var(--ok)")}</div>
+    ${res.isLinkedIn?`<div class="tag ${res.isSearch?'b':'n'}" style="margin-bottom:10px">LinkedIn — ${res.isSearch?"page de résultats":"profil"}${res.company?" · "+esc(res.company):""}</div>`:""}
     ${res.name?`<p style="font-weight:700;margin:0 0 8px">${esc(res.name)}${res.headline?` — <span class="muted">${esc(res.headline)}</span>`:""}</p>`:""}
-    ${rows.length?scrapeTable(rows):`<div class="empty">Aucun email/téléphone exploitable sur cette page.</div>`}
+    ${rows.length?scrapeTable(rows):`<div class="empty">Aucun contact exploitable sur cette page. ${res.isLinkedIn?"Ouvrez une page de résultats LinkedIn (/search/…) pour lister les profils.":"Essayez une page « contact » ou un annuaire."}</div>`}
     ${(res.phones||[]).length?`<div class="divider"></div><div class="muted" style="font-weight:700;font-size:11px;text-transform:uppercase;margin-bottom:6px">Téléphones détectés</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">${res.phones.map(p=>`<span class="tag b copybtn" data-call="copy('${p.replace(/'/g,"")}')">${esc(p)}</span>`).join("")}</div>`:""}
   </div>`;
@@ -1002,12 +1020,20 @@ function wireScrapeTable(container){
   csv&&(csv.onclick=()=>exportCSV("scraping",["email","name","phone","company","service","source"],SCRAPE_ROWS));
 }
 function importScraped(rows){
-  let n=0; for(const r of rows){ const key=r.email||("tel:"+r.phone);
-    if(!key||key==="tel:") continue;
-    if(DB.contacts.some(c=>(r.email&&c.email===r.email)||(!r.email&&r.phone&&c.phone===r.phone))) continue;
-    DB.contacts.unshift({id:uid(),email:r.email||"",name:r.name||"",domain:r.company||"",phone:r.phone||"",
-      service:r.service||"",sourceUrl:r.source||"",confidence:"",source:"scraper",added:Date.now(),tags:[]}); n++; }
-  logAct(`${n} contacts importés (scraper)`); save(); renderNav(); toast(n+" contact(s) ajouté(s) au CRM");
+  let n=0; const added=[];
+  for(const r of rows){
+    // on garde aussi les profils LinkedIn (nom seul, sans email) — utiles à suivre
+    if(!r.email && !r.phone && !r.name) continue;
+    const dup = r.email ? DB.contacts.some(c=>c.email===r.email)
+      : r.phone ? DB.contacts.some(c=>c.phone===r.phone && !c.email)
+      : DB.contacts.some(c=>!c.email && c.name===r.name && c.sourceUrl===r.source);
+    if(dup) continue;
+    const src=/linkedin\./i.test(r.source||"")?"linkedin":"scraper";
+    const rec={id:uid(),email:r.email||"",name:r.name||"",domain:r.company||"",phone:r.phone||"",
+      service:r.service||"",sourceUrl:r.source||"",confidence:"",source:src,stage:"À contacter",added:Date.now(),tags:[]};
+    DB.contacts.unshift(rec); added.push(rec); n++; }
+  logAct(`${n} contact(s) importé(s) (scraper)`); save(); renderNav(); toast(n+" contact(s) ajouté(s) au CRM");
+  added.forEach(rec=>Automations.run("contact.created",{...rec,_entity:"contacts",_id:rec.id}));
 }
 async function scrapeWebUI(){
   $("#scBody").innerHTML=`
@@ -1166,7 +1192,7 @@ const scoreBar=c=>{
 };
 window.saveContact=(email,name,domain,conf)=>{
   if(DB.contacts.some(c=>c.email===email)){ toast("Déjà dans les contacts","warn"); return; }
-  const c={id:uid(),email,name,domain,confidence:conf||"",source:"finder",added:Date.now(),phone:"",note:"",tags:[]};
+  const c={id:uid(),email,name,domain,confidence:conf||"",source:"finder",stage:"À contacter",added:Date.now(),phone:"",note:"",tags:[]};
   DB.contacts.unshift(c);
   logAct(`Contact ajouté : ${email}`); save(); renderNav(); toast("Contact enregistré");
   Automations.run("contact.created",{...c,_entity:"contacts",_id:c.id});
@@ -1222,7 +1248,7 @@ function finderExtract(){
 }
 window.importAllContacts=(list)=>{
   let n=0; const added=[];
-  for(const c of list){ if(!DB.contacts.some(x=>x.email===c.email)){ const rec={id:uid(),email:c.email,name:c.guessName||"",domain:c.domain,confidence:70,source:"extract",added:Date.now(),phone:"",note:"",tags:[]}; DB.contacts.unshift(rec); added.push(rec); n++; } }
+  for(const c of list){ if(!DB.contacts.some(x=>x.email===c.email)){ const rec={id:uid(),email:c.email,name:c.guessName||"",domain:c.domain,confidence:70,source:"extract",stage:"À contacter",added:Date.now(),phone:"",note:"",tags:[]}; DB.contacts.unshift(rec); added.push(rec); n++; } }
   logAct(`${n} contacts importés (extraction)`); save(); renderNav(); toast(n+" contacts ajoutés au CRM");
   added.forEach(rec=>Automations.run("contact.created",{...rec,_entity:"contacts",_id:rec.id}));
 };
@@ -1285,13 +1311,25 @@ function finderVerify(){
   };
 }
 
-let CS_TAG="", CS_STATUS="", CS_PAGE=1, CS_PER=25;
+let CS_TAG="", CS_STATUS="", CS_STAGE="", CS_PAGE=1, CS_PER=25;
 let CS_SEL=new Set();
+const STAGES=["À contacter","Contacté","Relancé","En discussion","Gagné","Perdu"];
+const stageOf=c=>c.stage||"À contacter";
+const stageColor=s=>({"À contacter":"n","Contacté":"b","Relancé":"w","En discussion":"b","Gagné":"g","Perdu":"r"}[s]||"n");
+window.setContactStage=(id,stage)=>{ const c=DB.contacts.find(x=>x.id===id); if(!c)return;
+  c.stage=stage; if(stage==="Contacté"||stage==="Relancé") c.lastContacted=Date.now();
+  logAct(`Contact ${c.email||c.name||""} : étape « ${stage} »`); save(); renderNav(); csDraw(); };
+window.emailContact=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c||!c.email){toast("Pas d'email pour ce contact","warn");return;}
+  const d=ftEmailDraft({to:c.email, subject:"", body:""});
+  c.stage=(stageOf(c)==="À contacter")?"Contacté":stageOf(c); c.lastContacted=Date.now();
+  logAct(`Email préparé pour ${c.email}`); save(); renderNav(); csDraw();
+  window.location.href=d.mailto; };
 function csRows(){
   const q=(($("#cs_q")&&$("#cs_q").value)||"").toLowerCase();
   return DB.contacts.filter(c=>{
     if(CS_TAG && !(c.tags||[]).includes(CS_TAG)) return false;
     if(CS_STATUS && emailStatut(c.email).l!==CS_STATUS) return false;
+    if(CS_STAGE && stageOf(c)!==CS_STAGE) return false;
     if(q && !(c.email+(c.name||"")+(c.domain||"")+(c.service||"")).toLowerCase().includes(q)) return false;
     return true;
   });
@@ -1307,6 +1345,8 @@ function finderSaved(){
   </div>
   <div class="toolbar">
     <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input class="input" id="cs_q" placeholder="Rechercher…" value="${esc(csQVal())}"></div>
+    <select id="cs_stage" class="input" style="max-width:160px">
+      ${["",...STAGES].map(s=>`<option value="${s}" ${CS_STAGE===s?'selected':''}>${s||"Toutes les étapes"}</option>`).join("")}</select>
     <select id="cs_status" class="input" style="max-width:150px">
       ${["","Valide","Catch-All","Perso","Invalide"].map(s=>`<option value="${s}" ${CS_STATUS===s?'selected':''}>${s||"Tous les statuts"}</option>`).join("")}</select>
     <div class="spacer"></div>
@@ -1320,10 +1360,11 @@ function finderSaved(){
   <div id="cs_pager"></div>`;
   $("#cs_q").oninput=()=>{CS_PAGE=1;csDraw();};
   $("#cs_status").onchange=e=>{CS_STATUS=e.target.value;CS_PAGE=1;csDraw();};
+  $("#cs_stage").onchange=e=>{CS_STAGE=e.target.value;CS_PAGE=1;csDraw();};
   $$("#finderBody .lchip").forEach(b=>b.onclick=()=>{CS_TAG=b.dataset.list;CS_PAGE=1;CS_SEL.clear();finderSaved();});
   $("#cs_newlist").onclick=()=>{ const n=prompt("Nom de la nouvelle liste :"); if(n&&n.trim()){ CS_TAG=n.trim(); toast("Liste « "+n.trim()+" » — ajoutez-y des contacts via « Déplacer »"); finderSaved(); } };
-  $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","domain","phone","service","statut","seniorite","fonction","source","tags"],
-    csRows().map(c=>({...c,statut:emailStatut(c.email).l,seniorite:inferSeniority(c.service),fonction:inferFunction(c.service),tags:(c.tags||[]).join(" ")})));
+  $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","domain","phone","service","etape","statut","seniorite","fonction","source","sourceUrl","ajoute","tags"],
+    csRows().map(c=>({...c,etape:stageOf(c),statut:emailStatut(c.email).l,seniorite:inferSeniority(c.service),fonction:inferFunction(c.service),ajoute:c.added?fmtDate(c.added):"",tags:(c.tags||[]).join(" ")})));
   $("#cs_imp").onclick=()=>$("#cs_file").click();
   $("#cs_file").onchange=importContactsCSV;
   $("#cs_dedupe").onclick=()=>{const before=DB.contacts.length;DB.contacts=EmailFinder.dedupe(DB.contacts);const n=before-DB.contacts.length;save();renderNav();finderSaved();toast(n?n+" doublon(s) supprimé(s)":"Aucun doublon");};
@@ -1340,18 +1381,22 @@ function csDraw(){
   tbl.innerHTML = rows.length?`<div class="tbl-wrap"><table>
     <thead><tr>
       <th style="width:34px"><span class="chk ${allSel?'on':''}" id="cs_all" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></th>
-      <th>Nom</th><th>Entreprise / domaine</th><th>Email</th><th>Statut</th><th>Séniorité</th><th>Fonction</th><th>Téléphone</th><th></th></tr></thead>
+      <th>Nom</th><th>Entreprise / domaine</th><th>Email</th><th>Étape</th><th>Statut</th><th>Séniorité</th><th>Fonction</th><th>Téléphone</th><th></th></tr></thead>
     <tbody>${slice.map(c=>{const st=emailStatut(c.email);const sen=inferSeniority(c.service);const fn=inferFunction(c.service);
+      const srcLab={linkedin:"LinkedIn",scraper:"Scraper",extract:"Extraction",import:"Import CSV",finder:"Recherche",web:"Web"}[c.source]||c.source||"";
+      const sub=[c.service?esc(c.service.slice(0,40)):"",[srcLab,c.added?fmtDate(c.added):""].filter(Boolean).join(" · ")].filter(Boolean);
       return `<tr class="${CS_SEL.has(c.id)?'selrow':''}">
       <td><span class="chk ${CS_SEL.has(c.id)?'on':''}" data-csel="${c.id}" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></td>
-      <td class="cell-strong">${esc(c.name||"—")}${c.service?`<div class="muted" style="font-size:11.5px;font-weight:500">${esc(c.service.slice(0,44))}</div>`:""}</td>
+      <td class="cell-strong">${esc(c.name||"—")}${sub.length?`<div class="muted" style="font-size:11px;font-weight:500">${sub.join(' · ')}</div>`:""}</td>
       <td class="muted">${esc(c.domain||"—")}</td>
       <td class="mono" style="font-size:12.5px">${c.email?esc(c.email):'<span class="muted">—</span>'}</td>
+      <td><select class="input sm" data-stage="${c.id}" style="min-width:120px;padding:4px 8px;font-size:12px;font-weight:700">${STAGES.map(s=>`<option value="${esc(s)}" ${stageOf(c)===s?'selected':''}>${esc(s)}</option>`).join("")}</select></td>
       <td><span class="tag ${st.c}">${st.l}</span></td>
       <td>${sen?`<span class="tag n">${sen}</span>`:'<span class="muted">—</span>'}</td>
       <td>${fn?`<span class="tag b">${fn}</span>`:'<span class="muted">—</span>'}</td>
       <td class="muted">${esc(c.phone||"—")}</td>
-      <td class="rowact"><button class="btn sm ghost" data-call="tagContact('${c.id}')">Liste</button>
+      <td class="rowact">${c.email?`<button class="btn sm" data-call="emailContact('${c.id}')">Email</button>`:""}
+        <button class="btn sm ghost" data-call="tagContact('${c.id}')">Liste</button>
         ${c.email?`<button class="btn sm ghost" data-call="copy('${c.email}')">Copier</button>`:""}
         <button class="btn sm ghost" data-call="delContact('${c.id}')">✕</button></td></tr>`;}).join("")}</tbody></table></div>`
     : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div>Aucun contact${CS_TAG||CS_STATUS||csQVal()?" pour ce filtre":""}. Utilisez la bulle de l'extension, les onglets de recherche, ou importez un CSV.</div></div></div>`;
@@ -1364,6 +1409,7 @@ function csDraw(){
     <button class="btn sm ghost" id="cs_next" ${CS_PAGE>=pages?"disabled":""}>›</button></div>`:"";
   $("#cs_prev")&&($("#cs_prev").onclick=()=>{CS_PAGE--;csDraw();});
   $("#cs_next")&&($("#cs_next").onclick=()=>{CS_PAGE++;csDraw();});
+  $$("#cs_tbl [data-stage]").forEach(sel=>sel.onchange=()=>setContactStage(sel.dataset.stage,sel.value));
   $$("#cs_tbl [data-csel]").forEach(el=>el.onclick=()=>{const id=el.dataset.csel;CS_SEL.has(id)?CS_SEL.delete(id):CS_SEL.add(id);csDraw();});
   $("#cs_all")&&($("#cs_all").onclick=()=>{ if(allSel) slice.forEach(c=>CS_SEL.delete(c.id)); else slice.forEach(c=>CS_SEL.add(c.id)); csDraw(); });
   csBulk();
@@ -1404,7 +1450,7 @@ function importContactsCSV(e){
       const email=(cols[iE]||"").trim().toLowerCase();
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
       if(DB.contacts.some(c=>c.email===email)) continue;
-      const rec={id:uid(),email,name:(iN>=0?cols[iN]:"")||"",domain:(iD>=0?cols[iD]:email.split("@")[1])||"",phone:(iP>=0?cols[iP]:"")||"",confidence:"",source:"import",added:Date.now(),tags:[]};
+      const rec={id:uid(),email,name:(iN>=0?cols[iN]:"")||"",domain:(iD>=0?cols[iD]:email.split("@")[1])||"",phone:(iP>=0?cols[iP]:"")||"",confidence:"",source:"import",stage:"À contacter",added:Date.now(),tags:[]};
       DB.contacts.unshift(rec); added.push(rec); n++;
     }
     logAct(`${n} contacts importés (CSV)`); save(); renderNav(); VIEWS.finder(); toast(n+" contacts importés");

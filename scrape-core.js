@@ -25,10 +25,23 @@ function ftPageScrape(){
     var txt=(doc.body&&doc.body.innerText)||"";
     var mailtos=[].slice.call(doc.querySelectorAll('a[href^="mailto:"]')).map(function(a){try{return decodeURIComponent(a.getAttribute("href").slice(7).split("?")[0]);}catch(e){return "";}});
     var tels=[].slice.call(doc.querySelectorAll('a[href^="tel:"]')).map(function(a){return a.getAttribute("href").slice(4);});
+    // Domaines "bruit" : outils techniques, exemples, images sprite — jamais des vrais contacts.
+    var JUNKMAIL=/(sentry(\.io|-cdn)|wixpress|wix\.com|@example\.|@email\.|@domain\.|@sentry|@2x|@3x|godaddy|\.png$|\.jpe?g$|\.gif$|\.svg$|\.webp$|\.css$|\.js$|\.woff2?$|your-?email|yourdomain|no-?reply@example)/i;
     var emails=Array.from(new Set((txt+" "+mailtos.join(" ")).match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g)||[]))
       .map(function(e){return e.toLowerCase().replace(/[.,;:)]+$/,"");})
-      .filter(function(e){return !/\.(png|jpe?g|gif|svg|webp|css|js|woff2?)$/i.test(e) && e.indexOf("@")>0;});
+      .filter(function(e){
+        if(e.indexOf("@")<1) return false;
+        if(JUNKMAIL.test(e)) return false;
+        var lp=e.split("@")[0];
+        if(lp.length>40 || /^[0-9a-f]{16,}$/.test(lp)) return false; // hash / identifiant, pas un contact
+        return true;
+      });
     var ph=phones(txt+"  "+tels.join("  "));
+    // Société : og:site_name / meta application-name / <title> nettoyé
+    var company="";
+    var og=doc.querySelector('meta[property="og:site_name"],meta[name="application-name"],meta[name="author"]');
+    if(og && og.content) company=og.content.trim();
+    if(!company && doc.title){ company=doc.title.split(/[|\-–—:·]/)[0].trim(); if(company.length>60) company=""; }
 
     // --- LinkedIn : liste des profils sur une page de résultats ---
     var isLI=/(^|\.)linkedin\./.test(host);
@@ -63,7 +76,7 @@ function ftPageScrape(){
     }
 
     var links=Array.from(new Set([].slice.call(doc.querySelectorAll("a[href]")).map(function(a){return a.href;}).filter(function(h){return /^https?:/.test(h);})));
-    return {url:location.href, title:doc.title, host:host, isLinkedIn:isLI, isSearch:isSearch, name:name, headline:headline, company:"", emails:emails, phones:ph, profiles:profiles, links:links};
+    return {url:location.href, title:doc.title, host:host, isLinkedIn:isLI, isSearch:isSearch, name:name, headline:headline, company:company, emails:emails, phones:ph, profiles:profiles, links:links};
   }catch(e){ return {url:location.href, error:String(e), emails:[], phones:[], links:[], profiles:[]}; }
 }
 if (typeof window!=="undefined") window.ftPageScrape=ftPageScrape;

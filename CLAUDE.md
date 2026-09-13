@@ -87,6 +87,23 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   (automatisations + campagnes) utilisent l'expéditeur choisi et **ajoutent sa
   signature** (`ftEmailDraft`). Honnête : `mailto:` ne force pas le compte d'envoi
   (c'est le client mail qui décide) — on prépare le message prêt à partir.
+- **Prospection consolidée (LinkedIn / web / pages de recherche)** — audit +
+  fiabilisation complète (23/23 checks sous CSP sur page fixture réelle) :
+  - `scrape-core.js` : **filtre anti-bruit des emails** (sentry, wixpress,
+    example.com, pixels `@2x.png`, hash/identifiants) + **détection société**
+    (`og:site_name` / `application-name` / `<title>` nettoyé). Détection
+    téléphone stricte inchangée (FR + international, rejette années/SIRET).
+  - **Parité bulle ↔ app** : le scraping d'un onglet LinkedIn *depuis l'app*
+    (`scrapeRows`) liste désormais les **profils d'une page de résultats** et
+    garde le **nom seul** d'une fiche profil (avant : ignorés, « aucun contact »).
+    Import (`importScraped`) conserve les profils sans email, déduit `source`
+    (linkedin/scraper), pose l'étape « À contacter », déclenche `contact.created`.
+  - **Suivi de prospection** dans l'onglet Contacts : colonne **Étape**
+    (À contacter / Contacté / Relancé / En discussion / Gagné / Perdu) éditable
+    en ligne, **filtre par étape**, **source + date** sous le nom, action
+    **« Email »** en un clic (brouillon `mailto:` + signature de l'expéditeur par
+    défaut, passe l'étape à « Contacté » et date le contact). Export CSV enrichi
+    (étape, source, sourceUrl, date). Nudge Assistant « X contacts à contacter ».
 - **Campagnes de relance** (nav « Campagnes de relance », `DB.campaigns`) :
   séquences d'emails espacées (J+0, J+3, J+7…) sur une **liste de contacts**
   (étiquette). « Enrôler la liste » ajoute les contacts ; `processCampaigns()`

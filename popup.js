@@ -127,7 +127,7 @@ async function save(){
       return;
     }
     db.contacts.unshift({id:uid(),email:r.email||"",name:r.name||"",domain:r.company||"",phone:r.phone||"",
-      service:r.headline||"",sourceUrl:r.url||"",confidence:"",source:CURRENT&&CURRENT.isLinkedIn?"linkedin":"web",added:Date.now(),tags:[list]});
+      service:r.headline||"",sourceUrl:r.url||"",confidence:"",source:CURRENT&&CURRENT.isLinkedIn?"linkedin":"web",stage:"À contacter",added:Date.now(),tags:[list]});
     n++;
   });
   writeDB(db);
