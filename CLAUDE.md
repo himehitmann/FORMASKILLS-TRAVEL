@@ -154,6 +154,49 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   **dé-doublonné** par `campKey`. Compat ascendante avec l'ancien `listTag`
   unique. Aucun envoi automatique — l'utilisatrice garde la main.
 
+## ANALYSE DU DRIVE FORMASKILLS TRAVEL (fait via connecteur Google Drive)
+Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / TRAVEL » :
+- **CRM COMMERCIAL & PARTENARIATS — TRAVEL** (le vrai CRM). Onglets/colonnes réels :
+  - Entités & contacts : Type de relation, Nom de l'entité, Pays, Ville, Adresse,
+    Code postal, Contact principal, Fonction, E-mail (principal + secondaires),
+    Téléphone, Site web, Statut, Dernière interaction, Prochaine action,
+    Offre / intérêt, Responsable, Notes, Fichier source, Importé le.
+  - Opportunités / pipeline : Statut commercial, Valeur estimée, Prochaine action,
+    Échéance, Référence devis/projet, Objet de la relance.
+  - Bibliothèque e-mails (mails types) : Catégorie, Langue (FR/EN…), Public, Objet,
+    Corps, Pièce jointe/lien, Statut de validation, Responsable (Template_1st/2nd/3rd).
+  - Campagnes : Nom, Public cible, Canal, Modèle e-mail, Date lancement, Relance 1,
+    Relance 2, Prochaine action, Résultat, Responsable.
+  - Prestataires locaux : Type (Salle de cours, Atelier, transport, hébergement,
+    restaurant, guide…), Nom, Pays, Ville, Adresse, Site web, Mail, Contact, Tél, Statut.
+- **Types de relation réels** (volumétrie) : Lycées (206), Partenaire éducation /
+  petite enfance (111), Agence de voyage (57), Agence au pair (39), Entreprise/
+  partenaire, Crèches, Aide à domicile, Organisme intermédiaire, Prestataires.
+- **Axes commerciaux** (stratégie) : A Clients internationaux (agences étrangères,
+  écoles de langues, universités, organismes Erasmus), B Clients directs
+  (particuliers/familles), C Prestataires FR (autocaristes, hôtels, restaurants,
+  musées, guides, activités), D Partenaires stratégiques (offices tourisme, institutions).
+- Autres fichiers : BDD Entreprises Educaskills (prospects), SUIVI PARTICIPANTS,
+  PLANNINGS TYPES FLE À SÈTE + COMMUNICATION & PLANNINGS (calendrier séjours),
+  GESTION DOCUMENTAIRE + PROCESS + KPI, OFFRES-PRIX-COMPTA, dossier MAILS TYPES,
+  DOCUMENTS MODÈLES VIERGES, GOOGLE FORMS (International Participant Registration),
+  Papiers officiels (Qualiopi, accréditation, RC Pro), conventions au pair, Europass.
+- **Aligné dans l'outil** : `CONTACT_CATEGORIES` + `inferCategory` reprennent la
+  vraie taxonomie (Lycée/École, Crèche/Petite enfance, Université/École de langues,
+  Agence de voyage, Agence au pair, Organisme intermédiaire/Erasmus, Hébergement,
+  Restaurant, Transport, Activité/Visite/Guide, Salle/Atelier, Office de tourisme/
+  Institution, Financeur/OPCO, Prestataire, Entreprise, Client/Particulier). Les
+  **mails types** ont Langue + Public et sont **seedés** au 1er lancement
+  (`seedMailTemplates` : 1er contact lycée + relance 1/2 + 1er contact prestataire).
+- **Roadmap pour couvrir TOUTE l'activité** (à prioriser avec l'utilisatrice) :
+  R.a Champs CRM complets sur T1 (Pays/Ville/Adresse/CP/Site/Fonction/Responsable/
+  Dernière interaction/Prochaine action/Offre) ; R.b Pipeline « Opportunités »
+  (statut commercial + valeur + échéance) ; R.c Module **Plannings/Calendrier des
+  séjours** (FLE à Sète) — absent ; R.d **Registre documentaire + KPI** (T8) ;
+  R.e Import en masse de la BDD/CRM Drive (CSV/XLSX) ; R.f Intake participants
+  (Google Form → fiche). NB : le connecteur Drive n'est pas garanti connecté en
+  session — l'outil reste autonome ; l'analyse Drive sert à cadrer les fonctions.
+
 ## CE QUI N'EST PAS FAIT / À CONTINUER (par priorité)
 1. ~~**Automatisations façon n8n (workflows multi-étapes)**~~ — **FAIT & TESTÉ**
    (29/29 checks sous CSP, 0 violation, 0 pageerror). Moteur multi-étapes dans

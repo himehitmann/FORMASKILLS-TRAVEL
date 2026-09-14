@@ -8,7 +8,7 @@ const DEFAULT_DB = {
   settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35,
     quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0, syncEnabled:false, lastSync:0, lastDailyRun:"",
     scrape:{ minDelay:900, maxDelay:2600, dailyLimit:200 }, scrapeCount:{ day:"", n:0 },
-    senders:[], defaultSender:"",
+    senders:[], defaultSender:"", mailsSeeded:false,
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -282,15 +282,23 @@ function inferFunction(text){
 }
 /* Nature du contact / de l'entreprise (écoles, restaurants, prestataires…) —
    déduite hors-ligne depuis le nom, le service et le domaine. Réglable à la main. */
-const CONTACT_CATEGORIES=["École / CFA","Restaurant","Hôtel / Hébergement","Transport","Financeur / OPCO","Institution / Mairie","Prestataire","Entreprise","Particulier","Autre"];
+// Types de relation alignés sur le vrai CRM Formaskills Travel (Drive).
+const CONTACT_CATEGORIES=["Lycée / École","Crèche / Petite enfance","Université / École de langues","Agence de voyage","Agence au pair","Organisme intermédiaire / Erasmus","Hébergement","Restaurant","Transport","Activité / Visite / Guide","Salle / Atelier","Office de tourisme / Institution","Financeur / OPCO","Prestataire","Entreprise","Client / Particulier","Autre"];
 function inferCategory(text){
   const t=(text||"").toLowerCase();
-  if(/(cfa|[ée]cole|lyc[ée]e|coll[èe]ge|universit|campus|institut de formation|centre de formation|acad[ée]mie|greta|mfr|apprentissage|formation|enseign|[ée]ducation|groupe scolaire)/.test(t)) return "École / CFA";
-  if(/(restaurant|brasserie|pizzeria|bistro|traiteur|cantine|creperie|crêperie|snack|food|kebab|burger)/.test(t)) return "Restaurant";
-  if(/(h[ôo]tel|auberge|r[ée]sidence|g[îi]te|hostel|camping|h[ée]bergement|chambre d'h[ôo]te|logement)/.test(t)) return "Hôtel / Hébergement";
-  if(/(transport|autocar|autobus|\bbus\b|taxi|navette|\bvtc\b|car\b|voyagiste|agence de voyage|coach)/.test(t)) return "Transport";
+  if(/(cr[èe]che|petite enfance|\baepe\b|\beje\b|auxiliaire de pu[ée]ricultur|assistante? maternelle|multi-?accueil|micro-?cr[èe]che|jardin d'enfants)/.test(t)) return "Crèche / Petite enfance";
+  if(/(universit|[ée]cole de langue|language school|sprachschule|escuela de idiomas|campus universitaire)/.test(t)) return "Université / École de langues";
+  if(/(lyc[ée]e|coll[èe]ge|\bcfa\b|greta|\bmfr\b|groupe scolaire|[ée]cole|instituto|scuola|liceo|gymnasium|secondary school|high school|centre de formation|acad[ée]mie)/.test(t)) return "Lycée / École";
+  if(/(au ?pair|au-pair)/.test(t)) return "Agence au pair";
+  if(/(agence de voyage|tour[- ]?op[ée]rateur|tour operator|voyagiste|\bdmc\b|travel agency|receptive|r[ée]ceptif)/.test(t)) return "Agence de voyage";
+  if(/(erasmus|organisme interm[ée]diaire|mobilit[ée]|consortium|agence nationale|humacapiact)/.test(t)) return "Organisme intermédiaire / Erasmus";
+  if(/(h[ôo]tel|auberge|r[ée]sidence|g[îi]te|hostel|camping|h[ée]bergement|chambre d'h[ôo]te|logement|foyer|internat)/.test(t)) return "Hébergement";
+  if(/(restaurant|brasserie|pizzeria|bistro|traiteur|cantine|cr[êe]perie|snack|\bfood\b|kebab|burger|caf[ée])/.test(t)) return "Restaurant";
+  if(/(transport|autocar|autobus|\bbus\b|taxi|navette|\bvtc\b|autocariste|coach|compagnie de transport)/.test(t)) return "Transport";
+  if(/(mus[ée]e|visite|guide|activit[ée]|excursion|sortie|atelier culturel|site culturel|parc|aquarium|patrimoine)/.test(t)) return "Activité / Visite / Guide";
+  if(/(salle de cours|salle de r[ée]union|atelier|espace de travail|coworking|location de salle)/.test(t)) return "Salle / Atelier";
+  if(/(office de tourisme|mairie|commune|pr[ée]fecture|d[ée]partement|r[ée]gion|\bcci\b|chambre de m[ée]tiers|conseil r[ée]gional|collectivit|institution)/.test(t)) return "Office de tourisme / Institution";
   if(/(opco|p[ôo]le emploi|mission locale|financ|afdas|akto|atlas|uniformation|ocapiat)/.test(t)) return "Financeur / OPCO";
-  if(/(mairie|commune|pr[ée]fecture|d[ée]partement|r[ée]gion|\bcci\b|chambre de m[ée]tiers|conseil r[ée]gional|collectivit)/.test(t)) return "Institution / Mairie";
   return "";
 }
 function emailStatut(email){
@@ -795,6 +803,29 @@ function ftEmailDraft({to,subject,body,senderId,cc,bcc}){
    le glisse dans l'email (1 geste). */
 function ftMailTemplates(){ return (DB.emailTemplates||[]); }
 function ftMailTemplate(id){ return ftMailTemplates().find(t=>t.id===id)||null; }
+// Mails types de démarrage (structure Formaskills : 1er contact + relances,
+// par public). Starters à personnaliser — seedés une seule fois.
+function seedMailTemplates(){
+  if(DB.settings.mailsSeeded) return;
+  if((DB.emailTemplates||[]).length){ DB.settings.mailsSeeded=true; return; }
+  const sig="\n\nBien cordialement,\nFormaskills Travel — séjours linguistiques & mobilités à Sète";
+  const S=[
+    {name:"1er contact — Lycée / École", lang:"FR", public:"Lycée / École",
+     subject:"Séjours linguistiques & mobilités Erasmus à Sète — {company}",
+     body:"Bonjour,\n\nJe me permets de vous contacter au sujet de {company}. Formaskills Travel organise à Sète des séjours linguistiques (FLE) et des mobilités Erasmus pour groupes scolaires : cours, hébergement, activités culturelles et suivi administratif.\n\nSeriez-vous disponible pour un court échange afin d'étudier un projet pour vos élèves ?"+sig},
+    {name:"Relance 1 — Lycée / École", lang:"FR", public:"Lycée / École",
+     subject:"Relance — projet de séjour pour {company}",
+     body:"Bonjour,\n\nSauf erreur, je n'ai pas eu de retour à mon précédent message. Je reste à votre disposition pour présenter nos séjours à Sète et construire une offre adaptée à vos élèves.\n\nQuel serait le meilleur moment pour en discuter ?"+sig},
+    {name:"Relance 2 — Lycée / École", lang:"FR", public:"Lycée / École",
+     subject:"Dernière relance — séjours Formaskills Travel",
+     body:"Bonjour,\n\nJe reviens une dernière fois vers vous : si les séjours linguistiques ou une mobilité Erasmus vous intéressent pour cette année ou la suivante, je serais ravie d'en échanger. Sinon, je ne manquerai pas de vous recontacter ultérieurement.\n\nMerci de votre attention."+sig},
+    {name:"1er contact — Prestataire", lang:"FR", public:"Prestataire",
+     subject:"Référencement prestataire — Formaskills Travel (Sète)",
+     body:"Bonjour,\n\nFormaskills Travel accueille des groupes en séjour à Sète et référence des prestataires locaux ({company} : hébergement, restauration, transport, activités, visites…).\n\nPourriez-vous me communiquer vos disponibilités, tarifs groupes et conditions ? Je vous en remercie par avance."+sig},
+  ];
+  DB.emailTemplates=(DB.emailTemplates||[]).concat(S.map(t=>({id:uid(),...t,cc:"",bcc:"",docTpl:""})));
+  DB.settings.mailsSeeded=true; saveNow();
+}
 
 /* ============================================================
    4c. CAMPAGNES DE RELANCE (séquences d'emails espacées)
@@ -2754,7 +2785,7 @@ function drawMailTemplates(){
   const l=ftMailTemplates();
   box.innerHTML=l.length? l.map(t=>{ const doc=t.docTpl?allTemplates().find(x=>x.id===t.docTpl):null;
     return `<div class="result-row" style="align-items:center">
-    <div style="flex:1;min-width:0"><div class="cell-strong">${esc(t.name)}</div>
+    <div style="flex:1;min-width:0"><div class="cell-strong">${esc(t.name)}${t.lang?` <span class="tag n">${esc(t.lang)}</span>`:""}${t.public?` <span class="tag b">${esc(t.public)}</span>`:""}</div>
     <div class="muted" style="font-size:12.5px">Objet : ${esc(t.subject||"—")}${t.cc?" · Cc":""}${t.bcc?" · Cci":""}${doc?` · PJ : ${esc(doc.name)}`:""}</div></div>
     <button class="btn sm ghost" data-mtedit="${t.id}">Modifier</button>
     <button class="btn sm ghost" data-mtdel="${t.id}">✕</button></div>`; }).join("")
@@ -2766,7 +2797,11 @@ function editMailTemplate(id){
   const t=id?ftMailTemplate(id):{name:"",subject:"",body:"",cc:"",bcc:"",docTpl:""};
   const docOpts=`<option value="">Aucune pièce jointe</option>`+allTemplates().map(d=>`<option value="${d.id}" ${t.docTpl===d.id?'selected':''}>${esc(d.name)}</option>`).join("");
   openModal({title:id?"Modifier le modèle d'email":"Nouveau modèle d'email", wide:true,
-    body:`<div class="field"><label>Nom du modèle *</label><input class="input" id="mt_name" value="${esc(t.name||"")}" placeholder="Ex : Premier contact école"></div>
+    body:`<div class="row3">
+      <div class="field"><label>Nom du modèle *</label><input class="input" id="mt_name" value="${esc(t.name||"")}" placeholder="Ex : 1er contact lycée"></div>
+      <div class="field"><label>Langue</label><select id="mt_lang">${["FR","EN","ES","IT","DE"].map(L=>`<option ${(t.lang||"FR")===L?'selected':''}>${L}</option>`).join("")}</select></div>
+      <div class="field"><label>Public / cible</label><input class="input" id="mt_public" value="${esc(t.public||"")}" placeholder="Lycée, Prestataire, Agence…"></div>
+    </div>
     <div class="field"><label>Objet</label><input class="input" id="mt_subject" value="${esc(t.subject||"")}" placeholder="Formaskills Travel — séjours linguistiques pour {company}"></div>
     <div class="field"><label>Message (variables {name}, {company}…)</label><textarea id="mt_body" style="min-height:150px" placeholder="Bonjour {name},&#10;&#10;…">${esc(t.body||"")}</textarea></div>
     <div class="row2">
@@ -2776,7 +2811,7 @@ function editMailTemplate(id){
     <div class="field"><label>Pièce jointe (modèle de document → PDF à joindre)</label><select id="mt_doc">${docOpts}</select></div>`,
     footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Enregistrer",cls:"primary",act:()=>{
       const name=$("#mt_name").value.trim(); if(!name){toast("Nom requis","warn");return;}
-      const obj={name, subject:$("#mt_subject").value, body:$("#mt_body").value, cc:$("#mt_cc").value.trim(), bcc:$("#mt_bcc").value.trim(), docTpl:$("#mt_doc").value};
+      const obj={name, lang:$("#mt_lang").value, public:$("#mt_public").value.trim(), subject:$("#mt_subject").value, body:$("#mt_body").value, cc:$("#mt_cc").value.trim(), bcc:$("#mt_bcc").value.trim(), docTpl:$("#mt_doc").value};
       DB.emailTemplates=DB.emailTemplates||[];
       if(id){ Object.assign(ftMailTemplate(id),obj); } else { DB.emailTemplates.push({id:uid(),...obj}); }
       save(); closeModal(); drawMailTemplates(); toast("Modèle d'email enregistré"); }}]});
@@ -2879,6 +2914,7 @@ function checkOverdue(){
 // Seed demo activity note on very first run
 if(!localStorage.getItem(KEY)){ logAct("Bienvenue — Travel OS initialisé."); saveNow(); }
 
+seedMailTemplates();
 applyTheme();
 renderNav();
 go("dash");
