@@ -62,6 +62,40 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
 - **Détection téléphone STRICTE** (`ftPhones` + inline dans scrape-core) : FR
   `0X XX XX XX XX` et international `+CC…`. Rejette années/SIRET/identifiants
   (fini les « 2026 2025 2024 » et « 000225039 »). Testé.
+- **Capture de leads « façon Skrapp » sur pages de recherche (SERP), Google Maps
+  et LinkedIn, multi-pages** — audit + refonte (24/24 checks sous CSP sur fixtures
+  Google/Maps réelles, servies sous le vrai hostname `www.google.com` par
+  interception réseau) :
+  - `scrape-core.js` **extraction SERP** (`results[]` + `isSerp`) : sur une page
+    de résultats Google / Bing / DuckDuckGo / Ecosia / Qwant, chaque résultat
+    organique devient un **prospect** = nom d'entité + **site** + **domaine**
+    (réutilisable par « Deviner l'email »). Filtre le bruit (réseaux sociaux,
+    vidéos, liens Google internes/connexion/cache), **1 entrée par domaine**.
+    Réponse au retour « la recherche Google ne donnait que des numéros » : on
+    récupère désormais la **liste des entreprises + sites** directement depuis la
+    page de recherche, sans même visiter chaque site.
+  - `scrape-core.js` **détection Google Maps renforcée** : sélecteurs multiples
+    (`role=article`, `/maps/place/`, `a.hfpxzc`, `.Nv2PK`, `.qBF1Pd`,
+    `.fontHeadlineSmall`) → nom + téléphone (normalisé `+33`→`0X`) + site +
+    adresse. Best-effort (classes Google changeantes), à valider sur le vrai DOM.
+  - `Scraper.mergeResults` (app) : SERP → lignes CRM dédupliquées par domaine ;
+    intégré à `scrapeRows` (fusion profils LinkedIn + SERP + fiches Maps + emails)
+    et à `crawl`.
+  - **« Récupérer toutes les pages de résultats »** (case dans Recherche web,
+    `opts.allPages`) : `Scraper.crawl` enchaîne les pages Google (`&start=`)
+    **jusqu'à épuisement** (page sans nouveau résultat) — borné par un plafond de
+    sécurité (20) + la limite quotidienne. Champ « pages » monté à 20.
+  - **1 clic depuis un onglet Google Maps ouvert** : `Scraper.harvestTab` fait
+    **défiler le volet** (`ftScrollFeed`) plusieurs fois pour charger toutes les
+    fiches puis scrape — bouton « Tout charger + récupérer » sur les onglets Maps
+    de la liste « Onglet actif ».
+  - **Bulle (popup) alignée** : `buildRows` prend les résultats SERP ; `scan`
+    gère le **multi-pages Google** (`&start=`, arrêt auto quand plus rien) en plus
+    de LinkedIn, et **fait défiler Google Maps** avant extraction. Sélecteur de
+    pages affiché aussi sur Google.
+  - Honnête : validation sur le **vrai DOM** Google/Maps/LinkedIn à faire par
+    l'utilisatrice dans l'extension installée (les sélecteurs Google changent) ;
+    aucune falsification d'empreinte ni proxy — cadence polie + quota inchangés.
 - **Vue Listes façon Skrapp** (onglet Contacts) : chips de listes, colonnes
   **Statut** (Valide/Catch-All/Perso/Invalide), **Séniorité**, **Fonction**
   (déduites hors-ligne par règles, sans IA payante), recherche, filtre statut,

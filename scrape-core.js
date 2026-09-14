@@ -86,12 +86,52 @@ function ftPageScrape(){
       if(h){ var hn=h.innerText.trim(); if(hn.length>1 && hn.length<80 && !/^\d/.test(hn) && /[a-zA-ZÀ-ÿ]/.test(hn)) name=hn; }
     }
 
+    function hostname(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
+
+    // --- Page de résultats de recherche (Google / Bing / DuckDuckGo / Écosia) ---
+    // Chaque résultat organique -> un prospect : titre (nom d'entité) + site + domaine.
+    // C'est le cœur du « récupérer des leads sur une page de recherche » : sans
+    // même visiter chaque site on obtient déjà la LISTE des entreprises + domaines
+    // (réutilisables par « Deviner l'email »). Multi-pages géré côté app (pagination).
+    var isSearchEngine=/(^|\.)(google|bing|duckduckgo|ecosia|qwant|startpage|yahoo)\./.test(host);
+    var SERP_JUNK=/(^|\.)(google|gstatic|googleusercontent|youtube|ytimg|bing|microsoft|duckduckgo|ecosia|qwant|startpage|yahoo|yimg|w3\.org|schema\.org|gmpg\.org|wordpress\.org|facebook\.com|instagram\.com|twitter\.com|x\.com|pinterest\.|tiktok\.)/i;
+    var results=[], rseen={};
+    function cleanTitle(t){ t=(t||"").replace(/\s+/g," ").trim();
+      t=t.replace(/\s*[-–—|·»]\s*(accueil|home|site officiel|official site).*$/i,"");
+      return t.length>120?t.slice(0,120):t; }
+    function pushResult(title,url){
+      if(!/^https?:\/\//i.test(url)) return; var dom=hostname(url);
+      if(!dom || SERP_JUNK.test(dom)) return;
+      title=cleanTitle(title); if(title.length<2) title=dom;
+      if(rseen[dom]) return; rseen[dom]=1;   // 1 entrée par domaine (le plus pertinent = 1er)
+      results.push({title:title, url:url.split("#")[0], domain:dom});
+    }
+    if(isSearchEngine){
+      // 1) Google : chaque titre de résultat organique est un <h3> dans un <a href>.
+      [].slice.call(doc.querySelectorAll("a h3, h3 a")).forEach(function(h){
+        var a=h.closest("a[href]")|| (h.tagName==="A"?h:h.querySelector("a[href]"));
+        if(!a){ var wrap=h.closest("div"); a=wrap&&wrap.querySelector('a[href^="http"]'); }
+        if(a) pushResult(h.textContent, a.href);
+      });
+      // 2) DuckDuckGo html (résultats via .result__a) + 3) Bing (li.b_algo h2 a)
+      [].slice.call(doc.querySelectorAll("a.result__a, li.b_algo h2 a, .b_algo h2 a, .result__title a")).forEach(function(a){
+        pushResult(a.textContent, a.href);
+      });
+      // 4) Repli générique : tous les liens externes portant un intitulé lisible.
+      if(results.length<3){
+        [].slice.call(doc.querySelectorAll('a[href^="http"]')).forEach(function(a){
+          var t=(a.textContent||"").trim(); if(t.length<6||t.length>120) return;
+          if(/^(en cache|cache|similar|images?|maps|vid[ée]os?|actualit[ée]s|connexion|se connecter)$/i.test(t)) return;
+          pushResult(t, a.href);
+        });
+      }
+    }
+
     // --- Annuaire / Google Maps : fiches entreprise (nom + téléphone + site) ---
     // Best-effort, tolérant : marche sur Google Maps, PagesJaunes et la plupart
     // des annuaires. À valider sur le vrai DOM (les classes Google changent).
     var businesses=[], bseen={};
     function firstPhone(t){ var p=phones(String(t||"")); return p.length?p[0]:""; }
-    function hostname(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
     function pushBiz(nm,phone,web,addr){
       nm=(nm||"").trim(); if(nm.length>90) nm=nm.slice(0,90);
       if(!nm && !phone && !web) return;
@@ -104,15 +144,17 @@ function ftPageScrape(){
     // 1) conteneurs qui portent un lien téléphone (annuaires) ou une fiche Maps
     [].slice.call(doc.querySelectorAll('a[href^="tel:"]')).forEach(function(a){
       var c=a.closest('[role="article"]')||a.closest("article")||a.closest("li")||a.closest("div"); if(c) cards.push(c); });
-    [].slice.call(doc.querySelectorAll('[role="article"], a[href*="/maps/place/"]')).forEach(function(el){
-      var c=el.closest('[role="article"]')||el.parentElement||el; if(c) cards.push(c); });
+    // 2) fiches Google Maps : plusieurs signatures possibles (les classes changent)
+    //    role=article, lien /maps/place/, ancre de résultat a.hfpxzc, carte .Nv2PK.
+    [].slice.call(doc.querySelectorAll('[role="article"], a[href*="/maps/place/"], a.hfpxzc, .Nv2PK, div[jsaction*="mouseover"] a[aria-label]')).forEach(function(el){
+      var c=el.closest('.Nv2PK')||el.closest('[role="article"]')||el.closest('div[jsaction]')||el.parentElement||el; if(c) cards.push(c); });
     // dédup de conteneurs
     var cseen=[]; cards=cards.filter(function(c){ if(cseen.indexOf(c)>=0) return false; cseen.push(c); return true; });
     cards.slice(0,80).forEach(function(c){
       var nm="";
-      var head=c.querySelector('[role="heading"],h1,h2,h3,h4');
+      var head=c.querySelector('[role="heading"],.qBF1Pd,.fontHeadlineSmall,h1,h2,h3,h4');
       if(head) nm=(head.textContent||"").trim().split("\n")[0];
-      if(!nm){ var pa=c.querySelector('a[href*="/maps/place/"]'); if(pa) nm=(pa.getAttribute("aria-label")||pa.textContent||"").trim().split("\n")[0]; }
+      if(!nm){ var pa=c.querySelector('a[href*="/maps/place/"],a.hfpxzc,a[aria-label]'); if(pa) nm=(pa.getAttribute("aria-label")||pa.textContent||"").trim().split("\n")[0]; }
       var tel=c.querySelector('a[href^="tel:"]'); var phone=firstPhone(tel?tel.getAttribute("href").slice(4):"") || firstPhone(c.innerText||"");
       var wa=c.querySelector('a[href^="http"]:not([href*="google."]):not([href*="gstatic"]):not([href*="/maps/"]):not([href*="schema.org"])');
       var web=wa?wa.href:"";
@@ -124,7 +166,8 @@ function ftPageScrape(){
     var isDirectory = businesses.length>=2 || isMaps;
 
     var links=Array.from(new Set([].slice.call(doc.querySelectorAll("a[href]")).map(function(a){return a.href;}).filter(function(h){return /^https?:/.test(h);})));
-    return {url:location.href, title:doc.title, host:host, isLinkedIn:isLI, isSearch:isSearch, isMaps:isMaps, isDirectory:isDirectory, name:name, headline:headline, company:company, emails:emails, phones:ph, profiles:profiles, businesses:businesses, links:links};
-  }catch(e){ return {url:location.href, error:String(e), emails:[], phones:[], links:[], profiles:[]}; }
+    var isSerp = isSearchEngine && results.length>0 && !isMaps;
+    return {url:location.href, title:doc.title, host:host, isLinkedIn:isLI, isSearch:isSearch, isMaps:isMaps, isSerp:isSerp, isDirectory:isDirectory, name:name, headline:headline, company:company, emails:emails, phones:ph, profiles:profiles, businesses:businesses, results:results, links:links};
+  }catch(e){ return {url:location.href, error:String(e), emails:[], phones:[], links:[], profiles:[], businesses:[], results:[]}; }
 }
 if (typeof window!=="undefined") window.ftPageScrape=ftPageScrape;

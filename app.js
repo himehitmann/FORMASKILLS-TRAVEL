@@ -491,6 +491,18 @@ const Scraper = (()=>{
       if(tb.status==="complete"||Date.now()-t0>timeout){ clearInterval(iv); setTimeout(()=>res(tb),600); } }
       catch(e){ clearInterval(iv); res(null); } },400); }); }
   async function scrapeTab(tabId){ try{ const r=await chrome.scripting.executeScript({target:{tabId},func:ftPageScrape}); return r&&r[0]&&r[0].result; }catch(e){ return null; } }
+  // Récolte "profonde" d'un onglet actif (Google Maps / liste à défilement) :
+  // fait défiler le volet plusieurs fois pour charger toutes les fiches, puis
+  // scrape. Un clic depuis l'app = toutes les fiches visibles chargées.
+  async function harvestTab(tabId,scrolls,onProgress){
+    scrolls=Math.max(1,scrolls||8);
+    for(let s=0;s<scrolls;s++){
+      onProgress&&onProgress(`Chargement des fiches… ${s+1}/${scrolls}`);
+      try{ await chrome.scripting.executeScript({target:{tabId},func:ftScrollFeed}); }catch(e){}
+      await sleep(cadenceDelay()||500);
+    }
+    return await scrapeTab(tabId);
+  }
   async function listTabs(){ const tabs=await chrome.tabs.query({}); return tabs.filter(t=>t.url&&/^https?:/.test(t.url)&&!t.url.startsWith(appUrl)); }
   function searchURL(engine,q,page){ q=encodeURIComponent(q);
     if(engine==="maps") return `https://www.google.com/maps/search/${q}`;
@@ -508,6 +520,21 @@ const Scraper = (()=>{
       if(seen.has(key)) return; seen.add(key);
       out.push({email:"", name:bz.name||"", phone:bz.phone||"", company:bz.name||wdom||(res.host||""), domain:wdom, service:bz.address||"", source:bz.website||res.url});
     });
+  }
+  // Résultats de recherche (SERP Google/Bing/DDG) -> prospects : nom d'entité +
+  // site + domaine. On obtient la LISTE des entreprises SANS visiter chaque site
+  // (chaque domaine devient réutilisable par « Deviner l'email »). Renvoie le
+  // nombre de NOUVELLES entrées (pour savoir si une page apporte encore du neuf).
+  function mergeResults(out,seen,res){
+    let added=0;
+    (res&&res.results||[]).forEach(function(rr){
+      var dom=(rr.domain||"").replace(/^www\./,""); if(!dom) return;
+      var key="serp|"+dom;
+      if(seen.has(key)) return; seen.add(key);
+      out.push({email:"", name:"", phone:"", company:rr.title||dom, domain:dom, service:"", source:rr.url||("https://"+dom)});
+      added++;
+    });
+    return added;
   }
   function decodeLink(href){ try{ if(/duckduckgo\.com\/l\//.test(href)){ const u=new URL(href); const t=u.searchParams.get("uddg"); if(t) return decodeURIComponent(t); } }catch(e){} return href; }
   const JUNK=/(google\.|gstatic\.|googleusercontent|youtube\.|ytimg|duckduckgo\.|bing\.|microsoft\.|facebook\.com\/tr|w3\.org|schema\.org|gmpg\.org|wordpress\.org)/i;
@@ -564,12 +591,17 @@ const Scraper = (()=>{
       onProgress&&onProgress(`Terminé — ${out.length} fiche(s) trouvée(s) sur Google Maps.`);
       return out;
     }
-    for(let pg=0; pg<pages; pg++){
+    // « Toutes les pages » : on continue tant qu'une page apporte de nouveaux
+    // résultats (borné par un plafond de sécurité + la limite quotidienne).
+    const HARD_CAP=20; const maxPages = opts.allPages ? HARD_CAP : pages;
+    for(let pg=0; pg<maxPages; pg++){
       if(b.hitLimit()){ onProgress&&onProgress(`Limite quotidienne atteinte (${(DB.settings.scrape||{}).dailyLimit}) — réglable dans Réglages.`); break; }
-      onProgress&&onProgress(`Recherche — page ${pg+1}/${pages}${b.remaining()!==Infinity?` · ${b.remaining()} visites restantes aujourd'hui`:""}`);
+      const pgLabel = opts.allPages ? `page ${pg+1}` : `page ${pg+1}/${pages}`;
+      onProgress&&onProgress(`Recherche — ${pgLabel}${b.remaining()!==Infinity?` · ${b.remaining()} visites restantes aujourd'hui`:""}`);
       let tab; try{ tab=await chrome.tabs.create({url:searchURL(engine,query,pg),active:false}); }catch(e){ continue; }
       await waitTab(tab.id); const res=await scrapeTab(tab.id); b.count();
-      if(res){ mergeContacts(out,seen,res); mergeBusinesses(out,seen,res);
+      let newResults=0;
+      if(res){ newResults=mergeResults(out,seen,res); mergeContacts(out,seen,res); mergeBusinesses(out,seen,res);
         if(visit){ const links=externalLinks(res).slice(0,perPage);
           for(let i=0;i<links.length;i++){
             if(b.hitLimit()){ onProgress&&onProgress(`Limite quotidienne atteinte — arrêt propre. ${out.length} contact(s).`); try{ await chrome.tabs.remove(tab.id); }catch(e){} return out; }
@@ -590,11 +622,13 @@ const Scraper = (()=>{
               } } } } }
       try{ await chrome.tabs.remove(tab.id); }catch(e){}
       if(engine==="duckduckgo") break; // DDG html n'a pas de pagination par start
-      if(pg<pages-1) await sleep(cadenceDelay());
+      // « Toutes les pages » : on s'arrête quand une page n'apporte plus de résultats.
+      if(opts.allPages && pg>0 && newResults===0){ onProgress&&onProgress(`Fin des résultats — ${out.length} prospect(s).`); break; }
+      if(pg<maxPages-1) await sleep(cadenceDelay());
     }
     return out;
   }
-  return {IS_EXT, listTabs, scrapeTab, crawl, mergeContacts, mergeBusinesses, externalLinks, contactSubLinks, searchURL};
+  return {IS_EXT, listTabs, scrapeTab, harvestTab, crawl, mergeContacts, mergeBusinesses, mergeResults, externalLinks, contactSubLinks, searchURL};
 })();
 
 /* ============================================================
@@ -1265,13 +1299,19 @@ async function scrapeTabUI(){
     <div id="sc_tabs" class="muted">Chargement…</div></div><div id="sc_out" style="margin-top:16px"></div>`;
   $("#sc_refresh").onclick=scrapeTabUI;
   let tabs=[]; try{ tabs=await Scraper.listTabs(); }catch(e){}
+  const isMapsTab=u=>/\/maps(\/|\?|$)/.test(u||"")||/google\.[a-z.]+\/maps/.test(u||"");
   $("#sc_tabs").innerHTML= tabs.length? tabs.map(t=>`<div class="result-row">
     <div style="flex:1;min-width:0"><div class="cell-strong" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.title||t.url)}</div>
     <div class="muted" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.url)}</div></div>
+    ${isMapsTab(t.url)?`<button class="btn sm accent" data-harvest="${t.id}">Tout charger + récupérer</button>`:""}
     <button class="btn sm primary" data-tab="${t.id}">Scraper</button></div>`).join("")
     : `<div class="empty">Aucun onglet web ouvert. Ouvrez une page dans un autre onglet, puis « Rafraîchir ».</div>`;
   $$("#sc_tabs [data-tab]").forEach(b=>b.onclick=async()=>{ b.textContent="…";
     const res=await Scraper.scrapeTab(+b.dataset.tab); b.textContent="Scraper";
+    if(!res){ toast("Impossible de lire cet onglet","bad"); return; }
+    renderScrapeResults($("#sc_out"), res); });
+  $$("#sc_tabs [data-harvest]").forEach(b=>b.onclick=async()=>{ const lab=b.textContent;
+    const res=await Scraper.harvestTab(+b.dataset.harvest,8,m=>b.textContent=m); b.textContent=lab;
     if(!res){ toast("Impossible de lire cet onglet","bad"); return; }
     renderScrapeResults($("#sc_out"), res); });
 }
@@ -1284,6 +1324,10 @@ function scrapeRows(res){
   const hostOf=u=>{ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } };
   (res.profiles||[]).forEach(p=>{ const k="li|"+p.url; if(seen.has(k))return; seen.add(k);
     rows.push({email:"",name:p.name||"",phone:"",company:res.company||dom,service:p.headline||"",source:p.url}); });
+  // Résultats de recherche (Google/Bing/DDG) : chaque entreprise trouvée -> une ligne
+  // (nom + site + domaine réutilisable par « Deviner l'email »).
+  (res.results||[]).forEach(rr=>{ const d=(rr.domain||"").replace(/^www\./,""); if(!d)return; const k="serp|"+d; if(seen.has(k))return; seen.add(k);
+    rows.push({email:"",name:"",phone:"",company:rr.title||d,domain:d,service:"",source:rr.url||("https://"+d)}); });
   // Fiches entreprise (Google Maps / annuaires) : nom + téléphone + site → domaine
   (res.businesses||[]).forEach(bz=>{ const k="bz|"+(bz.name||"").toLowerCase()+"|"+(bz.phone||""); if(seen.has(k))return; seen.add(k);
     const wdom=bz.website?hostOf(bz.website):"";
@@ -1296,15 +1340,19 @@ function scrapeRows(res){
 function renderScrapeResults(container,res){
   const rows=scrapeRows(res); SCRAPE_ROWS=rows;
   const isLIsearch=res.isLinkedIn&&res.isSearch;
+  const isSerp=(res.results&&res.results.length)&&!res.isMaps;
+  const kLab=isLIsearch?"Profils":isSerp?"Entreprises":"Emails";
+  const kVal=isLIsearch?(res.profiles||[]).length:isSerp?res.results.length:(res.emails||[]).length;
   container.innerHTML=`<div class="card">
     <div class="grid cards" style="margin-bottom:12px">
-      ${kpi(isLIsearch?"Profils":"Emails",isLIsearch?(res.profiles||[]).length:(res.emails||[]).length,"finder","var(--brand)")}
+      ${kpi(kLab,kVal,"finder","var(--brand)")}
       ${kpi("Téléphones",(res.phones||[]).length,"finder","var(--accent)")}
       ${kpi("Contacts",rows.length,"finder","var(--ok)")}</div>
     ${res.isLinkedIn?`<div class="tag ${res.isSearch?'b':'n'}" style="margin-bottom:10px">LinkedIn — ${res.isSearch?"page de résultats":"profil"}${res.company?" · "+esc(res.company):""}</div>`:""}
+    ${(res.results&&res.results.length)?`<div class="tag b" style="margin-bottom:10px">Page de recherche — ${res.results.length} entreprise(s) détectée(s) (nom + site + domaine)</div>`:""}
     ${(res.businesses&&res.businesses.length)?`<div class="tag b" style="margin-bottom:10px">${res.isMaps?"Google Maps":"Annuaire"} — ${res.businesses.length} fiche(s) entreprise détectée(s)</div>`:""}
     ${res.name?`<p style="font-weight:700;margin:0 0 8px">${esc(res.name)}${res.headline?` — <span class="muted">${esc(res.headline)}</span>`:""}</p>`:""}
-    ${rows.length?scrapeTable(rows):`<div class="empty">Aucun contact exploitable sur cette page. ${res.isLinkedIn?"Ouvrez une page de résultats LinkedIn (/search/…) pour lister les profils.":"Essayez une page « contact » ou un annuaire."}</div>`}
+    ${rows.length?scrapeTable(rows):`<div class="empty">Aucun contact exploitable sur cette page. ${res.isLinkedIn?"Ouvrez une page de résultats LinkedIn (/search/…) pour lister les profils.":res.isMaps?"Faites défiler la liste Google Maps pour charger les fiches, puis « Rafraîchir ».":"Essayez une page de résultats Google/Maps, une page « contact » ou un annuaire."}</div>`}
     ${(res.phones||[]).length?`<div class="divider"></div><div class="muted" style="font-weight:700;font-size:11px;text-transform:uppercase;margin-bottom:6px">Téléphones détectés</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">${res.phones.map(p=>`<span class="tag b copybtn" data-call="copy('${p.replace(/'/g,"")}')">${esc(p)}</span>`).join("")}</div>`:""}
   </div>`;
@@ -1343,24 +1391,26 @@ function importScraped(rows){
 }
 async function scrapeWebUI(){
   $("#scBody").innerHTML=`
-  <div class="helpbox">${ic2("info")}<div>Tapez une recherche et lancez : l'outil ouvre les résultats, visite les sites et récupère <b>emails, téléphones, noms</b> automatiquement. Avec <b>Google Maps</b>, il récupère directement les <b>entreprises locales</b> (nom, téléphone, site) — idéal pour prospecter autour de Sète.</div></div>
+  <div class="helpbox">${ic2("info")}<div>Tapez une recherche et lancez : l'outil ouvre les résultats, <b>récupère la liste des entreprises</b> (nom + site + domaine) directement depuis la page de recherche, puis (si activé) visite chaque site pour trouver <b>emails et téléphones</b>. Avec <b>Google Maps</b>, il récupère les <b>entreprises locales</b> (nom, téléphone, site) — idéal autour de Sète. Cochez <b>« toutes les pages »</b> pour enchaîner automatiquement toutes les pages de résultats.</div></div>
   <div class="card">
     <div class="row2"><div class="field"><label>Recherche (ex : « CFA coiffure Occitanie »)</label><input class="input" id="sw_q" placeholder="Votre requête"></div>
       <div class="field"><label>Source</label><select id="sw_eng"><option value="google">Google (sites web)</option><option value="maps">Google Maps (entreprises locales)</option><option value="duckduckgo">DuckDuckGo (plus permissif)</option></select></div></div>
     <div class="row3">
-      <div class="field"><label>Pages de résultats</label><input class="input" type="number" id="sw_pages" value="3" min="1" max="10"></div>
+      <div class="field"><label>Pages de résultats</label><input class="input" type="number" id="sw_pages" value="3" min="1" max="20"></div>
       <div class="field"><label>Sites à visiter / page</label><input class="input" type="number" id="sw_per" value="5" min="0" max="15"></div>
       <div class="field"><label>Visiter les sites ?</label><select id="sw_visit"><option value="1">Oui (recommandé)</option><option value="0">Non (SERP seulement)</option></select></div>
     </div>
+    <div class="checkline" style="cursor:pointer;margin:2px 0 8px" id="sw_allline"><div class="chk" id="sw_all"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div><div><b>Récupérer toutes les pages de résultats</b> (l'outil enchaîne les pages jusqu'à épuisement, dans la limite quotidienne)</div></div>
     <div class="checkline" style="cursor:pointer;margin:2px 0 12px" id="sw_deepline"><div class="chk on" id="sw_deep"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div><div>Explorer aussi les pages <b>/contact</b>, <b>/mentions-légales</b>, <b>/équipe</b> de chaque site (plus d'emails, un peu plus long)</div></div>
     <button class="btn primary" id="sw_go" style="width:100%">Lancer le run</button>
     <div id="sw_prog" class="muted" style="font-weight:600;margin-top:12px"></div>
   </div>
   <div id="sw_out" style="margin-top:16px"></div>`;
   $("#sw_deepline").onclick=()=>$("#sw_deep").classList.toggle("on");
+  $("#sw_allline").onclick=()=>$("#sw_all").classList.toggle("on");
   $("#sw_go").onclick=async()=>{
     const q=$("#sw_q").value.trim(); if(!q){toast("Entrez une recherche","warn");return;}
-    const opts={engine:$("#sw_eng").value,query:q,pages:Math.max(1,+$("#sw_pages").value||1),perPage:+$("#sw_per").value||0,visit:$("#sw_visit").value==="1",deep:$("#sw_deep").classList.contains("on")};
+    const opts={engine:$("#sw_eng").value,query:q,pages:Math.max(1,+$("#sw_pages").value||1),perPage:+$("#sw_per").value||0,visit:$("#sw_visit").value==="1",deep:$("#sw_deep").classList.contains("on"),allPages:$("#sw_all").classList.contains("on")};
     const go=$("#sw_go"); go.disabled=true; go.textContent="Run en cours…";
     const prog=$("#sw_prog");
     try{

@@ -34,6 +34,11 @@ function buildRows(res){
   if(res.businesses && res.businesses.length){
     res.businesses.forEach(b=>rows.push({name:b.name||"",headline:b.address||"",email:"",phone:b.phone||"",company:b.website?hostOf(b.website):"",url:b.website||res.url,sel:true}));
   }
+  // Résultats de recherche (Google/Bing/DDG) : chaque entreprise -> une ligne
+  // (nom + site + domaine, réutilisable ensuite par « Deviner l'email »).
+  if(res.results && res.results.length){
+    res.results.forEach(rr=>rows.push({name:"",headline:rr.title||rr.domain||"",email:"",phone:"",company:rr.domain||"",url:rr.url||("https://"+(rr.domain||"")),sel:true}));
+  }
   (res.emails||[]).forEach(e=>{
     rows.push({name:guessNameFromEmail(e)||res.name||"",headline:res.headline||"",email:e,phone:(res.phones&&res.phones[0])||"",company:e.split("@")[1]||dom,url:res.url,sel:true});
   });
@@ -77,6 +82,11 @@ function render(){
 const esc=s=>(s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function withPage(url,n){ try{ const u=new URL(url); u.searchParams.set("page",String(n)); return u.toString(); }catch(e){ return url; } }
+function withGoogleStart(url,n){ try{ const u=new URL(url); u.searchParams.set("start",String((n-1)*10)); return u.toString(); }catch(e){ return url; } }
+function isGoogleSearch(url){ return /google\.[a-z.]+\/search/.test(url||""); }
+function isMapsUrl(url){ return /google\.[a-z.]+\/maps/.test(url||""); }
+// Défilement du volet Google Maps (chargé à la volée) — injecté dans la page.
+function popupScrollFeed(){ try{ var f=document.querySelector('[role="feed"]')||document.querySelector('div[aria-label][tabindex="-1"]'); if(f){ f.scrollTop=f.scrollHeight; } window.scrollTo(0,document.body.scrollHeight); return true; }catch(e){ return false; } }
 function waitComplete(tabId,ms=12000){ return new Promise(res=>{ const t0=Date.now();
   const iv=setInterval(async()=>{ try{ const t=await chrome.tabs.get(tabId);
     if(t.status==="complete"||Date.now()-t0>ms){ clearInterval(iv); setTimeout(res,900); } }catch(e){ clearInterval(iv); res(); } },350); }); }
@@ -90,17 +100,29 @@ async function scan(){
     if(!tab || !/^https?:/.test(tab.url||"")){ $("#status").textContent="Ouvrez d'abord une page web (onglet actif)."; return; }
     let [{result}]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:ftPageScrape});
     CURRENT=result; setCtx(result);
+    // Google Maps : faire défiler le volet pour charger toutes les fiches, puis re-scraper.
+    if(result.isMaps || isMapsUrl(tab.url)){
+      for(let s=0;s<8;s++){ $("#status").textContent=`Chargement des fiches… ${s+1}/8`;
+        try{ await chrome.scripting.executeScript({target:{tabId:tab.id},func:popupScrollFeed}); }catch(e){}
+        await new Promise(r=>setTimeout(r,700)); }
+      try{ const [{result:rm}]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:ftPageScrape}); if(rm){ result=rm; CURRENT=rm; } }catch(e){}
+    }
     let rows=buildRows(result);
-    // Multi-pages LinkedIn
-    const pages=Math.max(1,Math.min(10,+$("#pages").value||1));
-    if(result.isLinkedIn && result.isSearch && pages>1){
+    // Multi-pages LinkedIn + Google (page de résultats)
+    const pages=Math.max(1,Math.min(20,+$("#pages").value||1));
+    const liMulti = result.isLinkedIn && result.isSearch;
+    const gMulti = (result.isSerp || isGoogleSearch(tab.url)) && !result.isMaps;
+    if((liMulti||gMulti) && pages>1){
       const base=tab.url; const seen=new Set(rows.map(r=>r.url));
       for(let k=2;k<=pages;k++){
         $("#status").textContent=`Page ${k}/${pages}…`;
-        await chrome.tabs.update(tab.id,{url:withPage(base,k)});
+        const nextUrl = gMulti ? withGoogleStart(base,k) : withPage(base,k);
+        await chrome.tabs.update(tab.id,{url:nextUrl});
         await waitComplete(tab.id);
         try{ const [{result:r2}]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:ftPageScrape});
-          buildRows(r2).forEach(r=>{ if(!seen.has(r.url)){ seen.add(r.url); rows.push(r); } }); }catch(e){}
+          let fresh=0; buildRows(r2).forEach(r=>{ if(!seen.has(r.url)){ seen.add(r.url); rows.push(r); fresh++; } });
+          if(gMulti && fresh===0) { try{ await chrome.tabs.update(tab.id,{url:base}); }catch(e){} break; }
+        }catch(e){}
       }
       try{ await chrome.tabs.update(tab.id,{url:base}); }catch(e){}
     }
@@ -143,7 +165,7 @@ async function save(){
   const db=await ensureDB(); refreshLists(db);
   const tab=await activeTab().catch(()=>null);
   if(tab) setCtx({url:tab.url,isLinkedIn:/linkedin\./.test(hostOf(tab.url)),isSearch:/\/search\//.test(tab.url||"")});
-  if(tab && /linkedin\.com\/search/.test(tab.url||"")) $("#pagesWrap").classList.remove("hide");
+  if(tab && (/linkedin\.com\/search/.test(tab.url||"") || isGoogleSearch(tab.url))) $("#pagesWrap").classList.remove("hide");
 })();
 $("#scan").addEventListener("click",scan);
 $("#saveBtn").addEventListener("click",save);
