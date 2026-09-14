@@ -177,6 +177,22 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
     autorisation d'envoi limitée. Message construit en RFC 2822 + base64url ;
     envoi réseau **non testé en session** (pas de vrai Gmail) — à valider par
     l'utilisatrice. Les brouillons portent `to/subject/body/cc/bcc` pour l'envoi.
+  - **Mailing séquencé intelligent** (`runMailing` / `openMailingModal`,
+    `relanceListName` / `currentListLevel`) : depuis une liste, bouton **« Envoyer
+    le mailing à « X » »** → choisir un modèle → envoi. Les envoyés sont
+    **déplacés automatiquement** vers la liste suivante : liste de départ →
+    **« 1er mail envoyé »** → **« 2e relance »** → **« 3e relance »** (max réglable
+    `DB.settings.maxRelances`, défaut 3, dans Réglages). Les **sans-email restent**
+    dans la liste de départ ; échecs non déplacés. Gmail connecté = envoi réel +
+    déplacement immédiat ; sinon = brouillons portant `fromTag/toTag/level` qui
+    déplacent le contact **quand ils sont envoyés** (`markContactSent`). Statut →
+    Contacté (niveau 1) puis Relancé, `relanceLevel` + `lastSentAt` posés.
+  - **Détection des réponses** (`gmailCheckReplies` / `gmailHasReplyFrom`, scope
+    `gmail.readonly` demandé à la connexion) : bouton **« Vérifier les réponses »**
+    (si Gmail connecté) → interroge la boîte (`from:<lead> after:<envoi>`) ; si une
+    réponse est trouvée, pose `replyAt` + passe le contact en **« En discussion »**.
+    Colonne **Réponse** (« Réponse <date> ») dans le tableau Contacts. Réseau non
+    testé en session (logique testée avec réponse simulée) — à valider par l'utilisatrice.
   - **Fiche contact éditable (CRM)** (`editContactCard` / `openContactCard`) :
     bouton **« + Nouveau contact »** (création manuelle) et **ouverture de la
     fiche** (clic sur le nom ou « Ouvrir ») avec tous les champs : Nom, Société,

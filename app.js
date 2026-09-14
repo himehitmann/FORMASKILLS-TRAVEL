@@ -9,7 +9,7 @@ const DEFAULT_DB = {
     quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0, syncEnabled:false, lastSync:0, lastDailyRun:"",
     scrape:{ minDelay:900, maxDelay:2600, dailyLimit:200 }, scrapeCount:{ day:"", n:0 },
     senders:[], defaultSender:"", mailsSeeded:false,
-    gmail:{ clientId:"", connected:false, email:"", token:"", expiry:0 },
+    gmail:{ clientId:"", connected:false, email:"", token:"", expiry:0 }, maxRelances:3,
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -763,7 +763,11 @@ const Automations = (()=>{
 
 function markContactSent(t){
   const c=t.contactId?DB.contacts.find(x=>x.id===t.contactId):null;
-  if(c){ const s=c.stage||"À contacter"; c.stage = s==="À contacter"?"Contacté":(s==="Contacté"?"Relancé":s); c.lastContacted=Date.now(); }
+  if(c){ const s=c.stage||"À contacter"; c.stage = s==="À contacter"?"Contacté":(s==="Contacté"?"Relancé":s); c.lastContacted=Date.now(); c.lastSentAt=Date.now();
+    if(t.level) c.relanceLevel=t.level;
+    // Déplacement auto entre listes (pipeline de mailing séquencé)
+    if(t.toTag){ c.tags=c.tags||[]; if(t.fromTag) c.tags=c.tags.filter(x=>x!==t.fromTag); if(!c.tags.includes(t.toTag)) c.tags.push(t.toTag); }
+  }
   t.status="Fait"; t.sentAt=Date.now(); save(); renderNav();
   if(CURRENT==="dash") VIEWS.dash(); else if(CURRENT==="campaigns") drawCampaigns(); else if(CURRENT==="finder"&&FINDER_TAB==="saved") csDraw();
 }
@@ -828,6 +832,7 @@ function ftEmailDraft({to,subject,body,senderId,cc,bcc}){
    n'est pas connecté, on retombe sur le brouillon mailto.
    ============================================================ */
 const GMAIL_SEND_SCOPE="https://www.googleapis.com/auth/gmail.send";
+const GMAIL_READ_SCOPE="https://www.googleapis.com/auth/gmail.readonly";
 function gmailCfg(){ if(!DB.settings.gmail) DB.settings.gmail={clientId:"",connected:false,email:"",token:"",expiry:0}; return DB.settings.gmail; }
 function gmailConnected(){ const g=gmailCfg(); return !!(g.connected && g.token && g.expiry>Date.now()+5000); }
 function gmailRedirect(){ try{ return (typeof chrome!=="undefined"&&chrome.identity&&chrome.identity.getRedirectURL)?chrome.identity.getRedirectURL():""; }catch(e){ return ""; } }
@@ -855,7 +860,7 @@ function gmailConnect(){
   const redirect=gmailRedirect();
   const url="https://accounts.google.com/o/oauth2/v2/auth?"+new URLSearchParams({
     client_id:g.clientId, response_type:"token", redirect_uri:redirect,
-    scope:GMAIL_SEND_SCOPE+" https://www.googleapis.com/auth/userinfo.email",
+    scope:GMAIL_SEND_SCOPE+" "+GMAIL_READ_SCOPE+" https://www.googleapis.com/auth/userinfo.email",
     prompt:"consent", include_granted_scopes:"true" }).toString();
   chrome.identity.launchWebAuthFlow({url,interactive:true}, async(redir)=>{
     if(chrome.runtime.lastError||!redir){ toast("Connexion Gmail annulée","warn"); return; }
@@ -878,6 +883,65 @@ async function gmailSend({to,cc,bcc,subject,body}){
     body:JSON.stringify({raw}) });
   if(!r.ok){ if(r.status===401){ g.connected=false; save(); } throw new Error("Échec de l'envoi (HTTP "+r.status+")"); }
   return true;
+}
+// Détection de réponses : interroge la boîte pour un message reçu de l'adresse du
+// lead depuis l'envoi. Nécessite le scope gmail.readonly (consenti à la connexion).
+async function gmailHasReplyFrom(email, sinceMs){
+  const g=gmailCfg(); if(!gmailConnected()||!email) return false;
+  const after=Math.floor((sinceMs||0)/1000);
+  const q=`from:${email} in:anywhere${after?` after:${after}`:""}`;
+  const r=await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=1&q="+encodeURIComponent(q),
+    {headers:{Authorization:"Bearer "+g.token}});
+  if(!r.ok){ if(r.status===401){ g.connected=false; save(); } return false; }
+  const j=await r.json(); return !!(j.messages && j.messages.length);
+}
+async function gmailCheckReplies(){
+  if(!gmailConnected()){ toast("Connectez Gmail pour vérifier les réponses","warn"); return; }
+  const cands=DB.contacts.filter(c=>c.email && c.lastSentAt && !c.replyAt);
+  if(!cands.length){ toast("Aucun envoi à vérifier"); return; }
+  let found=0;
+  for(const c of cands){
+    try{ if(await gmailHasReplyFrom(c.email, c.lastSentAt-864e5)){ c.replyAt=Date.now(); c.stage="En discussion"; found++; } }
+    catch(e){ if(String(e.message).includes("401")) break; }
+    await new Promise(r=>setTimeout(r,250));
+  }
+  save(); renderNav(); if(CURRENT==="finder"&&FINDER_TAB==="saved") csDraw();
+  toast(found?`${found} réponse(s) reçue(s) détectée(s)`:"Aucune nouvelle réponse", found?"ok":"");
+}
+/* ---- Pipeline de mailing séquencé : envoi + déplacement auto entre listes ----
+   1er mail envoyé → 2e relance → 3e relance (max réglable). Les contacts sans
+   email restent dans la liste de départ ; les envoyés sont déplacés. */
+function relanceListName(level){ return level<=1?"1er mail envoyé":`${level}e relance`; }
+function currentListLevel(tag){ if(tag==="1er mail envoyé") return 1; const m=/^(\d+)e relance$/.exec(tag||""); return m?+m[1]:0; }
+async function runMailing(sourceTag, tplId){
+  const level=currentListLevel(sourceTag), newLevel=level+1, max=DB.settings.maxRelances||3;
+  if(newLevel>max){ toast(`Maximum de ${max} envois atteint (réglable dans Réglages)`,"warn"); return; }
+  const dest=relanceListName(newLevel), tpl=ftMailTemplate(tplId);
+  const inList=DB.contacts.filter(c=>(c.tags||[]).includes(sourceTag));
+  const targets=inList.filter(c=>c.email); const noMail=inList.length-targets.length;
+  const gm=gmailConnected();
+  if(!targets.length){ toast("Aucun contact avec email dans « "+sourceTag+" »","warn"); return; }
+  let sent=0, fail=0;
+  for(const c of targets){
+    const t=createContactEmailDraft(c, tpl, {fromTag:sourceTag, toTag:dest, level:newLevel});
+    if(gm){ try{ await gmailSend({to:t.to,cc:t.cc,bcc:t.bcc,subject:t.subject,body:t.body}); markContactSent(t); sent++; }
+      catch(e){ fail++; DB.tasks=DB.tasks.filter(x=>x.id!==t.id); if(String(e.message).includes("401")){ toast("Session Gmail expirée","warn"); break; } }
+      await new Promise(r=>setTimeout(r,600)); }
+    else { sent++; }
+  }
+  save(); renderNav(); if(CURRENT==="finder"&&FINDER_TAB==="saved") finderSaved();
+  if(gm) toast(`${sent} envoyé(s) → « ${dest} »${fail?`, ${fail} échec(s)`:""}${noMail?`, ${noMail} sans email restés dans « ${sourceTag} »`:""}`,"ok");
+  else toast(`${sent} brouillon(s) préparés (à envoyer depuis « À faire maintenant » — ils se déplaceront vers « ${dest} »)${noMail?`, ${noMail} sans email`:""}`);
+}
+function openMailingModal(sourceTag){
+  const level=currentListLevel(sourceTag), max=DB.settings.maxRelances||3;
+  if(level+1>max){ toast(`« ${sourceTag} » est au maximum (${max} envois). Augmentez la limite dans Réglages.`,"warn"); return; }
+  const dest=relanceListName(level+1); const tpls=ftMailTemplates(); const gm=gmailConnected();
+  const inList=DB.contacts.filter(c=>(c.tags||[]).includes(sourceTag)); const withMail=inList.filter(c=>c.email).length;
+  openModal({title:`Mailing → « ${sourceTag} »`, wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">${withMail} contact(s) avec email sur ${inList.length}. À l'envoi, ils passent dans « <b>${esc(dest)}</b> » ; les sans-email restent ici. ${gm?`<b style="color:var(--ok)">Gmail connecté : envoi réel.</b>`:`<b>Gmail non connecté</b> : des brouillons seront préparés (chaque envoi déplacera le contact).`}</p>
+    <div class="field"><label>Modèle d'email</label><select id="ml_tpl"><option value="">— email vide —</option>${tpls.map(t=>`<option value="${t.id}">${esc(t.name)}${t.public?` (${esc(t.public)})`:""}</option>`).join("")}</select></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:gm?"Envoyer maintenant":"Préparer les emails",cls:"primary",act:()=>{ const tid=$("#ml_tpl").value; closeModal(); runMailing(sourceTag,tid); }}]});
 }
 
 /* Modèles d'email réutilisables (objet + message + destinataires + pièce jointe
@@ -1589,14 +1653,15 @@ async function doEmailContact(c, tpl, to){
 }
 // Envoi groupé (prospection prête à l'emploi) : prépare un brouillon par contact
 // ayant un email ; l'envoi (« Écrire l'email ») fait passer le statut à Contacté.
-function createContactEmailDraft(c, tpl){
-  if(!c || !c.email) return null;
+function createContactEmailDraft(c, tpl, opts){
+  if(!c || !c.email) return null; opts=opts||{};
   const fill=s=>(s||"").replace(/\{(\w+)\}/g,(_,k)=>(ctxOfContact(c)[k]??"").toString());
   const subject=tpl?fill(tpl.subject):"", body=tpl?fill(tpl.body):"";
   const d=ftEmailDraft({to:c.email, subject, body, cc:tpl&&tpl.cc, bcc:tpl&&tpl.bcc});
   const t={id:uid(), contactId:c.id, title:"Email à "+(c.name||c.email)+(tpl?(" — "+tpl.name):""),
     status:"À faire", priority:"Normale", due:Date.now(), auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"", batch:1,
-    to:c.email, subject, body:(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body, cc:tpl&&tpl.cc||"", bcc:tpl&&tpl.bcc||""};
+    to:c.email, subject, body:(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body, cc:tpl&&tpl.cc||"", bcc:tpl&&tpl.bcc||"",
+    fromTag:opts.fromTag||"", toTag:opts.toTag||"", level:opts.level||0};
   DB.tasks.unshift(t); return t;
 }
 window.openBulkEmail=ids=>{
@@ -1666,7 +1731,9 @@ function finderSaved(){
     <select id="cs_status" class="input" style="max-width:150px">
       ${["","Valide","Catch-All","Perso","Invalide"].map(s=>`<option value="${s}" ${CS_STATUS===s?'selected':''}>${s||"Tous les statuts"}</option>`).join("")}</select>
     <div class="spacer"></div>
-    <button class="btn sm primary" id="cs_new">+ Nouveau contact</button>
+    ${CS_TAG?`<button class="btn sm primary" id="cs_mailing">Envoyer le mailing à « ${esc(CS_TAG)} »</button>`:""}
+    ${gmailConnected()?`<button class="btn ghost sm" id="cs_replies">Vérifier les réponses</button>`:""}
+    <button class="btn sm ${CS_TAG?'':'primary'}" id="cs_new">+ Nouveau contact</button>
     <button class="btn ghost sm" id="cs_group" title="Range les contacts affichés dans des listes selon leur nature">Trier par nature</button>
     <button class="btn ghost sm" id="cs_imp">Importer / coller</button>
     <button class="btn ghost sm" id="cs_dedupe">Dédupliquer</button>
@@ -1680,6 +1747,8 @@ function finderSaved(){
   $("#cs_stage").onchange=e=>{CS_STAGE=e.target.value;CS_PAGE=1;csDraw();};
   $("#cs_cat").onchange=e=>{CS_CAT=e.target.value;CS_PAGE=1;csDraw();};
   $("#cs_new").onclick=()=>editContactCard(null);
+  $("#cs_mailing")&&($("#cs_mailing").onclick=()=>openMailingModal(CS_TAG));
+  $("#cs_replies")&&($("#cs_replies").onclick=gmailCheckReplies);
   $("#cs_group").onclick=groupByCategory;
   $$("#finderBody .lchip").forEach(b=>b.onclick=()=>{CS_TAG=b.dataset.list;CS_PAGE=1;CS_SEL.clear();finderSaved();});
   $("#cs_newlist").onclick=()=>{ const n=prompt("Nom de la nouvelle liste :"); if(n&&n.trim()){ CS_TAG=n.trim(); toast("Liste « "+n.trim()+" » — ajoutez-y des contacts via « Liste » ou la sélection"); finderSaved(); } };
@@ -1701,7 +1770,7 @@ function csDraw(){
   tbl.innerHTML = rows.length?`<div class="tbl-wrap"><table>
     <thead><tr>
       <th style="width:34px"><span class="chk ${allSel?'on':''}" id="cs_all" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></th>
-      <th>Nom</th><th>Entreprise / site</th><th>Nature</th><th>Email</th><th>Téléphone</th><th>Étape</th><th>Statut</th><th></th></tr></thead>
+      <th>Nom</th><th>Entreprise / site</th><th>Nature</th><th>Email</th><th>Téléphone</th><th>Étape</th><th>Réponse</th><th></th></tr></thead>
     <tbody>${slice.map(c=>{const st=emailStatut(c.email);const fn=inferFunction(c.service);
       const srcLab={linkedin:"LinkedIn",scraper:"Scraper",extract:"Extraction",import:"Import CSV",finder:"Recherche",web:"Web"}[c.source]||c.source||"";
       const sub=[c.service?esc(c.service.slice(0,42)):"", fn?("Fonction : "+fn):"", [srcLab,c.added?fmtDate(c.added):""].filter(Boolean).join(" · ")].filter(Boolean);
@@ -1715,7 +1784,7 @@ function csDraw(){
       <td class="mono" style="font-size:12.5px">${c.email?esc(c.email):'<span class="muted">—</span>'}</td>
       <td class="muted">${esc(c.phone||"—")}</td>
       <td><select class="input sm" data-stage="${c.id}" style="min-width:120px;padding:4px 8px;font-size:12px;font-weight:700">${STAGES.map(s=>`<option value="${esc(s)}" ${stageOf(c)===s?'selected':''}>${esc(s)}</option>`).join("")}</select></td>
-      <td><span class="tag ${st.c}">${st.l}</span></td>
+      <td>${c.replyAt?`<span class="tag g">Réponse ${fmtDate(c.replyAt)}</span>`:'<span class="muted">—</span>'}</td>
       <td class="rowact"><button class="btn sm ghost" data-call="openContactCard('${c.id}')">Ouvrir</button>
         ${c.email?`<button class="btn sm" data-call="emailContact('${c.id}')">Email</button>`:""}
         <button class="btn sm ghost" data-call="tagContact('${c.id}')">Liste</button>
@@ -3103,6 +3172,10 @@ VIEWS.settings=()=>{
       <p class="muted" style="font-weight:600;margin-top:0">Créez vos emails types (premier contact, relance, proposition…) avec objet, message, destinataires en copie (Cc/Cci) et une <b>pièce jointe</b> optionnelle (un de vos modèles de documents, généré en PDF). Variables : <code class="k">{name}</code>, <code class="k">{email}</code>, <code class="k">{company}</code>. Réutilisables dans l'action « Email » d'un contact et dans les campagnes. Honnête : <b>mailto: n'attache pas le fichier</b> — l'outil ouvre le PDF pour que vous le glissiez dans l'email.</p>
       <div id="mt_list"></div>
       <button class="btn" id="mt_add" style="margin-top:10px">+ Ajouter un modèle d'email</button>
+      <div class="divider"></div>
+      <div class="field" style="max-width:320px"><label>Nombre maximum d'envois par contact (1er mail + relances)</label>
+        <input class="input" type="number" id="mt_maxrel" min="1" max="9" value="${esc(DB.settings.maxRelances||3)}"></div>
+      <button class="btn ghost sm" id="mt_maxrel_save">Enregistrer la limite de relances</button>
     </div>
     <div class="card" style="grid-column:1/-1;border-left:4px solid var(--accent)">
       <div class="section-title" style="margin-top:0">Envoi réel des emails via Gmail (optionnel)</div>
@@ -3135,6 +3208,7 @@ VIEWS.settings=()=>{
     DB.settings.scrape={ minDelay:mn, maxDelay:mx, dailyLimit:Math.max(0,+$("#sc_lim").value||0) }; save(); toast("Cadence enregistrée"); VIEWS.settings(); });
   $("#snd_add")&&($("#snd_add").onclick=()=>editSender(null));
   $("#mt_add")&&($("#mt_add").onclick=()=>editMailTemplate(null));
+  $("#mt_maxrel_save")&&($("#mt_maxrel_save").onclick=()=>{ DB.settings.maxRelances=Math.max(1,Math.min(9,+$("#mt_maxrel").value||3)); save(); toast("Limite de relances enregistrée"); });
   $("#gm_save")&&($("#gm_save").onclick=()=>{ gmailCfg().clientId=$("#gm_cid").value.trim(); save(); toast("ID client enregistré"); });
   $("#gm_connect")&&($("#gm_connect").onclick=()=>{ if($("#gm_cid")) gmailCfg().clientId=$("#gm_cid").value.trim(); gmailConnect(); });
   $("#gm_off")&&($("#gm_off").onclick=gmailDisconnect);
