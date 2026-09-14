@@ -144,6 +144,16 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   `mailto:` **n'attache pas** de fichier — l'outil ouvre le PDF, l'utilisatrice le
   glisse dans l'email (`ftEmailDraft` gère to multiples + cc + bcc ; `ftPrintDoc`
   génère la PJ).
+  - **Gestion souple des listes** (onglet Contacts) : sélection multiple →
+    **Ajouter à une liste…** / **Déplacer vers…** (retire de la liste courante) /
+    **Retirer de « X »** / **Changer l'étape** en masse, via un **sélecteur de
+    listes** (cases à cocher des listes existantes + création inline) — plus de
+    `prompt`. Par contact, « Liste » ouvre le même sélecteur en mode **exact**
+    (coche = appartenance, décoche = retrait). Bouton **« Gérer les listes »** :
+    renommer (met à jour tous les contacts) / supprimer une liste (les contacts
+    restent). `openListPicker`, `applyListPicker`, `removeFromList`, `renameList`,
+    `deleteList`, `bulkSetStage`. Objectif : déplacer les contacts entre listes
+    sans friction (un CRM plus flexible, sans options inutiles).
 - **Campagnes de relance** (nav « Campagnes de relance », `DB.campaigns`) :
   séquences d'emails espacées (J+0, J+3, J+7…) sur **une ou plusieurs listes**
   (`listTags[]`, cases à cocher — sépare écoles / restaurants / etc.). Chaque

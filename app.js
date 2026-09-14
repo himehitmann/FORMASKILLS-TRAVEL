@@ -1523,6 +1523,7 @@ function finderSaved(){
     ${chip("","Tous les contacts",DB.contacts.length,CS_TAG==="")}
     ${tags.map(t=>chip(t,t,DB.contacts.filter(c=>(c.tags||[]).includes(t)).length,CS_TAG===t)).join("")}
     <button class="btn ghost sm" id="cs_newlist">+ Nouvelle liste</button>
+    ${tags.length?`<button class="btn ghost sm" id="cs_managelists">Gérer les listes</button>`:""}
   </div>
   <div class="toolbar">
     <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input class="input" id="cs_q" placeholder="Rechercher…" value="${esc(csQVal())}"></div>
@@ -1548,7 +1549,8 @@ function finderSaved(){
   $("#cs_cat").onchange=e=>{CS_CAT=e.target.value;CS_PAGE=1;csDraw();};
   $("#cs_group").onclick=groupByCategory;
   $$("#finderBody .lchip").forEach(b=>b.onclick=()=>{CS_TAG=b.dataset.list;CS_PAGE=1;CS_SEL.clear();finderSaved();});
-  $("#cs_newlist").onclick=()=>{ const n=prompt("Nom de la nouvelle liste :"); if(n&&n.trim()){ CS_TAG=n.trim(); toast("Liste « "+n.trim()+" » — ajoutez-y des contacts via « Déplacer »"); finderSaved(); } };
+  $("#cs_newlist").onclick=()=>{ const n=prompt("Nom de la nouvelle liste :"); if(n&&n.trim()){ CS_TAG=n.trim(); toast("Liste « "+n.trim()+" » — ajoutez-y des contacts via « Liste » ou la sélection"); finderSaved(); } };
+  $("#cs_managelists")&&($("#cs_managelists").onclick=manageLists);
   $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","nature","domain","sourceUrl","phone","service","etape","statut","seniorite","fonction","source","ajoute","tags"],
     csRows().map(c=>({...c,nature:catOf(c),etape:stageOf(c),statut:emailStatut(c.email).l,seniorite:inferSeniority(c.service),fonction:inferFunction(c.service),ajoute:c.added?fmtDate(c.added):"",tags:(c.tags||[]).join(" ")})));
   $("#cs_imp").onclick=()=>$("#cs_file").click();
@@ -1605,27 +1607,91 @@ function csDraw(){
 function csBulk(){
   const bar=$("#cs_bulk"); if(!bar) return; const n=CS_SEL.size;
   if(!n){ bar.innerHTML=""; return; }
-  bar.innerHTML=`<div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;border-left:4px solid var(--brand);padding:10px 14px">
+  bar.innerHTML=`<div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;border-left:4px solid var(--brand);padding:10px 14px">
     <b>${n} sélectionné(s)</b><div class="spacer"></div>
-    <button class="btn sm" id="cs_move">Déplacer vers une liste</button>
+    <button class="btn sm primary" id="cs_move">${CS_TAG?"Déplacer vers…":"Ajouter à une liste…"}</button>
+    ${CS_TAG?`<button class="btn sm" id="cs_remove">Retirer de « ${esc(CS_TAG)} »</button>`:""}
+    <button class="btn sm ghost" id="cs_setstage">Changer l'étape</button>
     <button class="btn sm ghost" id="cs_expsel">Exporter</button>
     <button class="btn sm ghost" id="cs_delsel" style="color:var(--bad)">Supprimer</button>
     <button class="btn sm ghost" id="cs_clr">Annuler</button></div>`;
   $("#cs_clr").onclick=()=>{CS_SEL.clear();csDraw();};
   $("#cs_delsel").onclick=()=>confirmModal("Supprimer ?",n+" contact(s) seront supprimés.",()=>{DB.contacts=DB.contacts.filter(c=>!CS_SEL.has(c.id));CS_SEL.clear();save();renderNav();finderSaved();},true);
-  $("#cs_expsel").onclick=()=>exportCSV("contacts-selection",["email","name","domain","phone","service","statut","seniorite","fonction","tags"],
-    DB.contacts.filter(c=>CS_SEL.has(c.id)).map(c=>({...c,statut:emailStatut(c.email).l,seniorite:inferSeniority(c.service),fonction:inferFunction(c.service),tags:(c.tags||[]).join(" ")})));
-  $("#cs_move").onclick=()=>{ const name=prompt("Déplacer vers la liste (nom) :", CS_TAG||"Prospection"); if(!name||!name.trim())return; const L=name.trim();
-    DB.contacts.forEach(c=>{ if(CS_SEL.has(c.id)){ c.tags=c.tags||[]; if(!c.tags.includes(L)) c.tags.push(L); } });
-    save(); renderNav(); toast(CS_SEL.size+" contact(s) ajoutés à « "+L+" »"); CS_SEL.clear(); finderSaved(); };
+  $("#cs_expsel").onclick=()=>exportCSV("contacts-selection",["email","name","nature","domain","phone","service","etape","statut","tags"],
+    DB.contacts.filter(c=>CS_SEL.has(c.id)).map(c=>({...c,nature:catOf(c),etape:stageOf(c),statut:emailStatut(c.email).l,tags:(c.tags||[]).join(" ")})));
+  $("#cs_move").onclick=()=>openListPicker([...CS_SEL],{move:!!CS_TAG,fromTag:CS_TAG,after:()=>{CS_SEL.clear();finderSaved();}});
+  $("#cs_remove")&&($("#cs_remove").onclick=()=>{ removeFromList([...CS_SEL],CS_TAG); CS_SEL.clear(); finderSaved(); });
+  $("#cs_setstage").onclick=()=>bulkSetStage([...CS_SEL]);
+}
+function bulkSetStage(ids){
+  openModal({title:ids.length+" contact(s) — changer l'étape",
+    body:`<div class="field"><label>Étape</label><select id="bs_stage">${STAGES.map(s=>`<option>${esc(s)}</option>`).join("")}</select></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Appliquer",cls:"primary",act:()=>{
+      const stg=$("#bs_stage").value, set=new Set(ids);
+      DB.contacts.forEach(c=>{ if(set.has(c.id)){ c.stage=stg; if(stg==="Contacté"||stg==="Relancé") c.lastContacted=Date.now(); } });
+      save(); renderNav(); closeModal(); CS_SEL.clear(); finderSaved(); toast(`${ids.length} contact(s) → « ${stg} »`); }}]});
+}
+/* ---- Gestion souple des listes : déplacer / copier / retirer / renommer / supprimer ---- */
+function contactListNames(){ return [...new Set(DB.contacts.flatMap(c=>c.tags||[]))].sort((a,b)=>a.localeCompare(b,"fr")); }
+function removeFromList(ids,tag){ const set=new Set(ids); let n=0;
+  DB.contacts.forEach(c=>{ if(set.has(c.id)&&(c.tags||[]).includes(tag)){ c.tags=c.tags.filter(t=>t!==tag); n++; } });
+  save(); renderNav(); toast(`${n} contact(s) retirés de « ${tag} »`); }
+function renameList(oldTag,newTag){ newTag=(newTag||"").trim(); if(!newTag||newTag===oldTag) return;
+  DB.contacts.forEach(c=>{ if((c.tags||[]).includes(oldTag)){ c.tags=[...new Set(c.tags.map(t=>t===oldTag?newTag:t))]; } });
+  if(CS_TAG===oldTag) CS_TAG=newTag; save(); renderNav(); }
+function deleteList(tag){ DB.contacts.forEach(c=>{ if(c.tags) c.tags=c.tags.filter(t=>t!==tag); }); if(CS_TAG===tag) CS_TAG=""; save(); renderNav(); }
+window.openListPicker=(ids,opts={})=>{
+  const {move,fromTag,exact,after}=opts;
+  const lists=contactListNames();
+  const one= exact && ids.length===1 ? DB.contacts.find(c=>c.id===ids[0]) : null;
+  const isChecked=t=> one ? (one.tags||[]).includes(t) : false;
+  openModal({title:(ids.length>1?ids.length+" contacts":"Contact")+" → listes", wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">${exact?"Cochez les listes auxquelles ce contact appartient (décochez pour l'en retirer).":`Cochez la/les liste(s) de destination.${move&&fromTag?` « Déplacer » le retire aussi de « ${esc(fromTag)} ».`:""}`}</p>
+    <div id="lp_lists" style="display:flex;flex-wrap:wrap;gap:6px;max-height:210px;overflow:auto">
+      ${lists.length?lists.map(t=>`<label class="checkline" style="cursor:pointer;padding:6px 8px"><div class="chk ${isChecked(t)?'on':''}" data-lp="${esc(t)}"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div><div>${esc(t)}</div></label>`).join(""):`<div class="muted" style="font-size:12.5px">Aucune liste encore — créez-en une ci-dessous.</div>`}
+    </div>
+    <div class="field" style="margin-top:10px"><label>Nouvelle liste (optionnel)</label><input class="input" id="lp_new" placeholder="Ex : Restaurants Sète, Lycées Italie…"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},
+      (exact?{label:"Enregistrer",cls:"primary",act:()=>applyListPicker(ids,{exact:true,after})}:null),
+      (!exact&&move&&fromTag?{label:"Déplacer ici",cls:"primary",act:()=>applyListPicker(ids,{move:true,fromTag,after})}:null),
+      (!exact?{label:move?"Copier ici":"Ajouter",cls:move?"":"primary",act:()=>applyListPicker(ids,{after})}:null)
+    ].filter(Boolean)});
+  $$("#lp_lists [data-lp]").forEach(el=>el.onclick=()=>el.classList.toggle("on"));
+};
+function applyListPicker(ids,{move,fromTag,exact,after}={}){
+  const checked=$$("#lp_lists [data-lp].on").map(el=>el.dataset.lp);
+  const nw=($("#lp_new").value||"").trim(); if(nw && !checked.includes(nw)) checked.push(nw);
+  const set=new Set(ids);
+  if(exact){
+    const shown=$$("#lp_lists [data-lp]").map(el=>el.dataset.lp);
+    DB.contacts.forEach(c=>{ if(!set.has(c.id)) return; c.tags=c.tags||[];
+      c.tags=c.tags.filter(t=>!shown.includes(t)||checked.includes(t));   // retire les décochées
+      checked.forEach(t=>{ if(!c.tags.includes(t)) c.tags.push(t); }); }); // ajoute les cochées + nouvelle
+  } else {
+    if(!checked.length){ toast("Choisissez ou créez une liste","warn"); return; }
+    DB.contacts.forEach(c=>{ if(!set.has(c.id)) return; c.tags=c.tags||[];
+      checked.forEach(t=>{ if(!c.tags.includes(t)) c.tags.push(t); });
+      if(move && fromTag) c.tags=c.tags.filter(t=>t!==fromTag); });
+  }
+  save(); renderNav(); closeModal();
+  toast(`${ids.length} contact(s) mis à jour`); if(after) after();
+}
+function manageLists(){
+  const lists=contactListNames();
+  openModal({title:"Gérer les listes", wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">Renommez ou supprimez vos listes. Renommer met à jour tous les contacts concernés ; supprimer retire l'étiquette (les contacts restent).</p>
+    <div id="ml_list">${lists.length?lists.map(t=>`<div class="result-row" style="align-items:center" data-mlrow="${esc(t)}">
+      <input class="input" data-mlname value="${esc(t)}" style="flex:1">
+      <span class="muted" style="font-size:12px">${DB.contacts.filter(c=>(c.tags||[]).includes(t)).length}</span>
+      <button class="btn sm ghost" data-mlren="${esc(t)}">Renommer</button>
+      <button class="btn sm ghost" data-mldel="${esc(t)}" style="color:var(--bad)">Supprimer</button></div>`).join(""):`<div class="muted">Aucune liste.</div>`}</div>`,
+    footer:[{label:"Fermer",cls:"ghost",act:closeModal}]});
+  $$("#ml_list [data-mlren]").forEach(b=>b.onclick=()=>{ const row=b.closest("[data-mlrow]"); const nv=row.querySelector("[data-mlname]").value.trim();
+    renameList(b.dataset.mlren,nv); closeModal(); finderSaved(); toast("Liste renommée"); });
+  $$("#ml_list [data-mldel]").forEach(b=>b.onclick=()=>confirmModal("Supprimer la liste ?",`« ${b.dataset.mldel} » sera retirée de tous les contacts (les contacts restent).`,()=>{ deleteList(b.dataset.mldel); closeModal(); finderSaved(); },true));
 }
 window.delContact=id=>{ DB.contacts=DB.contacts.filter(c=>c.id!==id); CS_SEL.delete(id); save(); renderNav(); finderSaved(); };
-window.tagContact=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c)return;
-  openModal({title:"Listes / étiquettes",body:`<div class="field"><label>Listes (séparées par des virgules)</label>
-    <input class="input" id="tg_in" value="${esc((c.tags||[]).join(", "))}" placeholder="Prospects Espagne, Salon 2026"></div>`,
-    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Enregistrer",cls:"primary",act:()=>{
-      c.tags=$("#tg_in").value.split(",").map(s=>s.trim()).filter(Boolean); save(); closeModal(); VIEWS.finder(); toast("Listes mises à jour");}}]});
-};
+window.tagContact=id=>{ openListPicker([id],{exact:true,after:()=>finderSaved()}); };
 function importContactsCSV(e){
   const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
   rd.onload=()=>{ try{
