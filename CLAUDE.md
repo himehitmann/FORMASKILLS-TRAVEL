@@ -144,6 +144,24 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   `mailto:` **n'attache pas** de fichier — l'outil ouvre le PDF, l'utilisatrice le
   glisse dans l'email (`ftEmailDraft` gère to multiples + cc + bcc ; `ftPrintDoc`
   génère la PJ).
+  - **Import intelligent de sheets** (bouton « Importer / coller » de l'onglet
+    Contacts, `openImport` / `parseTable` / `detectMapping` / `smartImport`) :
+    coller directement depuis **Excel / Google Sheets** (TSV) ou un **CSV** ;
+    détection auto du délimiteur (tab/;/,), des **en-têtes**, du **mapping des
+    colonnes** (email, prénom, nom, société, téléphone, ville, pays, site,
+    fonction) et de la **colonne email par scan** si pas d'en-tête. Aperçu
+    (nb lignes / avec email / colonnes reconnues) puis import dans une **liste**
+    nommée, dédoublonné, étape « À contacter », nature déduite.
+  - **Envoi groupé / prospection prête à l'emploi** (`openBulkEmail` +
+    `createContactEmailDraft`) : sélection multiple → **« Email groupé »** →
+    choisir un **modèle** → un **brouillon par contact ayant un email** est
+    préparé (surfacé dans « À faire maintenant »). **Suivi d'envoi** : envoyer
+    un brouillon (`writeAutoEmail`) ou `markDraftSent` fait passer le contact à
+    **Contacté** (puis Relancé), marque le brouillon **Fait** et il disparaît de
+    l'assistant. Les brouillons portent un `contactId`. **Campagnes** : affichage
+    de la **progression « X/Y envoyés · terminé »**. « Une fois tout envoyé, le
+    statut change » = réalisé, honnêtement (mailto n'envoie pas seul, mais
+    l'action d'envoi met à jour le statut et la progression).
   - **Fiche contact éditable (CRM)** (`editContactCard` / `openContactCard`) :
     bouton **« + Nouveau contact »** (création manuelle) et **ouverture de la
     fiche** (clic sur le nom ou « Ouvrir ») avec tous les champs : Nom, Société,

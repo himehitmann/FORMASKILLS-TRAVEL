@@ -729,7 +729,7 @@ const Automations = (()=>{
       const d=ftEmailDraft({to, subject, body, senderId:st.sender});
       const title="Email à "+(to||"—")+(subject?(" — "+subject):"");
       if(openAutoTaskExists(title)) return;
-      DB.tasks.unshift({id:uid(), title, status:"À faire", priority:"Normale",
+      DB.tasks.unshift({id:uid(), title, status:"À faire", priority:"Normale", contactId:(ctx&&ctx._entity==="contacts")?ctx._id:undefined,
         due:Date.now()+DAY, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:""});
     } else if(A==="genDoc"){
       const t=allTemplates().find(x=>x.id===st.template); if(!t) return;
@@ -758,7 +758,20 @@ const Automations = (()=>{
   return {run, norm, EVENTS, EV_VARS, OPS, STEP_ACTIONS};
 })();
 
-window.writeAutoEmail=id=>{ const t=DB.tasks.find(x=>x.id===id); if(t && t.mailto){ window.location.href=t.mailto; } };
+window.writeAutoEmail=id=>{ const t=DB.tasks.find(x=>x.id===id); if(!t || !t.mailto) return;
+  // Suivi d'envoi : marque le contact « Contacté » (puis « Relancé ») et le brouillon comme envoyé.
+  const c=t.contactId?DB.contacts.find(x=>x.id===t.contactId):null;
+  if(c){ const s=c.stage||"À contacter"; c.stage = s==="À contacter"?"Contacté":(s==="Contacté"?"Relancé":s); c.lastContacted=Date.now(); }
+  t.status="Fait"; t.sentAt=Date.now(); save(); renderNav();
+  if(CURRENT==="dash") VIEWS.dash(); else if(CURRENT==="campaigns") drawCampaigns(); else if(CURRENT==="finder"&&FINDER_TAB==="saved") csDraw();
+  window.location.href=t.mailto;
+};
+window.markDraftSent=id=>{ const t=DB.tasks.find(x=>x.id===id); if(!t) return;
+  const c=t.contactId?DB.contacts.find(x=>x.id===t.contactId):null;
+  if(c){ const s=c.stage||"À contacter"; c.stage = s==="À contacter"?"Contacté":(s==="Contacté"?"Relancé":s); c.lastContacted=Date.now(); }
+  t.status="Fait"; t.sentAt=Date.now(); save(); renderNav();
+  if(CURRENT==="dash") VIEWS.dash(); else if(CURRENT==="campaigns") drawCampaigns();
+  toast("Marqué comme envoyé"); };
 // Génère (imprime/PDF) un modèle de document pré-rempli depuis un contexte.
 function ftPrintDoc(tp, ctx){
   ctx=ctx||{};
@@ -869,7 +882,7 @@ function processCampaigns(){
         const doc=tpl&&tpl.docTpl?allTemplates().find(x=>x.id===tpl.docTpl):null;
         if(doc) body=body+(body?"\n\n":"")+"(Pièce jointe à joindre : "+doc.name+")";
         const d=ftEmailDraft({to:c.email,subject,body,senderId:cp.senderId,cc:tpl&&tpl.cc,bcc:tpl&&tpl.bcc});
-        DB.tasks.unshift({id:uid(), campKey:key, title:`Relance « ${cp.name} » (étape ${si+1}) — ${c.email||c.name||""}`,
+        DB.tasks.unshift({id:uid(), campKey:key, contactId:c.id, title:`Relance « ${cp.name} » (étape ${si+1}) — ${c.email||c.name||""}`,
           status:"À faire", priority:"Normale", due, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:""});
         made++;
       });
@@ -1497,6 +1510,30 @@ function doEmailContact(c, tpl, to){
   if(tpl && tpl.docTpl){ const dtp=allTemplates().find(x=>x.id===tpl.docTpl); if(dtp){ ftPrintDoc(dtp, ctxOfContact(c)); toast("Pièce jointe ouverte — enregistrez le PDF puis glissez-le dans l'email","ok"); } }
   window.location.href=d.mailto;
 }
+// Envoi groupé (prospection prête à l'emploi) : prépare un brouillon par contact
+// ayant un email ; l'envoi (« Écrire l'email ») fait passer le statut à Contacté.
+function createContactEmailDraft(c, tpl){
+  if(!c || !c.email) return null;
+  const fill=s=>(s||"").replace(/\{(\w+)\}/g,(_,k)=>(ctxOfContact(c)[k]??"").toString());
+  const subject=tpl?fill(tpl.subject):"", body=tpl?fill(tpl.body):"";
+  const d=ftEmailDraft({to:c.email, subject, body, cc:tpl&&tpl.cc, bcc:tpl&&tpl.bcc});
+  const t={id:uid(), contactId:c.id, title:"Email à "+(c.name||c.email)+(tpl?(" — "+tpl.name):""),
+    status:"À faire", priority:"Normale", due:Date.now(), auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"", batch:1};
+  DB.tasks.unshift(t); return t;
+}
+window.openBulkEmail=ids=>{
+  const targets=DB.contacts.filter(c=>ids.includes(c.id) && c.email);
+  const noMail=ids.length-targets.length;
+  const tpls=ftMailTemplates();
+  openModal({title:"Envoi groupé — "+targets.length+" contact(s) avec email", wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">Prépare un brouillon d'email pour chaque contact ayant une adresse.${noMail?` (${noMail} sans email seront ignorés.)`:""} Ils apparaissent dans « À faire maintenant » ; en les envoyant, le statut passe automatiquement à « Contacté ».</p>
+    <div class="field"><label>Modèle d'email</label><select id="be_tpl"><option value="">— email vide —</option>${tpls.map(t=>`<option value="${t.id}">${esc(t.name)}${t.public?` (${esc(t.public)})`:""}</option>`).join("")}</select></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Préparer les brouillons",cls:"primary",act:()=>{
+      if(!targets.length){toast("Aucun contact avec email dans la sélection","warn");return;}
+      const tpl=ftMailTemplate($("#be_tpl").value); let n=0; targets.forEach(c=>{ if(createContactEmailDraft(c,tpl)) n++; });
+      save(); renderNav(); closeModal(); CS_SEL.clear(); finderSaved();
+      toast(`${n} email(s) préparés — « À faire maintenant »`); }}]});
+};
 window.emailContact=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c||!c.email){toast("Pas d'email pour ce contact","warn");return;}
   const tpls=ftMailTemplates();
   if(!tpls.length){ doEmailContact(c, null, c.email); return; }
@@ -1539,8 +1576,7 @@ function finderSaved(){
     <div class="spacer"></div>
     <button class="btn sm primary" id="cs_new">+ Nouveau contact</button>
     <button class="btn ghost sm" id="cs_group" title="Range les contacts affichés dans des listes selon leur nature">Trier par nature</button>
-    <button class="btn ghost sm" id="cs_imp">Importer CSV</button>
-    <input type="file" id="cs_file" accept=".csv,text/csv" style="display:none">
+    <button class="btn ghost sm" id="cs_imp">Importer / coller</button>
     <button class="btn ghost sm" id="cs_dedupe">Dédupliquer</button>
     <button class="btn ghost sm" id="cs_exp">Exporter CSV</button>
   </div>
@@ -1558,8 +1594,7 @@ function finderSaved(){
   $("#cs_managelists")&&($("#cs_managelists").onclick=manageLists);
   $("#cs_exp").onclick=()=>exportCSV("contacts",["email","name","nature","domain","sourceUrl","phone","service","etape","statut","seniorite","fonction","source","ajoute","tags"],
     csRows().map(c=>({...c,nature:catOf(c),etape:stageOf(c),statut:emailStatut(c.email).l,seniorite:inferSeniority(c.service),fonction:inferFunction(c.service),ajoute:c.added?fmtDate(c.added):"",tags:(c.tags||[]).join(" ")})));
-  $("#cs_imp").onclick=()=>$("#cs_file").click();
-  $("#cs_file").onchange=importContactsCSV;
+  $("#cs_imp").onclick=openImport;
   $("#cs_dedupe").onclick=()=>{const before=DB.contacts.length;DB.contacts=EmailFinder.dedupe(DB.contacts);const n=before-DB.contacts.length;save();renderNav();finderSaved();toast(n?n+" doublon(s) supprimé(s)":"Aucun doublon");};
   csDraw();
 }
@@ -1614,8 +1649,9 @@ function csBulk(){
   if(!n){ bar.innerHTML=""; return; }
   bar.innerHTML=`<div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;border-left:4px solid var(--brand);padding:10px 14px">
     <b>${n} sélectionné(s)</b><div class="spacer"></div>
-    <button class="btn sm primary" id="cs_move">${CS_TAG?"Déplacer vers…":"Ajouter à une liste…"}</button>
-    ${CS_TAG?`<button class="btn sm" id="cs_remove">Retirer de « ${esc(CS_TAG)} »</button>`:""}
+    <button class="btn sm primary" id="cs_bulkmail">Email groupé</button>
+    <button class="btn sm" id="cs_move">${CS_TAG?"Déplacer vers…":"Ajouter à une liste…"}</button>
+    ${CS_TAG?`<button class="btn sm ghost" id="cs_remove">Retirer de « ${esc(CS_TAG)} »</button>`:""}
     <button class="btn sm ghost" id="cs_setstage">Changer l'étape</button>
     <button class="btn sm ghost" id="cs_expsel">Exporter</button>
     <button class="btn sm ghost" id="cs_delsel" style="color:var(--bad)">Supprimer</button>
@@ -1624,6 +1660,7 @@ function csBulk(){
   $("#cs_delsel").onclick=()=>confirmModal("Supprimer ?",n+" contact(s) seront supprimés.",()=>{DB.contacts=DB.contacts.filter(c=>!CS_SEL.has(c.id));CS_SEL.clear();save();renderNav();finderSaved();},true);
   $("#cs_expsel").onclick=()=>exportCSV("contacts-selection",["email","name","nature","domain","phone","service","etape","statut","tags"],
     DB.contacts.filter(c=>CS_SEL.has(c.id)).map(c=>({...c,nature:catOf(c),etape:stageOf(c),statut:emailStatut(c.email).l,tags:(c.tags||[]).join(" ")})));
+  $("#cs_bulkmail").onclick=()=>openBulkEmail([...CS_SEL]);
   $("#cs_move").onclick=()=>openListPicker([...CS_SEL],{move:!!CS_TAG,fromTag:CS_TAG,after:()=>{CS_SEL.clear();finderSaved();}});
   $("#cs_remove")&&($("#cs_remove").onclick=()=>{ removeFromList([...CS_SEL],CS_TAG); CS_SEL.clear(); finderSaved(); });
   $("#cs_setstage").onclick=()=>bulkSetStage([...CS_SEL]);
@@ -1775,6 +1812,91 @@ function splitCSV(line){ const out=[];let cur="",q=false;
     if(q){ if(ch==='"'&&line[i+1]==='"'){cur+='"';i++;} else if(ch==='"'){q=false;} else cur+=ch; }
     else { if(ch==='"')q=true; else if(ch===","||ch===";"){out.push(cur);cur="";} else cur+=ch; } }
   out.push(cur); return out;
+}
+/* ---------- Import intelligent : coller depuis Excel/Sheets ou CSV ----------
+   Détecte le délimiteur (tab/;/,), la présence d'en-têtes, mappe les colonnes
+   et repère la colonne email — puis crée les contacts dans une liste. */
+const RE_MAIL_ONE=/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/;
+function parseTable(text){
+  const lines=String(text||"").replace(/^﻿/,"").split(/\r?\n/).filter(l=>l.trim().length);
+  if(!lines.length) return [];
+  const c={"\t":0,";":0,",":0}; lines.slice(0,5).forEach(l=>{ c["\t"]+=l.split("\t").length-1; c[";"]+=l.split(";").length-1; c[","]+=l.split(",").length-1; });
+  const delim = (c["\t"]>=c[";"]&&c["\t"]>=c[","]) ? "\t" : (c[";"]>=c[","]?";":",");
+  if(delim==="\t") return lines.map(l=>l.split("\t").map(s=>s.replace(/^"|"$/g,"").trim()));
+  return lines.map(splitCSV).map(r=>r.map(s=>s.trim()));
+}
+const IMPORT_FIELDS=[["email","Email"],["first","Prénom"],["name","Nom / contact"],["company","Société"],["phone","Téléphone"],["city","Ville"],["country","Pays"],["website","Site web"],["service","Fonction"]];
+function detectMapping(rows){
+  const map={email:-1,first:-1,name:-1,phone:-1,company:-1,city:-1,country:-1,website:-1,service:-1};
+  const rowHasEmail=r=>r.some(c=>RE_MAIL_ONE.test(c||""));
+  const hasHeader = rows.length>0 && !rowHasEmail(rows[0]);
+  if(hasHeader){ rows[0].forEach((raw,i)=>{ const t=(raw||"").toLowerCase();
+    if(map.email<0 && /e-?mail|mail|courriel/.test(t)) map.email=i;
+    else if(map.first<0 && /(pr[ée]nom|first ?name)/.test(t)) map.first=i;
+    else if(map.name<0 && /(\bnom\b|name|contact|responsable|interlocuteur)/.test(t)) map.name=i;
+    else if(map.phone<0 && /(t[ée]l|phone|mobile|portable|gsm|fixe)/.test(t)) map.phone=i;
+    else if(map.company<0 && /(soci[ée]t|entreprise|organisme|entit[ée]|company|[ée]tablissement|structure|enseigne|nom de l)/.test(t)) map.company=i;
+    else if(map.city<0 && /(ville|city|localit)/.test(t)) map.city=i;
+    else if(map.country<0 && /(pays|country)/.test(t)) map.country=i;
+    else if(map.website<0 && /(site|web|url)/.test(t)) map.website=i;
+    else if(map.service<0 && /(fonction|poste|titre|\brole\b|rôle|activit|secteur)/.test(t)) map.service=i;
+  }); }
+  if(map.email<0){ const data=hasHeader?rows.slice(1):rows; const ncol=Math.max(0,...rows.map(r=>r.length)); let best=-1,bn=0;
+    for(let cc=0;cc<ncol;cc++){ let n=0; data.forEach(r=>{ if(RE_MAIL_ONE.test(r[cc]||"")) n++; }); if(n>bn){bn=n;best=cc;} }
+    if(best>=0) map.email=best; }
+  return {map, hasHeader};
+}
+function smartImport(rows, {map,hasHeader}, listName){
+  const data=hasHeader?rows.slice(1):rows;
+  const g=(r,i)=> i>=0&&i<r.length ? (r[i]||"").trim() : "";
+  const L=(listName||"").trim(); let n=0; const added=[];
+  data.forEach(r=>{
+    let email=g(r,map.email).toLowerCase();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ const m=(r.join(" ").match(RE_MAIL_ONE)||[])[0]; email=m?m.toLowerCase():""; }
+    const name=[g(r,map.first),g(r,map.name)].filter(Boolean).join(" ").trim();
+    const company=g(r,map.company);
+    if(!email && !name && !company) return;
+    if(email && DB.contacts.some(c=>c.email===email)) return;
+    const website=g(r,map.website);
+    const rec={ id:uid(), email, name, company, phone:g(r,map.phone), city:g(r,map.city), country:g(r,map.country),
+      website, service:g(r,map.service), domain: website?hostFromUrl(website):(email?email.split("@")[1]:""),
+      source:"import", stage:"À contacter", added:Date.now(), tags:L?[L]:[] };
+    DB.contacts.unshift(rec); added.push(rec); n++;
+  });
+  if(n){ logAct(`${n} contact(s) importés${L?` → « ${L} »`:""}`); save(); renderNav(); }
+  added.forEach(rec=>Automations.run("contact.created",{...rec,_entity:"contacts",_id:rec.id}));
+  return {n, added};
+}
+function openImport(){
+  openModal({title:"Importer des contacts", wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">Collez directement depuis <b>Excel</b> ou <b>Google Sheets</b> (sélectionnez les cellules, Ctrl+C, Ctrl+V ici), ou importez un <b>CSV</b>. L'outil détecte tout seul les colonnes (email, nom, société, téléphone, ville…) et repère les emails.</p>
+    <div class="field"><label>Coller le tableau</label><textarea id="imp_text" style="min-height:120px" placeholder="Collez vos lignes (avec ou sans en-têtes)…"></textarea></div>
+    <div class="toolbar" style="margin:0;gap:8px"><button class="btn sm" id="imp_filebtn">Ou importer un fichier CSV</button>
+      <input type="file" id="imp_file" accept=".csv,.tsv,.txt,text/csv" style="display:none">
+      <div class="spacer"></div>
+      <div class="field" style="margin:0;min-width:230px"><input class="input" id="imp_list" value="Import ${new Date().toLocaleDateString('fr-FR')}" placeholder="Nom de la liste"></div></div>
+    <div id="imp_prev" style="margin-top:12px"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Analyser",cls:"",act:impAnalyze},{label:"Importer",cls:"primary",act:impDoImport}]});
+  $("#imp_filebtn").onclick=()=>$("#imp_file").click();
+  $("#imp_file").onchange=e=>{ const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
+    rd.onload=()=>{ $("#imp_text").value=rd.result; impAnalyze(); }; rd.readAsText(f); };
+  function impAnalyze(){
+    const rows=parseTable($("#imp_text").value); if(!rows.length){ $("#imp_prev").innerHTML=`<div class="tag w">Collez d'abord un tableau, ou importez un CSV.</div>`; return null; }
+    const det=detectMapping(rows); const data=det.hasHeader?rows.slice(1):rows;
+    const withMail=data.filter(r=>{ const i=det.map.email; return (i>=0&&RE_MAIL_ONE.test(r[i]||""))||RE_MAIL_ONE.test(r.join(" ")); }).length;
+    const chips=IMPORT_FIELDS.filter(([k])=>det.map[k]>=0).map(([k,l])=>`<span class="tag g">${l} → col. ${det.map[k]+1}</span>`).join(" ")||'<span class="tag w">Aucune colonne reconnue automatiquement</span>';
+    $("#imp_prev").innerHTML=`<div class="card" style="padding:12px">
+      <div style="font-weight:700;margin-bottom:6px">${data.length} ligne(s) · ${withMail} avec email · en-têtes ${det.hasHeader?"détectés":"absents"}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>
+      <div class="muted" style="font-size:12px;margin-top:8px">Cliquez « Importer » pour créer les contacts dans la liste « ${esc($("#imp_list").value.trim()||"—")} ».</div></div>`;
+    return det;
+  }
+  function impDoImport(){
+    const rows=parseTable($("#imp_text").value); if(!rows.length){toast("Rien à importer","warn");return;}
+    const det=detectMapping(rows);
+    const {n}=smartImport(rows,det,$("#imp_list").value);
+    closeModal(); if(CURRENT==="finder") finderSaved(); toast(n?`${n} contact(s) importés`:"Aucun nouveau contact (déjà présents ?)", n?"ok":"warn");
+  }
 }
 
 /* ---------- Générique : tables entités ---------- */
@@ -2705,11 +2827,14 @@ function drawCampaigns(){
   $("#cp_list").innerHTML=a.length? a.map(x=>{
     const enrolled=(x.enrolled||[]).length, steps=(x.steps||[]).length, avail=campContacts(x).length;
     const tagsLabel=campTags(x).join(", ")||"—";
+    const drafts=DB.tasks.filter(t=>t.campKey&&t.campKey.indexOf("camp:"+x.id+":")===0);
+    const sent=drafts.filter(t=>t.status==="Fait").length;
+    const prog=drafts.length?`<span class="tag ${sent===drafts.length?'g':'b'}">${sent}/${drafts.length} envoyé(s)${sent===drafts.length?' · terminé':''}</span>`:"";
     return `<div class="card" style="display:flex;align-items:flex-start;gap:14px;margin-bottom:10px">
       <div class="switch ${x.on!==false?'on':''}" data-cptoggle="${x.id}" style="margin-top:2px"><i></i></div>
       <div style="flex:1;min-width:0">
         <div class="cell-strong">${esc(x.name)}</div>
-        <div class="muted" style="font-size:12.5px;margin-top:2px">Listes : ${esc(tagsLabel)} · ${steps} étape(s) · <b>${enrolled}</b> contact(s) enrôlé(s)${avail>enrolled?` · ${avail-enrolled} en attente d'enrôlement`:""}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px">Listes : ${esc(tagsLabel)} · ${steps} étape(s) · <b>${enrolled}</b> contact(s) enrôlé(s)${avail>enrolled?` · ${avail-enrolled} en attente d'enrôlement`:""} ${prog}</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${(x.steps||[]).map((s,i)=>`<span class="tag n">J+${+s.offsetDays||0} · ${esc((s.subject||"(sans objet)").slice(0,40))}</span>`).join("")||'<span class="muted" style="font-size:12px">Aucune étape</span>'}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px">
