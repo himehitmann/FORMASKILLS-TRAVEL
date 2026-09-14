@@ -31,6 +31,9 @@ function buildRows(res){
   if(res.profiles && res.profiles.length){
     res.profiles.forEach(p=>rows.push({name:p.name,headline:p.headline||"",email:"",phone:"",company:"",url:p.url,sel:true}));
   }
+  if(res.businesses && res.businesses.length){
+    res.businesses.forEach(b=>rows.push({name:b.name||"",headline:b.address||"",email:"",phone:b.phone||"",company:b.website?hostOf(b.website):"",url:b.website||res.url,sel:true}));
+  }
   (res.emails||[]).forEach(e=>{
     rows.push({name:guessNameFromEmail(e)||res.name||"",headline:res.headline||"",email:e,phone:(res.phones&&res.phones[0])||"",company:e.split("@")[1]||dom,url:res.url,sel:true});
   });

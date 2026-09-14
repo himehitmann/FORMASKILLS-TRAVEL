@@ -14,6 +14,7 @@ function ftPageScrape(){
         var d=m[0].replace(/[^\d+]/g,"");
         if(d.indexOf("00")===0) d="+"+d.slice(2);
         if(d.indexOf("+330")===0) d="+33"+d.slice(4); // +33 (0)… -> +33…
+        if(/^\+33\d{9}$/.test(d)) d="0"+d.slice(3);   // +33 4 67… -> 0 4 67… (format FR homogène)
         var v=null;
         if(/^0\d{9}$/.test(d)) v=d.replace(/(\d{2})(?=\d)/g,"$1 ").trim();      // FR : 0X XX XX XX XX
         else if(/^\+\d{9,14}$/.test(d) && !/^\+(\d)\1{7,}$/.test(d)) v=d;       // international
@@ -85,8 +86,45 @@ function ftPageScrape(){
       if(h){ var hn=h.innerText.trim(); if(hn.length>1 && hn.length<80 && !/^\d/.test(hn) && /[a-zA-ZÀ-ÿ]/.test(hn)) name=hn; }
     }
 
+    // --- Annuaire / Google Maps : fiches entreprise (nom + téléphone + site) ---
+    // Best-effort, tolérant : marche sur Google Maps, PagesJaunes et la plupart
+    // des annuaires. À valider sur le vrai DOM (les classes Google changent).
+    var businesses=[], bseen={};
+    function firstPhone(t){ var p=phones(String(t||"")); return p.length?p[0]:""; }
+    function hostname(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
+    function pushBiz(nm,phone,web,addr){
+      nm=(nm||"").trim(); if(nm.length>90) nm=nm.slice(0,90);
+      if(!nm && !phone && !web) return;
+      var key=nm.toLowerCase()+"|"+phone+"|"+hostname(web);
+      if(bseen[key]) return; bseen[key]=1;
+      businesses.push({name:nm, phone:phone||"", website:web||"", address:addr||""});
+    }
+    var isMaps=/\/maps(\/|$|\?)/.test(location.pathname+location.search) || /(^|\.)google\.[a-z.]+$/.test(host)&&/maps/.test(location.href);
+    var cards=[];
+    // 1) conteneurs qui portent un lien téléphone (annuaires) ou une fiche Maps
+    [].slice.call(doc.querySelectorAll('a[href^="tel:"]')).forEach(function(a){
+      var c=a.closest('[role="article"]')||a.closest("article")||a.closest("li")||a.closest("div"); if(c) cards.push(c); });
+    [].slice.call(doc.querySelectorAll('[role="article"], a[href*="/maps/place/"]')).forEach(function(el){
+      var c=el.closest('[role="article"]')||el.parentElement||el; if(c) cards.push(c); });
+    // dédup de conteneurs
+    var cseen=[]; cards=cards.filter(function(c){ if(cseen.indexOf(c)>=0) return false; cseen.push(c); return true; });
+    cards.slice(0,80).forEach(function(c){
+      var nm="";
+      var head=c.querySelector('[role="heading"],h1,h2,h3,h4');
+      if(head) nm=(head.textContent||"").trim().split("\n")[0];
+      if(!nm){ var pa=c.querySelector('a[href*="/maps/place/"]'); if(pa) nm=(pa.getAttribute("aria-label")||pa.textContent||"").trim().split("\n")[0]; }
+      var tel=c.querySelector('a[href^="tel:"]'); var phone=firstPhone(tel?tel.getAttribute("href").slice(4):"") || firstPhone(c.innerText||"");
+      var wa=c.querySelector('a[href^="http"]:not([href*="google."]):not([href*="gstatic"]):not([href*="/maps/"]):not([href*="schema.org"])');
+      var web=wa?wa.href:"";
+      var addr=""; var am=(c.innerText||"").match(/\d{1,4}(?:\s*(?:bis|ter))?\s+(?:rue|avenue|av\.|bd|boulevard|impasse|chemin|route|place|all[ée]e|quai|cours)\b[^\n,]{0,50}/i);
+      if(am) addr=am[0].trim();
+      pushBiz(nm,phone,web,addr);
+    });
+
+    var isDirectory = businesses.length>=2 || isMaps;
+
     var links=Array.from(new Set([].slice.call(doc.querySelectorAll("a[href]")).map(function(a){return a.href;}).filter(function(h){return /^https?:/.test(h);})));
-    return {url:location.href, title:doc.title, host:host, isLinkedIn:isLI, isSearch:isSearch, name:name, headline:headline, company:company, emails:emails, phones:ph, profiles:profiles, links:links};
+    return {url:location.href, title:doc.title, host:host, isLinkedIn:isLI, isSearch:isSearch, isMaps:isMaps, isDirectory:isDirectory, name:name, headline:headline, company:company, emails:emails, phones:ph, profiles:profiles, businesses:businesses, links:links};
   }catch(e){ return {url:location.href, error:String(e), emails:[], phones:[], links:[], profiles:[]}; }
 }
 if (typeof window!=="undefined") window.ftPageScrape=ftPageScrape;

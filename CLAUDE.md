@@ -107,6 +107,15 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
     légales… » dans Recherche web) : `Scraper.contactSubLinks` suit les pages
     internes riches en emails (contact, mentions légales, équipe, à-propos) du
     même domaine — beaucoup plus d'emails, dans la limite de cadence/quotidien.
+  - **Fiches entreprise Google Maps / annuaires** (`ftPageScrape.businesses`) :
+    détecte les cartes de résultats (Maps `role="article"` + `/maps/place/`, ou
+    annuaires type PagesJaunes) et en extrait **nom + téléphone + site web +
+    adresse**. Idéal pour la prospection **locale** (CFA, écoles, entreprises
+    autour de Sète). Le site web devient le **domaine** du contact → réutilisable
+    par « Deviner l'email ». Surfacé dans l'app ET la bulle, importable. Best-
+    effort, à valider sur le vrai DOM Maps (classes Google changeantes).
+  - **Normalisation FR des téléphones** : `+33 X …` est converti en `0X XX XX XX
+    XX` (format homogène, dédup entre lien `tel:` et texte visible).
   - **Suivi de prospection** dans l'onglet Contacts : colonne **Étape**
     (À contacter / Contacté / Relancé / En discussion / Gagné / Perdu) éditable
     en ligne, **filtre par étape**, **source + date** sous le nom, action

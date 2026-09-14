@@ -241,6 +241,7 @@ function ftPhones(text){
     let d=m[0].replace(/[^\d+]/g,"");
     if(d.startsWith("00")) d="+"+d.slice(2);
     if(d.startsWith("+330")) d="+33"+d.slice(4);
+    if(/^\+33\d{9}$/.test(d)) d="0"+d.slice(3); // +33 4 67… -> 0 4 67… (format FR homogène)
     let v=null;
     if(/^0\d{9}$/.test(d)) v=d.replace(/(\d{2})(?=\d)/g,"$1 ").trim();
     else if(/^\+\d{9,14}$/.test(d) && !/^\+(\d)\1{7,}$/.test(d)) v=d;
@@ -1022,8 +1023,13 @@ async function scrapeTabUI(){
 function scrapeRows(res){
   const rows=[], seen=new Set();
   const dom=(res.host||"").replace(/^www\./,"");
+  const hostOf=u=>{ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } };
   (res.profiles||[]).forEach(p=>{ const k="li|"+p.url; if(seen.has(k))return; seen.add(k);
     rows.push({email:"",name:p.name||"",phone:"",company:res.company||dom,service:p.headline||"",source:p.url}); });
+  // Fiches entreprise (Google Maps / annuaires) : nom + téléphone + site → domaine
+  (res.businesses||[]).forEach(bz=>{ const k="bz|"+(bz.name||"").toLowerCase()+"|"+(bz.phone||""); if(seen.has(k))return; seen.add(k);
+    const wdom=bz.website?hostOf(bz.website):"";
+    rows.push({email:"",name:bz.name||"",phone:bz.phone||"",company:bz.name||wdom||dom,domain:wdom,service:bz.address||"",source:bz.website||res.url}); });
   const mc=[], mcseen=new Set(); Scraper.mergeContacts(mc,mcseen,res);
   mc.forEach(r=>{ const k=r.email||("tel:"+r.phone); if(seen.has(k))return; seen.add(k); rows.push(r); });
   if(!rows.length && res.name){ rows.push({email:"",name:res.name,phone:(res.phones&&res.phones[0])||"",company:res.company||dom,service:res.headline||"",source:res.url}); }
@@ -1038,6 +1044,7 @@ function renderScrapeResults(container,res){
       ${kpi("Téléphones",(res.phones||[]).length,"finder","var(--accent)")}
       ${kpi("Contacts",rows.length,"finder","var(--ok)")}</div>
     ${res.isLinkedIn?`<div class="tag ${res.isSearch?'b':'n'}" style="margin-bottom:10px">LinkedIn — ${res.isSearch?"page de résultats":"profil"}${res.company?" · "+esc(res.company):""}</div>`:""}
+    ${(res.businesses&&res.businesses.length)?`<div class="tag b" style="margin-bottom:10px">${res.isMaps?"Google Maps":"Annuaire"} — ${res.businesses.length} fiche(s) entreprise détectée(s)</div>`:""}
     ${res.name?`<p style="font-weight:700;margin:0 0 8px">${esc(res.name)}${res.headline?` — <span class="muted">${esc(res.headline)}</span>`:""}</p>`:""}
     ${rows.length?scrapeTable(rows):`<div class="empty">Aucun contact exploitable sur cette page. ${res.isLinkedIn?"Ouvrez une page de résultats LinkedIn (/search/…) pour lister les profils.":"Essayez une page « contact » ou un annuaire."}</div>`}
     ${(res.phones||[]).length?`<div class="divider"></div><div class="muted" style="font-weight:700;font-size:11px;text-transform:uppercase;margin-bottom:6px">Téléphones détectés</div>
@@ -1067,7 +1074,7 @@ function importScraped(rows){
       : DB.contacts.some(c=>!c.email && c.name===r.name && c.sourceUrl===r.source);
     if(dup) continue;
     const src=/linkedin\./i.test(r.source||"")?"linkedin":"scraper";
-    const rec={id:uid(),email:r.email||"",name:r.name||"",domain:r.company||"",phone:r.phone||"",
+    const rec={id:uid(),email:r.email||"",name:r.name||"",domain:r.domain||r.company||"",phone:r.phone||"",
       service:r.service||"",sourceUrl:r.source||"",confidence:"",source:src,stage:"À contacter",added:Date.now(),tags:[]};
     DB.contacts.unshift(rec); added.push(rec); n++; }
   logAct(`${n} contact(s) importé(s) (scraper)`); save(); renderNav(); toast(n+" contact(s) ajouté(s) au CRM");
