@@ -114,6 +114,12 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
     autour de Sète). Le site web devient le **domaine** du contact → réutilisable
     par « Deviner l'email ». Surfacé dans l'app ET la bulle, importable. Best-
     effort, à valider sur le vrai DOM Maps (classes Google changeantes).
+  - **Recherche web multi-sources** (onglet Scraper → « Recherche web ») : source
+    au choix **Google (sites web)**, **Google Maps (entreprises locales)** ou
+    DuckDuckGo. Le mode **Maps** ouvre `/maps/search/…`, **fait défiler** le volet
+    (`ftScrollFeed`) pour charger les fiches, puis extrait les entreprises
+    (`Scraper.mergeBusinesses`). Les fiches entreprise sont aussi récupérées sur
+    les pages visitées en mode Google/DDG. Toujours borné par cadence + quota.
   - **Normalisation FR des téléphones** : `+33 X …` est converti en `0X XX XX XX
     XX` (format homogène, dédup entre lien `tel:` et texte visible).
   - **Suivi de prospection** dans l'onglet Contacts : colonne **Étape**
@@ -160,6 +166,14 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
 5. **T8 Registre documentaire** par dossier (archive centralisée des pièces + statut).
 6. Générer les **documents participants pré-remplis** depuis le projet
    (nom + dates auto, zéro ressaisie) — l'ossature existe (modèles), à relier.
+
+## « Hors-ligne » — précision importante
+L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
+vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
+**récupérer les contacts**. « Hors-ligne / autonome » signifie ici : **pas de
+serveur à héberger, pas d'API payante, pas d'abonnement** — les données restent
+chez l'utilisatrice. La récupération de contacts sur Google / Maps / LinkedIn est
+une fonctionnalité **en ligne** assumée et centrale.
 
 ## Limites assumées (à répéter honnêtement à l'utilisatrice)
 - Impossible hors-ligne : **révéler l'email caché** d'un profil LinkedIn (Skrapp

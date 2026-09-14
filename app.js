@@ -471,7 +471,22 @@ const Scraper = (()=>{
   async function scrapeTab(tabId){ try{ const r=await chrome.scripting.executeScript({target:{tabId},func:ftPageScrape}); return r&&r[0]&&r[0].result; }catch(e){ return null; } }
   async function listTabs(){ const tabs=await chrome.tabs.query({}); return tabs.filter(t=>t.url&&/^https?:/.test(t.url)&&!t.url.startsWith(appUrl)); }
   function searchURL(engine,q,page){ q=encodeURIComponent(q);
+    if(engine==="maps") return `https://www.google.com/maps/search/${q}`;
     return engine==="google" ? `https://www.google.com/search?q=${q}&start=${page*10}` : `https://duckduckgo.com/html/?q=${q}`; }
+  // Défilement du volet de résultats (Google Maps charge les fiches à la volée).
+  function ftScrollFeed(){ try{
+    var f=document.querySelector('[role="feed"]')||document.querySelector('div[aria-label][tabindex="-1"]');
+    if(f){ f.scrollTop=f.scrollHeight; } window.scrollTo(0,document.body.scrollHeight); return true;
+  }catch(e){ return false; } }
+  // Fiches entreprise (Maps / annuaires) -> lignes de contact (nom, tél, site->domaine).
+  function mergeBusinesses(out,seen,res){
+    (res&&res.businesses||[]).forEach(function(bz){
+      var wdom=""; if(bz.website){ try{ wdom=new URL(bz.website).hostname.replace(/^www\./,""); }catch(e){} }
+      var key="bz|"+(bz.name||"").toLowerCase()+"|"+(bz.phone||"");
+      if(seen.has(key)) return; seen.add(key);
+      out.push({email:"", name:bz.name||"", phone:bz.phone||"", company:bz.name||wdom||(res.host||""), domain:wdom, service:bz.address||"", source:bz.website||res.url});
+    });
+  }
   function decodeLink(href){ try{ if(/duckduckgo\.com\/l\//.test(href)){ const u=new URL(href); const t=u.searchParams.get("uddg"); if(t) return decodeURIComponent(t); } }catch(e){} return href; }
   const JUNK=/(google\.|gstatic\.|googleusercontent|youtube\.|ytimg|duckduckgo\.|bing\.|microsoft\.|facebook\.com\/tr|w3\.org|schema\.org|gmpg\.org|wordpress\.org)/i;
   function externalLinks(res){ return Array.from(new Set((res.links||[]).map(decodeLink).filter(h=>/^https?:/.test(h)&&!JUNK.test(h)))); }
@@ -508,19 +523,38 @@ const Scraper = (()=>{
   async function crawl(opts,onProgress){
     const {engine,query,pages,perPage,visit}=opts; const out=[], seen=new Set();
     const b=budget();
+    // Mode Google Maps : une seule page de résultats, on fait défiler le volet
+    // pour charger les fiches (entreprises locales : nom + tél + site).
+    if(engine==="maps"){
+      onProgress&&onProgress("Ouverture de Google Maps…");
+      let tab; try{ tab=await chrome.tabs.create({url:searchURL("maps",query,0),active:false}); }catch(e){ return out; }
+      await waitTab(tab.id,22000);
+      const scrolls=Math.max(1,perPage||6);
+      for(let s=0;s<scrolls;s++){
+        if(b.hitLimit()){ onProgress&&onProgress("Limite quotidienne atteinte — arrêt propre."); break; }
+        await sleep(cadenceDelay());
+        onProgress&&onProgress(`Chargement des fiches… défilement ${s+1}/${scrolls}`);
+        try{ await chrome.scripting.executeScript({target:{tabId:tab.id},func:ftScrollFeed}); }catch(e){}
+        b.count();
+      }
+      const res=await scrapeTab(tab.id); if(res){ mergeBusinesses(out,seen,res); mergeContacts(out,seen,res); }
+      try{ await chrome.tabs.remove(tab.id); }catch(e){}
+      onProgress&&onProgress(`Terminé — ${out.length} fiche(s) trouvée(s) sur Google Maps.`);
+      return out;
+    }
     for(let pg=0; pg<pages; pg++){
       if(b.hitLimit()){ onProgress&&onProgress(`Limite quotidienne atteinte (${(DB.settings.scrape||{}).dailyLimit}) — réglable dans Réglages.`); break; }
       onProgress&&onProgress(`Recherche — page ${pg+1}/${pages}${b.remaining()!==Infinity?` · ${b.remaining()} visites restantes aujourd'hui`:""}`);
       let tab; try{ tab=await chrome.tabs.create({url:searchURL(engine,query,pg),active:false}); }catch(e){ continue; }
       await waitTab(tab.id); const res=await scrapeTab(tab.id); b.count();
-      if(res){ mergeContacts(out,seen,res);
+      if(res){ mergeContacts(out,seen,res); mergeBusinesses(out,seen,res);
         if(visit){ const links=externalLinks(res).slice(0,perPage);
           for(let i=0;i<links.length;i++){
             if(b.hitLimit()){ onProgress&&onProgress(`Limite quotidienne atteinte — arrêt propre. ${out.length} contact(s).`); try{ await chrome.tabs.remove(tab.id); }catch(e){} return out; }
             await sleep(cadenceDelay());
             onProgress&&onProgress(`Page ${pg+1} — site ${i+1}/${links.length} · ${out.length} contact(s)`);
             let t2; try{ t2=await chrome.tabs.create({url:links[i],active:false}); }catch(e){ continue; }
-            await waitTab(t2.id); const r2=await scrapeTab(t2.id); b.count(); if(r2) mergeContacts(out,seen,r2);
+            await waitTab(t2.id); const r2=await scrapeTab(t2.id); b.count(); if(r2){ mergeContacts(out,seen,r2); mergeBusinesses(out,seen,r2); }
             try{ await chrome.tabs.remove(t2.id); }catch(e){}
             // Exploration profonde : suivre /contact, /mentions-légales… du même site
             if(opts.deep && r2){ const subs=contactSubLinks(r2.links, r2.host, 3);
@@ -529,7 +563,7 @@ const Scraper = (()=>{
                 await sleep(cadenceDelay());
                 onProgress&&onProgress(`Page ${pg+1} — site ${i+1}/${links.length} · page interne ${j+1}/${subs.length} · ${out.length} contact(s)`);
                 let t3; try{ t3=await chrome.tabs.create({url:subs[j],active:false}); }catch(e){ continue; }
-                await waitTab(t3.id); const r3=await scrapeTab(t3.id); b.count(); if(r3) mergeContacts(out,seen,r3);
+                await waitTab(t3.id); const r3=await scrapeTab(t3.id); b.count(); if(r3){ mergeContacts(out,seen,r3); mergeBusinesses(out,seen,r3); }
                 try{ await chrome.tabs.remove(t3.id); }catch(e){}
               } } } } }
       try{ await chrome.tabs.remove(tab.id); }catch(e){}
@@ -538,7 +572,7 @@ const Scraper = (()=>{
     }
     return out;
   }
-  return {IS_EXT, listTabs, scrapeTab, crawl, mergeContacts, externalLinks, contactSubLinks};
+  return {IS_EXT, listTabs, scrapeTab, crawl, mergeContacts, mergeBusinesses, externalLinks, contactSubLinks, searchURL};
 })();
 
 /* ============================================================
@@ -1082,10 +1116,10 @@ function importScraped(rows){
 }
 async function scrapeWebUI(){
   $("#scBody").innerHTML=`
-  <div class="helpbox">${ic2("info")}<div>Tapez une recherche, choisissez le nombre de pages et lancez : l'outil ouvre les résultats, visite les sites et récupère <b>emails, téléphones, noms</b> automatiquement. Tout reste en local.</div></div>
+  <div class="helpbox">${ic2("info")}<div>Tapez une recherche et lancez : l'outil ouvre les résultats, visite les sites et récupère <b>emails, téléphones, noms</b> automatiquement. Avec <b>Google Maps</b>, il récupère directement les <b>entreprises locales</b> (nom, téléphone, site) — idéal pour prospecter autour de Sète.</div></div>
   <div class="card">
     <div class="row2"><div class="field"><label>Recherche (ex : « CFA coiffure Occitanie »)</label><input class="input" id="sw_q" placeholder="Votre requête"></div>
-      <div class="field"><label>Moteur</label><select id="sw_eng"><option value="google">Google</option><option value="duckduckgo">DuckDuckGo (plus permissif)</option></select></div></div>
+      <div class="field"><label>Source</label><select id="sw_eng"><option value="google">Google (sites web)</option><option value="maps">Google Maps (entreprises locales)</option><option value="duckduckgo">DuckDuckGo (plus permissif)</option></select></div></div>
     <div class="row3">
       <div class="field"><label>Pages de résultats</label><input class="input" type="number" id="sw_pages" value="2" min="1" max="10"></div>
       <div class="field"><label>Sites à visiter / page</label><input class="input" type="number" id="sw_per" value="5" min="0" max="15"></div>
