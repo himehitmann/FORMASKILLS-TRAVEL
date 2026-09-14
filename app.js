@@ -2338,8 +2338,10 @@ function fieldHTML(entity,it,f){
 function editEntity(entity,id){
   const s=SCHEMAS[entity]; const it = id? DB[entity].find(x=>x.id===id) : {};
   const body=`<div class="row2" style="align-items:start">${fieldsOf(entity).map(f=>fieldHTML(entity,it,f)).join("")}</div>`;
+  const canDoc = id && (entity==="projects"||entity==="participants");
   openModal({ title:(id?"Modifier ":"Nouveau ")+s.label, wide:true, body,
     footer:[ ...(id?[{label:"Supprimer",cls:"ghost",act:()=>{closeModal();delEntity(entity,id);}}]:[]),
+      ...(canDoc?[{label:"Documents",cls:"ghost",act:()=>{closeModal();openDocGen(entity,id);}}]:[]),
       {label:"Annuler",cls:"ghost",act:closeModal},
       {label:"Enregistrer",cls:"primary",act:()=>saveEntity(entity,id)} ] });
 }
@@ -2830,6 +2832,77 @@ window.fillTemplate=id=>{
         <div class="doc-body">${esc(out)}</div>${coFooterHTML()}`;
       printDocument(t.name,inner);
     }}]});
+};
+
+/* ============================================================
+   Documents participants pré-remplis depuis le projet (zéro ressaisie)
+   ============================================================
+   Un projet (dates + lieu) + ses participants -> attestations / conditions
+   de prise en charge générées en un clic, un document par participant.
+   Les variables {{participant}} {{lieu}} {{date_debut}} {{date_fin}}
+   {{fait_a}} {{fait_le}} {{societe}} sont remplies automatiquement. */
+function projectByName(name){ if(!name)return null; const n=String(name).trim().toLowerCase();
+  return DB.projects.find(p=>(p.name||"").trim().toLowerCase()===n)
+      || DB.projects.find(p=>n && (p.name||"").trim().toLowerCase().includes(n)); }
+function participantsOfProject(proj){ if(!proj)return []; const n=(proj.name||"").trim().toLowerCase();
+  return DB.participants.filter(p=>{ const pj=(p.project||"").trim().toLowerCase(); return pj && (pj===n || pj.includes(n) || n.includes(pj)); }); }
+// Modèles pertinents pour un participant : ceux qui utilisent au moins une des
+// variables « participant / lieu / dates ».
+function participantDocTemplates(){ return allTemplates().filter(t=>/\{\{(participant|lieu|date_debut|date_fin)\}\}/.test(t.body||"")); }
+// Contexte auto (projet + société). fait_a = ville société sinon ville projet sinon Sète.
+function projectDocCtx(proj){ const c=co();
+  return { societe:c.name||"", lieu:[proj&&proj.city,proj&&proj.country].filter(Boolean).join(", "),
+    date_debut: proj&&proj.start?fmtDate(proj.start):"", date_fin: proj&&proj.end?fmtDate(proj.end):"",
+    fait_a: c.city || (proj&&proj.city) || "Sète", fait_le: fmtDate(Date.now()) }; }
+function fillDocBody(tplBody, vals){ return tplBody.replace(/\{\{(\w+)\}\}/g,(_,k)=> (vals[k]!=null&&vals[k]!=="")?vals[k]:"________"); }
+function docSheetHTML(tplName, out){
+  return `<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1 style="font-size:20px;letter-spacing:1px">${esc(tplName.toUpperCase())}</h1></div></div>
+    <div class="doc-body">${esc(out)}</div>${coFooterHTML()}`;
+}
+window.openDocGen=(entity,id)=>{
+  let proj=null, parts=[];
+  if(entity==="projects"){ proj=DB.projects.find(x=>x.id===id); parts=participantsOfProject(proj); }
+  else { const pt=DB.participants.find(x=>x.id===id); if(pt){ parts=[pt]; proj=projectByName(pt.project); } }
+  const tpls=participantDocTemplates();
+  if(!tpls.length){ toast("Aucun modèle « participant ». Ajoutez-en un dans Documents.","warn"); return; }
+  const ctx=projectDocCtx(proj);
+  const partRows = parts.length
+    ? parts.map(p=>`<label class="checkline" style="cursor:pointer;padding:6px 0"><span class="chk on" data-dgp="${p.id}"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><span>${esc(p.name||"(sans nom)")}</span></label>`).join("")
+    : `<div class="muted" style="font-weight:600">Aucun participant rattaché à ce projet. ${entity==="projects"?"Renseignez le « Projet lié » des participants (même nom que le projet).":""}</div>`;
+  openModal({title:"Générer des documents", wide:true,
+    body:`<div class="helpbox" style="margin-top:0">${ic2("info")}<div>Choisissez un modèle : le <b>nom du participant</b>, le <b>lieu</b> et les <b>dates</b> du séjour se remplissent automatiquement depuis le projet. Un document par participant, prêt à imprimer / exporter en PDF.</div></div>
+      <div class="row2" style="align-items:start">
+        <div class="field"><label>Modèle</label><select class="input" id="dg_tpl">${tpls.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></div>
+        <div class="field"><label>Projet</label><input class="input" id="dg_proj" value="${esc(proj?proj.name:"")}" ${proj?"disabled":""} placeholder="Aucun projet lié"></div>
+      </div>
+      <div class="row2" style="align-items:start">
+        <div class="field"><label>Lieu du séjour</label><input class="input" id="dg_lieu" value="${esc(ctx.lieu)}"></div>
+        <div class="field"><label>Fait à</label><input class="input" id="dg_faita" value="${esc(ctx.fait_a)}"></div>
+      </div>
+      <div class="row2" style="align-items:start">
+        <div class="field"><label>Date de début</label><input class="input" id="dg_deb" value="${esc(ctx.date_debut)}"></div>
+        <div class="field"><label>Date de fin</label><input class="input" id="dg_fin" value="${esc(ctx.date_fin)}"></div>
+      </div>
+      <div class="section-title">Participants (${parts.length})</div>
+      <div id="dg_parts" style="max-height:220px;overflow:auto">${partRows}</div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},
+      {label:"Générer les documents",cls:"primary",act:()=>{
+        const tpl=allTemplates().find(x=>x.id===$("#dg_tpl").value); if(!tpl){toast("Choisissez un modèle","warn");return;}
+        const shared={ societe:co().name||"", lieu:$("#dg_lieu").value, fait_a:$("#dg_faita").value,
+          date_debut:$("#dg_deb").value, date_fin:$("#dg_fin").value, fait_le:fmtDate(Date.now()) };
+        const chosen=$$("#dg_parts [data-dgp]").filter(el=>el.classList.contains("on")).map(el=>el.dataset.dgp);
+        const list = chosen.length? parts.filter(p=>chosen.includes(p.id)) : [{name:""}];
+        if(chosen.length===0 && parts.length){ toast("Sélectionnez au moins un participant","warn"); return; }
+        const sheets = list.map((p,i)=>{
+          const vals={...shared, participant:p.name||"________"};
+          const out=fillDocBody(tpl.body, vals);
+          return (i>0?'<div style="page-break-before:always;height:0"></div>':'')+docSheetHTML(tpl.name,out);
+        }).join('<div style="height:28px"></div>');
+        printDocument(tpl.name,sheets);
+        logAct(`${list.length} document(s) « ${tpl.name} » généré(s)`);
+        closeModal();
+      }}]});
+  $$("#dg_parts [data-dgp]").forEach(el=>el.closest(".checkline").onclick=e=>{e.preventDefault();el.classList.toggle("on");});
 };
 
 function docsCompany(){

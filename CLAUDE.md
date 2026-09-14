@@ -328,8 +328,22 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    contacts directement dans Google Sheets) — proposé, en attente d'accord.
 4. **Import des données Airtable existantes** (reprise en masse).
 5. **T8 Registre documentaire** par dossier (archive centralisée des pièces + statut).
-6. Générer les **documents participants pré-remplis** depuis le projet
-   (nom + dates auto, zéro ressaisie) — l'ossature existe (modèles), à relier.
+6. ~~Générer les **documents participants pré-remplis** depuis le projet~~ —
+   **FAIT & TESTÉ** (24/24 checks sous CSP, 0 violation, 0 pageerror ; total 296).
+   Bouton **« Documents »** dans la fiche d'un **projet** ou d'un **participant**
+   (`openDocGen`) → choisir un modèle « participant » (attestation, conditions de
+   prise en charge, ou tout modèle utilisant `{{participant}}/{{lieu}}/
+   {{date_debut}}/{{date_fin}}`). Le **nom du participant**, le **lieu** (ville +
+   pays) et les **dates** du séjour se remplissent **automatiquement depuis le
+   projet** — champs pré-remplis mais éditables, zéro ressaisie. Sélection des
+   participants (cases à cocher, tous cochés par défaut ; depuis un projet =
+   participants rattachés par `project` == nom du projet ; depuis un participant =
+   lui seul, projet lié résolu par nom). Génère **un document par participant**
+   dans une seule fenêtre d'impression (**saut de page** entre chacun),
+   en-tête/pied société appliqués. Helpers : `projectByName`,
+   `participantsOfProject`, `participantDocTemplates`, `projectDocCtx`,
+   `fillDocBody`, `docSheetHTML`. Honnête : impression/PDF via la fenêtre pop-up
+   (autoriser les pop-ups) — pas d'envoi réseau.
 
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
@@ -386,9 +400,9 @@ une fonctionnalité **en ligne** assumée et centrale.
   (l'outil est autonome) ; demander une reconnexion côté claude.ai si besoin de relire le Drive.
 
 ## Prochaine action suggérée
-Le point **1 (automatisations multi-étapes façon n8n)** est **livré et testé**.
-Enchaîner sur le point **3 (export CSV auto vers Drive)** ou le point **6
-(documents participants pré-remplis depuis le projet — l'action « générer un
-document » du moteur d'automatisation fournit déjà l'ossature)**. Avant de coder
-une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP.
+Points **1** (automatisations n8n) et **6** (documents participants pré-remplis)
+sont **livrés et testés**. Enchaîner sur le point **3 (export CSV auto vers
+Drive)**, le point **4 (import en masse de la BDD/CRM Drive — CSV/XLSX)** ou le
+point **5 (T8 registre documentaire)**. Avant de coder une nouvelle UI : relire
+cette liste, vérifier qu'aucun handler inline n'est introduit, tester sous CSP
+(296 checks de référence dans le scratchpad : csptest.mjs → csptest15.mjs).
