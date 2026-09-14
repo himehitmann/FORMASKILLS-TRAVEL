@@ -162,6 +162,21 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
     de la **progression « X/Y envoyés · terminé »**. « Une fois tout envoyé, le
     statut change » = réalisé, honnêtement (mailto n'envoie pas seul, mais
     l'action d'envoi met à jour le statut et la progression).
+  - **Envoi RÉEL via API Gmail (optionnel)** — `gmailConnect`/`gmailSend`/
+    `buildRawEmail`, permission manifest `identity`, `DB.settings.gmail`. OAuth
+    (scope **`gmail.send`** uniquement, révocable) via `chrome.identity.
+    launchWebAuthFlow` — l'utilisatrice colle un **ID client OAuth Google**
+    (créé une fois dans Google Cloud ; URI de redirection = `getRedirectURL()`
+    affichée dans Réglages) puis « Connecter Gmail ». Quand Gmail est connecté,
+    **« Envoyer » envoie vraiment** (contact → Contacté, brouillon marqué Fait,
+    progression campagne) ; l'**envoi groupé** propose « Envoyer maintenant
+    (Gmail) » avec délai entre envois. Sinon → repli **mailto** (brouillon).
+    Honnête : **sans serveur**, gratuit dans les quotas Google (~500/j Gmail
+    perso, ~2000/j Workspace) ; marche **dans l'extension installée** (pas en
+    file://) ; ce n'est PAS « prendre le contrôle » du compte mais une
+    autorisation d'envoi limitée. Message construit en RFC 2822 + base64url ;
+    envoi réseau **non testé en session** (pas de vrai Gmail) — à valider par
+    l'utilisatrice. Les brouillons portent `to/subject/body/cc/bcc` pour l'envoi.
   - **Fiche contact éditable (CRM)** (`editContactCard` / `openContactCard`) :
     bouton **« + Nouveau contact »** (création manuelle) et **ouverture de la
     fiche** (clic sur le nom ou « Ouvrir ») avec tous les champs : Nom, Société,

@@ -9,6 +9,7 @@ const DEFAULT_DB = {
     quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0, syncEnabled:false, lastSync:0, lastDailyRun:"",
     scrape:{ minDelay:900, maxDelay:2600, dailyLimit:200 }, scrapeCount:{ day:"", n:0 },
     senders:[], defaultSender:"", mailsSeeded:false,
+    gmail:{ clientId:"", connected:false, email:"", token:"", expiry:0 },
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -729,8 +730,10 @@ const Automations = (()=>{
       const d=ftEmailDraft({to, subject, body, senderId:st.sender});
       const title="Email à "+(to||"—")+(subject?(" — "+subject):"");
       if(openAutoTaskExists(title)) return;
+      const fullBody=(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body;
       DB.tasks.unshift({id:uid(), title, status:"À faire", priority:"Normale", contactId:(ctx&&ctx._entity==="contacts")?ctx._id:undefined,
-        due:Date.now()+DAY, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:""});
+        due:Date.now()+DAY, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"",
+        to, subject, body:fullBody, cc:"", bcc:""});
     } else if(A==="genDoc"){
       const t=allTemplates().find(x=>x.id===st.template); if(!t) return;
       const who=ctx?.name||ctx?.clientName||"";
@@ -758,13 +761,20 @@ const Automations = (()=>{
   return {run, norm, EVENTS, EV_VARS, OPS, STEP_ACTIONS};
 })();
 
-window.writeAutoEmail=id=>{ const t=DB.tasks.find(x=>x.id===id); if(!t || !t.mailto) return;
-  // Suivi d'envoi : marque le contact « Contacté » (puis « Relancé ») et le brouillon comme envoyé.
+function markContactSent(t){
   const c=t.contactId?DB.contacts.find(x=>x.id===t.contactId):null;
   if(c){ const s=c.stage||"À contacter"; c.stage = s==="À contacter"?"Contacté":(s==="Contacté"?"Relancé":s); c.lastContacted=Date.now(); }
   t.status="Fait"; t.sentAt=Date.now(); save(); renderNav();
   if(CURRENT==="dash") VIEWS.dash(); else if(CURRENT==="campaigns") drawCampaigns(); else if(CURRENT==="finder"&&FINDER_TAB==="saved") csDraw();
-  window.location.href=t.mailto;
+}
+window.writeAutoEmail=async id=>{ const t=DB.tasks.find(x=>x.id===id); if(!t) return;
+  // Gmail connecté → envoi RÉEL ; sinon → brouillon mailto (le client mail envoie).
+  if(gmailConnected() && t.to){
+    try{ await gmailSend({to:t.to,cc:t.cc,bcc:t.bcc,subject:t.subject,body:t.body}); markContactSent(t); toast("Envoyé via Gmail à "+t.to,"ok"); }
+    catch(e){ toast("Envoi Gmail impossible : "+e.message+" — ouverture du brouillon","warn"); if(t.mailto) window.location.href=t.mailto; }
+    return;
+  }
+  if(t.mailto){ markContactSent(t); window.location.href=t.mailto; }
 };
 window.markDraftSent=id=>{ const t=DB.tasks.find(x=>x.id===id); if(!t) return;
   const c=t.contactId?DB.contacts.find(x=>x.id===t.contactId):null;
@@ -810,6 +820,66 @@ function ftEmailDraft({to,subject,body,senderId,cc,bcc}){
   const bccList=normRecipients(bcc); if(bccList) mailto+="&bcc="+encodeURIComponent(bccList);
   return { mailto, sender:s };
 }
+/* ============================================================
+   4b-bis. ENVOI RÉEL via API GMAIL (optionnel, OAuth, sans serveur)
+   Autorisation « envoyer un email » uniquement (scope gmail.send),
+   accordée par l'utilisatrice et révocable. Fonctionne dans l'extension
+   Chrome installée (chrome.identity). Ne remplace pas mailto : si Gmail
+   n'est pas connecté, on retombe sur le brouillon mailto.
+   ============================================================ */
+const GMAIL_SEND_SCOPE="https://www.googleapis.com/auth/gmail.send";
+function gmailCfg(){ if(!DB.settings.gmail) DB.settings.gmail={clientId:"",connected:false,email:"",token:"",expiry:0}; return DB.settings.gmail; }
+function gmailConnected(){ const g=gmailCfg(); return !!(g.connected && g.token && g.expiry>Date.now()+5000); }
+function gmailRedirect(){ try{ return (typeof chrome!=="undefined"&&chrome.identity&&chrome.identity.getRedirectURL)?chrome.identity.getRedirectURL():""; }catch(e){ return ""; } }
+function b64(s){ try{ return btoa(unescape(encodeURIComponent(s||""))); }catch(e){ return ""; } }
+function b64url(s){ return b64(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+// Construit un message RFC 2822 (UTF-8) et le renvoie encodé base64url (champ `raw`).
+function buildRawEmail({from,to,cc,bcc,subject,body}){
+  const encH=s=>/[^\x00-\x7F]/.test(s||"")?`=?UTF-8?B?${b64(s)}?=`:(s||"");
+  const H=[];
+  if(from) H.push("From: "+from);
+  H.push("To: "+(to||""));
+  if(cc) H.push("Cc: "+cc);
+  if(bcc) H.push("Bcc: "+bcc);
+  H.push("Subject: "+encH(subject));
+  H.push("MIME-Version: 1.0");
+  H.push('Content-Type: text/plain; charset="UTF-8"');
+  H.push("Content-Transfer-Encoding: base64");
+  const bodyB64=b64(body).replace(/(.{76})/g,"$1\r\n");
+  return b64url(H.join("\r\n")+"\r\n\r\n"+bodyB64);
+}
+function gmailConnect(){
+  const g=gmailCfg();
+  if(!g.clientId){ toast("Renseignez d'abord l'ID client OAuth Google","warn"); return; }
+  if(typeof chrome==="undefined"||!chrome.identity||!chrome.identity.launchWebAuthFlow){ toast("Disponible uniquement dans l'extension Chrome installée","warn"); return; }
+  const redirect=gmailRedirect();
+  const url="https://accounts.google.com/o/oauth2/v2/auth?"+new URLSearchParams({
+    client_id:g.clientId, response_type:"token", redirect_uri:redirect,
+    scope:GMAIL_SEND_SCOPE+" https://www.googleapis.com/auth/userinfo.email",
+    prompt:"consent", include_granted_scopes:"true" }).toString();
+  chrome.identity.launchWebAuthFlow({url,interactive:true}, async(redir)=>{
+    if(chrome.runtime.lastError||!redir){ toast("Connexion Gmail annulée","warn"); return; }
+    const hash=redir.split("#")[1]||""; const p=new URLSearchParams(hash);
+    const token=p.get("access_token"), exp=+p.get("expires_in")||3600;
+    if(!token){ toast("Autorisation refusée","bad"); return; }
+    g.token=token; g.expiry=Date.now()+exp*1000; g.connected=true;
+    try{ const r=await fetch("https://www.googleapis.com/oauth2/v2/userinfo",{headers:{Authorization:"Bearer "+token}});
+      if(r.ok){ const j=await r.json(); g.email=j.email||""; } }catch(e){}
+    save(); if(CURRENT==="settings") VIEWS.settings(); toast("Gmail connecté"+(g.email?" ("+g.email+")":""),"ok");
+  });
+}
+function gmailDisconnect(){ const g=gmailCfg(); g.connected=false; g.token=""; g.expiry=0; save(); if(CURRENT==="settings") VIEWS.settings(); toast("Gmail déconnecté"); }
+async function gmailSend({to,cc,bcc,subject,body}){
+  const g=gmailCfg();
+  if(!gmailConnected()) throw new Error("Gmail non connecté");
+  const raw=buildRawEmail({from:g.email,to:normRecipients(to),cc:normRecipients(cc),bcc:normRecipients(bcc),subject,body});
+  const r=await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",{
+    method:"POST", headers:{Authorization:"Bearer "+g.token,"Content-Type":"application/json"},
+    body:JSON.stringify({raw}) });
+  if(!r.ok){ if(r.status===401){ g.connected=false; save(); } throw new Error("Échec de l'envoi (HTTP "+r.status+")"); }
+  return true;
+}
+
 /* Modèles d'email réutilisables (objet + message + destinataires + pièce jointe
    optionnelle = un modèle de document généré en PDF). Honnête : mailto: ne peut
    pas attacher un fichier — l'outil génère le PDF et l'ouvre pour que l'utilisatrice
@@ -882,8 +952,10 @@ function processCampaigns(){
         const doc=tpl&&tpl.docTpl?allTemplates().find(x=>x.id===tpl.docTpl):null;
         if(doc) body=body+(body?"\n\n":"")+"(Pièce jointe à joindre : "+doc.name+")";
         const d=ftEmailDraft({to:c.email,subject,body,senderId:cp.senderId,cc:tpl&&tpl.cc,bcc:tpl&&tpl.bcc});
+        const fullBody=(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body;
         DB.tasks.unshift({id:uid(), campKey:key, contactId:c.id, title:`Relance « ${cp.name} » (étape ${si+1}) — ${c.email||c.name||""}`,
-          status:"À faire", priority:"Normale", due, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:""});
+          status:"À faire", priority:"Normale", due, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"",
+          to:c.email, subject, body:fullBody, cc:tpl&&tpl.cc||"", bcc:tpl&&tpl.bcc||""});
         made++;
       });
     }
@@ -984,8 +1056,9 @@ function nextActions(){
   DB.tasks.filter(t=>t.status!=="Fait" && t.due && t.due<now && t.kind!=="email-draft" && t.kind!=="doc-draft").forEach(t=>
     add(3,"",`Tâche en retard : ${t.title}`,`Échéance ${fmtDate(t.due)}`,{l:"Ouvrir",fn:`openRec('tasks','${t.id}')`}));
   // 7b. Brouillons d'email préparés par une automatisation
+  const emailBtn=gmailConnected()?"Envoyer":"Écrire l'email";
   DB.tasks.filter(t=>t.kind==="email-draft" && t.status!=="Fait").forEach(t=>
-    add(2,"",t.title||"Email à préparer","Brouillon préparé par une automatisation",{l:"Écrire l'email",fn:`writeAutoEmail('${t.id}')`}));
+    add(2,"",t.title||"Email à préparer","Email prêt à partir",{l:emailBtn,fn:`writeAutoEmail('${t.id}')`}));
   // 7c. Documents pré-remplis par une automatisation
   DB.tasks.filter(t=>t.kind==="doc-draft" && t.status!=="Fait").forEach(t=>
     add(2,"",t.title||"Document à générer","Document pré-rempli par une automatisation",{l:"Ouvrir le document",fn:`openAutoDoc('${t.id}')`}));
@@ -1500,15 +1573,19 @@ window.groupByCategory=()=>{
   save(); renderNav(); finderSaved(); toast(n?`${n} contact(s) rangés par nature dans des listes`:"Déjà rangés par nature");
 };
 function ctxOfContact(c){ return { name:c.name||"", email:c.email||"", company:c.company||c.domain||"", domain:c.domain||"", phone:c.phone||"" }; }
-function doEmailContact(c, tpl, to){
+async function doEmailContact(c, tpl, to){
   const fill=s=>(s||"").replace(/\{(\w+)\}/g,(_,k)=>(ctxOfContact(c)[k]??"").toString());
   const subject=tpl?fill(tpl.subject):"";
   const body=tpl?fill(tpl.body):"";
   const d=ftEmailDraft({to:to||c.email, subject, body, cc:tpl&&tpl.cc, bcc:tpl&&tpl.bcc});
-  c.stage=(stageOf(c)==="À contacter")?"Contacté":stageOf(c); c.lastContacted=Date.now();
-  logAct(`Email préparé pour ${c.email}`); save(); renderNav(); csDraw();
+  const fullBody=(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body;
+  const advance=()=>{ c.stage=(stageOf(c)==="À contacter")?"Contacté":stageOf(c); c.lastContacted=Date.now(); logAct(`Email envoyé/préparé pour ${c.email}`); save(); renderNav(); csDraw(); };
   if(tpl && tpl.docTpl){ const dtp=allTemplates().find(x=>x.id===tpl.docTpl); if(dtp){ ftPrintDoc(dtp, ctxOfContact(c)); toast("Pièce jointe ouverte — enregistrez le PDF puis glissez-le dans l'email","ok"); } }
-  window.location.href=d.mailto;
+  if(gmailConnected()){
+    try{ await gmailSend({to:to||c.email, cc:tpl&&tpl.cc, bcc:tpl&&tpl.bcc, subject, body:fullBody}); advance(); toast("Envoyé via Gmail à "+(to||c.email),"ok"); return; }
+    catch(e){ toast("Envoi Gmail impossible : "+e.message+" — ouverture du brouillon","warn"); }
+  }
+  advance(); window.location.href=d.mailto;
 }
 // Envoi groupé (prospection prête à l'emploi) : prépare un brouillon par contact
 // ayant un email ; l'envoi (« Écrire l'email ») fait passer le statut à Contacté.
@@ -1518,21 +1595,36 @@ function createContactEmailDraft(c, tpl){
   const subject=tpl?fill(tpl.subject):"", body=tpl?fill(tpl.body):"";
   const d=ftEmailDraft({to:c.email, subject, body, cc:tpl&&tpl.cc, bcc:tpl&&tpl.bcc});
   const t={id:uid(), contactId:c.id, title:"Email à "+(c.name||c.email)+(tpl?(" — "+tpl.name):""),
-    status:"À faire", priority:"Normale", due:Date.now(), auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"", batch:1};
+    status:"À faire", priority:"Normale", due:Date.now(), auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"", batch:1,
+    to:c.email, subject, body:(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body, cc:tpl&&tpl.cc||"", bcc:tpl&&tpl.bcc||""};
   DB.tasks.unshift(t); return t;
 }
 window.openBulkEmail=ids=>{
   const targets=DB.contacts.filter(c=>ids.includes(c.id) && c.email);
   const noMail=ids.length-targets.length;
   const tpls=ftMailTemplates();
+  const gm=gmailConnected();
   openModal({title:"Envoi groupé — "+targets.length+" contact(s) avec email", wide:true,
-    body:`<p class="muted" style="font-weight:600;margin-top:0">Prépare un brouillon d'email pour chaque contact ayant une adresse.${noMail?` (${noMail} sans email seront ignorés.)`:""} Ils apparaissent dans « À faire maintenant » ; en les envoyant, le statut passe automatiquement à « Contacté ».</p>
-    <div class="field"><label>Modèle d'email</label><select id="be_tpl"><option value="">— email vide —</option>${tpls.map(t=>`<option value="${t.id}">${esc(t.name)}${t.public?` (${esc(t.public)})`:""}</option>`).join("")}</select></div>`,
-    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Préparer les brouillons",cls:"primary",act:()=>{
-      if(!targets.length){toast("Aucun contact avec email dans la sélection","warn");return;}
-      const tpl=ftMailTemplate($("#be_tpl").value); let n=0; targets.forEach(c=>{ if(createContactEmailDraft(c,tpl)) n++; });
-      save(); renderNav(); closeModal(); CS_SEL.clear(); finderSaved();
-      toast(`${n} email(s) préparés — « À faire maintenant »`); }}]});
+    body:`<p class="muted" style="font-weight:600;margin-top:0">${gm?`<b>Gmail connecté</b> : « Envoyer maintenant » envoie réellement chaque email et passe le statut à « Contacté ».`:`Prépare un brouillon d'email par contact (à envoyer depuis « À faire maintenant »). ${'Connectez Gmail dans Réglages pour un envoi automatique.'}`}${noMail?` (${noMail} sans email ignorés.)`:""}</p>
+    <div class="field"><label>Modèle d'email</label><select id="be_tpl"><option value="">— email vide —</option>${tpls.map(t=>`<option value="${t.id}">${esc(t.name)}${t.public?` (${esc(t.public)})`:""}</option>`).join("")}</select></div>
+    <div id="be_prog" class="muted" style="font-weight:600"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},
+      {label:"Préparer les brouillons",cls:gm?"":"primary",act:()=>{
+        if(!targets.length){toast("Aucun contact avec email","warn");return;}
+        const tpl=ftMailTemplate($("#be_tpl").value); let n=0; targets.forEach(c=>{ if(createContactEmailDraft(c,tpl)) n++; });
+        save(); renderNav(); closeModal(); CS_SEL.clear(); finderSaved(); toast(`${n} email(s) préparés — « À faire maintenant »`); }},
+      gm?{label:"Envoyer maintenant (Gmail)",cls:"primary",act:async()=>{
+        if(!targets.length){toast("Aucun contact avec email","warn");return;}
+        const tpl=ftMailTemplate($("#be_tpl").value); const prog=$("#be_prog"); let ok=0,ko=0;
+        for(let i=0;i<targets.length;i++){ const c=targets[i];
+          if(prog) prog.textContent=`Envoi ${i+1}/${targets.length}…`;
+          const t=createContactEmailDraft(c,tpl);
+          try{ await gmailSend({to:t.to,cc:t.cc,bcc:t.bcc,subject:t.subject,body:t.body}); markContactSent(t); ok++; }
+          catch(e){ ko++; if(String(e.message).includes("401")){ toast("Session Gmail expirée — reconnectez","warn"); break; } }
+          await new Promise(r=>setTimeout(r,600));
+        }
+        closeModal(); CS_SEL.clear(); finderSaved(); toast(`${ok} envoyé(s) via Gmail${ko?`, ${ko} échec(s)`:""}`, ko?"warn":"ok"); }}:null
+    ].filter(Boolean)});
 };
 window.emailContact=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c||!c.email){toast("Pas d'email pour ce contact","warn");return;}
   const tpls=ftMailTemplates();
@@ -3012,6 +3104,22 @@ VIEWS.settings=()=>{
       <div id="mt_list"></div>
       <button class="btn" id="mt_add" style="margin-top:10px">+ Ajouter un modèle d'email</button>
     </div>
+    <div class="card" style="grid-column:1/-1;border-left:4px solid var(--accent)">
+      <div class="section-title" style="margin-top:0">Envoi réel des emails via Gmail (optionnel)</div>
+      <p class="muted" style="font-weight:600;margin-top:0">Connectez votre compte Gmail pour que « Envoyer » <b>envoie vraiment</b> l'email (au lieu d'ouvrir un brouillon). Autorisation <b>limitée à l'envoi</b> (scope <code class="k">gmail.send</code>), révocable à tout moment. Sans serveur, gratuit dans les quotas Google (~500/j Gmail perso, ~2000/j Workspace). Fonctionne <b>dans l'extension Chrome installée</b>.</p>
+      ${gmailConnected()?`<div style="font-size:12.5px;font-weight:600;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px">Connecté : <b style="color:var(--ok)">${esc(gmailCfg().email||"compte Gmail")}</b></div>
+        <button class="btn ghost" id="gm_off" style="color:var(--bad)">Déconnecter Gmail</button>`
+      : `<div class="field"><label>ID client OAuth Google (une fois) — <span class="muted">voir la marche à suivre ci-dessous</span></label><input class="input" id="gm_cid" value="${esc(gmailCfg().clientId||"")}" placeholder="xxxxxxxx.apps.googleusercontent.com"></div>
+        <div style="font-size:12px;font-weight:600;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0 12px">
+          <div style="margin-bottom:4px"><b>Marche à suivre (une seule fois) :</b></div>
+          1. console.cloud.google.com → créez un projet → « API Gmail » activée.<br>
+          2. Identifiants → Créer un ID client OAuth → type <b>Application Web</b>.<br>
+          3. URI de redirection autorisée : <code class="k">${esc(gmailRedirect()||"(ouvrez cette page dans l'extension installée)")}</code><br>
+          4. Écran de consentement : ajoutez votre email en « utilisateur test », scope <code class="k">.../auth/gmail.send</code>.<br>
+          5. Copiez l'ID client ci-dessus, enregistrez, puis « Connecter Gmail ».
+        </div>
+        <div class="row2"><button class="btn" id="gm_save">Enregistrer l'ID client</button><button class="btn primary" id="gm_connect">Connecter Gmail</button></div>`}
+    </div>
   </div>`;
   $("#s_save").onclick=()=>{ Object.assign(DB.settings,{caTarget:+$("#s_ca").value||0,panier:+$("#s_panier").value||1,
     convDevis:+$("#s_cd").value||.3,convRdv:+$("#s_cr").value||.25,convContact:+$("#s_cc").value||.35}); save(); toast("Réglages enregistrés"); };
@@ -3027,6 +3135,9 @@ VIEWS.settings=()=>{
     DB.settings.scrape={ minDelay:mn, maxDelay:mx, dailyLimit:Math.max(0,+$("#sc_lim").value||0) }; save(); toast("Cadence enregistrée"); VIEWS.settings(); });
   $("#snd_add")&&($("#snd_add").onclick=()=>editSender(null));
   $("#mt_add")&&($("#mt_add").onclick=()=>editMailTemplate(null));
+  $("#gm_save")&&($("#gm_save").onclick=()=>{ gmailCfg().clientId=$("#gm_cid").value.trim(); save(); toast("ID client enregistré"); });
+  $("#gm_connect")&&($("#gm_connect").onclick=()=>{ if($("#gm_cid")) gmailCfg().clientId=$("#gm_cid").value.trim(); gmailConnect(); });
+  $("#gm_off")&&($("#gm_off").onclick=gmailDisconnect);
   drawSenders(); drawMailTemplates();
 };
 function drawMailTemplates(){
