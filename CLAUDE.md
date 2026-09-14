@@ -128,12 +128,31 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
     **« Email »** en un clic (brouillon `mailto:` + signature de l'expéditeur par
     défaut, passe l'étape à « Contacté » et date le contact). Export CSV enrichi
     (étape, source, sourceUrl, date). Nudge Assistant « X contacts à contacter ».
+  - **Nature du contact** (`inferCategory` + `catOf`, `CONTACT_CATEGORIES`) :
+    chaque contact a une **catégorie** (École / CFA, Restaurant, Hôtel /
+    Hébergement, Transport, Financeur / OPCO, Institution / Mairie, Prestataire,
+    Entreprise…), déduite du nom/service/domaine, **modifiable en ligne** (colonne
+    Nature). Filtre par nature + bouton **« Trier par nature »** qui range les
+    contacts affichés dans des **listes = leur nature** en un clic (toutes les
+    écoles ensemble, tous les restaurants ensemble…). Colonne **Site** cliquable
+    dans le tableau Contacts et dans les résultats de scraping.
+- **Modèles d'email réutilisables** (`DB.emailTemplates`, gérés dans Réglages) :
+  objet + message + **Cc/Cci** + **pièce jointe** optionnelle (un modèle de
+  document, généré en PDF à joindre). Variables `{name}`/`{company}`/`{email}`.
+  Utilisés par l'action **« Email »** d'un contact (sélecteur de modèle,
+  **destinataires multiples**, PJ ouverte en PDF) et par les campagnes. Honnête :
+  `mailto:` **n'attache pas** de fichier — l'outil ouvre le PDF, l'utilisatrice le
+  glisse dans l'email (`ftEmailDraft` gère to multiples + cc + bcc ; `ftPrintDoc`
+  génère la PJ).
 - **Campagnes de relance** (nav « Campagnes de relance », `DB.campaigns`) :
-  séquences d'emails espacées (J+0, J+3, J+7…) sur une **liste de contacts**
-  (étiquette). « Enrôler la liste » ajoute les contacts ; `processCampaigns()`
-  (au chargement + bouton « Traiter maintenant ») crée un **brouillon d'email**
-  par étape arrivée à échéance, surfacé dans « À faire maintenant », **dé-doublonné**
-  par `campKey`. Aucun envoi automatique — l'utilisatrice garde la main.
+  séquences d'emails espacées (J+0, J+3, J+7…) sur **une ou plusieurs listes**
+  (`listTags[]`, cases à cocher — sépare écoles / restaurants / etc.). Chaque
+  étape peut utiliser un **modèle d'email** (objet/message/Cc/PJ) ou son propre
+  objet/message. « Enrôler la liste » ajoute les contacts de toutes les listes
+  cochées ; `processCampaigns()` (au chargement + « Traiter maintenant ») crée un
+  **brouillon d'email** par étape échue, surfacé dans « À faire maintenant »,
+  **dé-doublonné** par `campKey`. Compat ascendante avec l'ancien `listTag`
+  unique. Aucun envoi automatique — l'utilisatrice garde la main.
 
 ## CE QUI N'EST PAS FAIT / À CONTINUER (par priorité)
 1. ~~**Automatisations façon n8n (workflows multi-étapes)**~~ — **FAIT & TESTÉ**
