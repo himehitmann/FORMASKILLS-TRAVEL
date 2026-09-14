@@ -144,6 +144,15 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   `mailto:` **n'attache pas** de fichier — l'outil ouvre le PDF, l'utilisatrice le
   glisse dans l'email (`ftEmailDraft` gère to multiples + cc + bcc ; `ftPrintDoc`
   génère la PJ).
+  - **Fiche contact éditable (CRM)** (`editContactCard` / `openContactCard`) :
+    bouton **« + Nouveau contact »** (création manuelle) et **ouverture de la
+    fiche** (clic sur le nom ou « Ouvrir ») avec tous les champs : Nom, Société,
+    Email, Téléphone, Ville, Pays, Site web, Nature, Étape, Responsable,
+    Fonction/poste, **Prochaine action + échéance**, Notes, Listes (via le
+    sélecteur). Domaine déduit du site/email à l'enregistrement. Les
+    **prochaines actions échues** remontent dans l'Assistant « À faire
+    maintenant ». Champs additifs (city/country/website/owner/nextAction/
+    nextActionDate) — compat ascendante, aucune migration destructive.
   - **Gestion souple des listes** (onglet Contacts) : sélection multiple →
     **Ajouter à une liste…** / **Déplacer vers…** (retire de la liste courante) /
     **Retirer de « X »** / **Changer l'étape** en masse, via un **sélecteur de

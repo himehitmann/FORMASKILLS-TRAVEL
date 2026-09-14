@@ -979,6 +979,9 @@ function nextActions(){
   // 7d. Prospects trouvés à contacter (première prise de contact)
   const toContact=DB.contacts.filter(c=>c.email && (c.stage||"À contacter")==="À contacter");
   if(toContact.length) add(2,"",`${toContact.length} contact(s) prospecté(s) à relancer`,"Emails trouvés, première prise de contact à faire",{l:"Ouvrir la liste",fn:`goContacts()`});
+  // 7e. Prochaines actions planifiées sur des contacts (échéance atteinte)
+  DB.contacts.filter(c=>c.nextAction && c.nextActionDate && c.nextActionDate<=now+DAY).slice(0,6).forEach(c=>
+    add(3,"",`${c.nextAction} — ${c.name||c.company||c.email||""}`,`Prochaine action prévue le ${fmtDate(c.nextActionDate)}`,{l:"Ouvrir la fiche",fn:`openContactCard('${c.id}')`}));
   // 8. Amorçage si vide
   if(!DB.partners.length) add(1,"","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
   // 9. Rappel de sauvegarde (protège vos données en cas de désinstallation / changement d'ordinateur)
@@ -1534,6 +1537,7 @@ function finderSaved(){
     <select id="cs_status" class="input" style="max-width:150px">
       ${["","Valide","Catch-All","Perso","Invalide"].map(s=>`<option value="${s}" ${CS_STATUS===s?'selected':''}>${s||"Tous les statuts"}</option>`).join("")}</select>
     <div class="spacer"></div>
+    <button class="btn sm primary" id="cs_new">+ Nouveau contact</button>
     <button class="btn ghost sm" id="cs_group" title="Range les contacts affichés dans des listes selon leur nature">Trier par nature</button>
     <button class="btn ghost sm" id="cs_imp">Importer CSV</button>
     <input type="file" id="cs_file" accept=".csv,text/csv" style="display:none">
@@ -1547,6 +1551,7 @@ function finderSaved(){
   $("#cs_status").onchange=e=>{CS_STATUS=e.target.value;CS_PAGE=1;csDraw();};
   $("#cs_stage").onchange=e=>{CS_STAGE=e.target.value;CS_PAGE=1;csDraw();};
   $("#cs_cat").onchange=e=>{CS_CAT=e.target.value;CS_PAGE=1;csDraw();};
+  $("#cs_new").onclick=()=>editContactCard(null);
   $("#cs_group").onclick=groupByCategory;
   $$("#finderBody .lchip").forEach(b=>b.onclick=()=>{CS_TAG=b.dataset.list;CS_PAGE=1;CS_SEL.clear();finderSaved();});
   $("#cs_newlist").onclick=()=>{ const n=prompt("Nom de la nouvelle liste :"); if(n&&n.trim()){ CS_TAG=n.trim(); toast("Liste « "+n.trim()+" » — ajoutez-y des contacts via « Liste » ou la sélection"); finderSaved(); } };
@@ -1577,16 +1582,16 @@ function csDraw(){
       const siteHost=site?site.replace(/^https?:\/\/(www\.)?/,"").split("/")[0]:"";
       return `<tr class="${CS_SEL.has(c.id)?'selrow':''}">
       <td><span class="chk ${CS_SEL.has(c.id)?'on':''}" data-csel="${c.id}" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></td>
-      <td class="cell-strong">${esc(c.name||c.company||"—")}${sub.length?`<div class="muted" style="font-size:11px;font-weight:500">${sub.join(' · ')}</div>`:""}</td>
-      <td class="muted">${esc(c.domain||"—")}${site?`<div style="font-size:11px"><a href="${esc(site)}" target="_blank" rel="noopener" class="mono">${esc(siteHost.slice(0,32))}</a></div>`:""}</td>
+      <td class="cell-strong"><a href="#" data-call="openContactCard('${c.id}')" style="color:inherit;text-decoration:none">${esc(c.name||c.company||"—")}</a>${sub.length?`<div class="muted" style="font-size:11px;font-weight:500">${sub.join(' · ')}</div>`:""}</td>
+      <td class="muted">${esc(c.company||c.domain||"—")}${site?`<div style="font-size:11px"><a href="${esc(site)}" target="_blank" rel="noopener" class="mono">${esc(siteHost.slice(0,32))}</a></div>`:""}</td>
       <td><select class="input sm" data-cat="${c.id}" style="min-width:140px;padding:4px 8px;font-size:12px;font-weight:600">${CONTACT_CATEGORIES.map(s=>`<option value="${esc(s)}" ${catOf(c)===s?'selected':''}>${esc(s)}</option>`).join("")}</select></td>
       <td class="mono" style="font-size:12.5px">${c.email?esc(c.email):'<span class="muted">—</span>'}</td>
       <td class="muted">${esc(c.phone||"—")}</td>
       <td><select class="input sm" data-stage="${c.id}" style="min-width:120px;padding:4px 8px;font-size:12px;font-weight:700">${STAGES.map(s=>`<option value="${esc(s)}" ${stageOf(c)===s?'selected':''}>${esc(s)}</option>`).join("")}</select></td>
       <td><span class="tag ${st.c}">${st.l}</span></td>
-      <td class="rowact">${c.email?`<button class="btn sm" data-call="emailContact('${c.id}')">Email</button>`:""}
+      <td class="rowact"><button class="btn sm ghost" data-call="openContactCard('${c.id}')">Ouvrir</button>
+        ${c.email?`<button class="btn sm" data-call="emailContact('${c.id}')">Email</button>`:""}
         <button class="btn sm ghost" data-call="tagContact('${c.id}')">Liste</button>
-        ${c.email?`<button class="btn sm ghost" data-call="copy('${c.email}')">Copier</button>`:""}
         <button class="btn sm ghost" data-call="delContact('${c.id}')">✕</button></td></tr>`;}).join("")}</tbody></table></div>`
     : `<div class="card"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div>Aucun contact${CS_TAG||CS_STATUS||csQVal()?" pour ce filtre":""}. Utilisez la bulle de l'extension, les onglets de recherche, ou importez un CSV.</div></div></div>`;
   // pager
@@ -1692,6 +1697,59 @@ function manageLists(){
 }
 window.delContact=id=>{ DB.contacts=DB.contacts.filter(c=>c.id!==id); CS_SEL.delete(id); save(); renderNav(); finderSaved(); };
 window.tagContact=id=>{ openListPicker([id],{exact:true,after:()=>finderSaved()}); };
+/* Fiche contact éditable (CRM) : création manuelle + édition de tous les champs. */
+window.openContactCard=id=>editContactCard(id);
+function hostFromUrl(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
+function editContactCard(id){
+  const c=id?DB.contacts.find(x=>x.id===id):{tags:[]}; if(id&&!c) return;
+  const catSel=CONTACT_CATEGORIES.map(s=>`<option ${catOf(c)===s?'selected':''}>${esc(s)}</option>`).join("");
+  const stgSel=STAGES.map(s=>`<option ${stageOf(c)===s?'selected':''}>${esc(s)}</option>`).join("");
+  const dstr=c.nextActionDate?new Date(c.nextActionDate).toISOString().slice(0,10):"";
+  openModal({title:id?"Fiche contact":"Nouveau contact", wide:true,
+    body:`<div class="row2">
+      <div class="field"><label>Nom / contact</label><input class="input" id="cc_name" value="${esc(c.name||"")}" placeholder="Prénom Nom"></div>
+      <div class="field"><label>Société / entité</label><input class="input" id="cc_company" value="${esc(c.company||"")}" placeholder="Nom de l'établissement"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Email</label><input class="input" id="cc_email" value="${esc(c.email||"")}"></div>
+      <div class="field"><label>Téléphone</label><input class="input" id="cc_phone" value="${esc(c.phone||"")}"></div>
+    </div>
+    <div class="row3">
+      <div class="field"><label>Ville</label><input class="input" id="cc_city" value="${esc(c.city||"")}"></div>
+      <div class="field"><label>Pays</label><input class="input" id="cc_country" value="${esc(c.country||"")}"></div>
+      <div class="field"><label>Site web</label><input class="input" id="cc_website" value="${esc(c.website||c.sourceUrl||"")}"></div>
+    </div>
+    <div class="row3">
+      <div class="field"><label>Nature</label><select id="cc_cat">${catSel}</select></div>
+      <div class="field"><label>Étape</label><select id="cc_stage">${stgSel}</select></div>
+      <div class="field"><label>Responsable</label><input class="input" id="cc_owner" value="${esc(c.owner||"")}" placeholder="Qui suit ce contact ?"></div>
+    </div>
+    <div class="field"><label>Fonction / poste</label><input class="input" id="cc_service" value="${esc(c.service||"")}"></div>
+    <div class="row2">
+      <div class="field"><label>Prochaine action</label><input class="input" id="cc_next" value="${esc(c.nextAction||"")}" placeholder="Ex : rappeler, envoyer un devis…"></div>
+      <div class="field"><label>Échéance</label><input class="input" type="date" id="cc_nextdate" value="${dstr}"></div>
+    </div>
+    <div class="field"><label>Notes</label><textarea id="cc_note" style="min-height:90px" placeholder="Historique des échanges, infos utiles…">${esc(c.note||"")}</textarea></div>
+    ${id?`<div class="field"><label>Listes</label><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${(c.tags||[]).map(t=>`<span class="tag n">${esc(t)}</span>`).join(" ")||'<span class="muted" style="font-size:12.5px">Aucune liste</span>'}<button class="btn sm ghost" id="cc_lists">Modifier</button></div></div>`:""}`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},
+      id?{label:"Supprimer",cls:"ghost",act:()=>confirmModal("Supprimer ?","Ce contact sera supprimé.",()=>{DB.contacts=DB.contacts.filter(x=>x.id!==id);save();renderNav();closeModal();finderSaved();},true)}:null,
+      {label:id?"Enregistrer":"Ajouter le contact",cls:"primary",act:()=>{
+        const website=$("#cc_website").value.trim(), email=$("#cc_email").value.trim().toLowerCase();
+        const data={ name:$("#cc_name").value.trim(), company:$("#cc_company").value.trim(), email,
+          phone:$("#cc_phone").value.trim(), city:$("#cc_city").value.trim(), country:$("#cc_country").value.trim(),
+          website, category:$("#cc_cat").value, stage:$("#cc_stage").value, owner:$("#cc_owner").value.trim(),
+          service:$("#cc_service").value.trim(), nextAction:$("#cc_next").value.trim(),
+          nextActionDate:$("#cc_nextdate").value?new Date($("#cc_nextdate").value).getTime():0, note:$("#cc_note").value };
+        data.domain=(c.domain)|| (website?hostFromUrl(website):"") || (email?email.split("@")[1]:"") || "";
+        if(website && !c.sourceUrl) data.sourceUrl=website;
+        if(!data.name && !data.email && !data.company){ toast("Renseignez au moins un nom, un email ou une société","warn"); return; }
+        if(id){ Object.assign(DB.contacts.find(x=>x.id===id),data); }
+        else { const rec={id:uid(),source:"manuel",added:Date.now(),tags:[],...data}; DB.contacts.unshift(rec);
+          Automations.run("contact.created",{...rec,_entity:"contacts",_id:rec.id}); }
+        save(); renderNav(); closeModal(); finderSaved(); toast(id?"Fiche enregistrée":"Contact ajouté"); }}
+    ].filter(Boolean)});
+  $("#cc_lists")&&($("#cc_lists").onclick=()=>{ openListPicker([id],{exact:true,after:()=>{ editContactCard(id); }}); });
+}
 function importContactsCSV(e){
   const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
   rd.onload=()=>{ try{
