@@ -1086,6 +1086,7 @@ const NAV = [
   {group:"Pilotage"},
   {id:"dash",   title:"Tableau de bord", sub:"Vue d'ensemble de l'activité", icon:"dash"},
   {id:"finder", title:"Chercheur de contacts", sub:"Emails, téléphones & prospection — 100% hors-ligne", icon:"finder"},
+  {id:"pipeline", title:"Pipeline commercial", sub:"Opportunités par étape + valeur prévisionnelle", icon:"money"},
   {group:"Données (comme Airtable)"},
   {id:"partners", title:"T1 · Partenaires & prospection", sub:"CFA, écoles, OPCO, prospects", icon:"crm", entity:"partners"},
   {id:"projects", title:"T2 · Projets & mobilités", sub:"Séjours + conformité R1→R8", icon:"proj", entity:"projects"},
@@ -1984,8 +1985,12 @@ function editContactCard(id){
     </div>
     <div class="field"><label>Fonction / poste</label><input class="input" id="cc_service" value="${esc(c.service||"")}"></div>
     <div class="row2">
+      <div class="field"><label>Valeur estimée (€)</label><input class="input" type="number" id="cc_value" value="${c.value!=null&&c.value!==""?esc(c.value):""}" placeholder="Ex : 4500"></div>
+      <div class="field"><label>Échéance prévisionnelle (closing)</label><input class="input" type="date" id="cc_close" value="${c.closeDate?new Date(c.closeDate).toISOString().slice(0,10):""}"></div>
+    </div>
+    <div class="row2">
       <div class="field"><label>Prochaine action</label><input class="input" id="cc_next" value="${esc(c.nextAction||"")}" placeholder="Ex : rappeler, envoyer un devis…"></div>
-      <div class="field"><label>Échéance</label><input class="input" type="date" id="cc_nextdate" value="${dstr}"></div>
+      <div class="field"><label>Échéance de l'action</label><input class="input" type="date" id="cc_nextdate" value="${dstr}"></div>
     </div>
     <div class="field"><label>Notes</label><textarea id="cc_note" style="min-height:90px" placeholder="Historique des échanges, infos utiles…">${esc(c.note||"")}</textarea></div>
     ${id?`<div class="field"><label>Listes</label><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${(c.tags||[]).map(t=>`<span class="tag n">${esc(t)}</span>`).join(" ")||'<span class="muted" style="font-size:12.5px">Aucune liste</span>'}<button class="btn sm ghost" id="cc_lists">Modifier</button></div></div>`:""}`,
@@ -1997,6 +2002,7 @@ function editContactCard(id){
           phone:$("#cc_phone").value.trim(), city:$("#cc_city").value.trim(), country:$("#cc_country").value.trim(),
           website, category:$("#cc_cat").value, stage:$("#cc_stage").value, owner:$("#cc_owner").value.trim(),
           service:$("#cc_service").value.trim(), nextAction:$("#cc_next").value.trim(),
+          value:($("#cc_value").value!==""?Number($("#cc_value").value)||0:""), closeDate:$("#cc_close").value?new Date($("#cc_close").value).getTime():0,
           nextActionDate:$("#cc_nextdate").value?new Date($("#cc_nextdate").value).getTime():0, note:$("#cc_note").value };
         data.domain=(c.domain)|| (website?hostFromUrl(website):"") || (email?email.split("@")[1]:"") || "";
         if(website && !c.sourceUrl) data.sourceUrl=website;
@@ -2004,7 +2010,9 @@ function editContactCard(id){
         if(id){ Object.assign(DB.contacts.find(x=>x.id===id),data); }
         else { const rec={id:uid(),source:"manuel",added:Date.now(),tags:[],...data}; DB.contacts.unshift(rec);
           Automations.run("contact.created",{...rec,_entity:"contacts",_id:rec.id}); }
-        save(); renderNav(); closeModal(); finderSaved(); toast(id?"Fiche enregistrée":"Contact ajouté"); }}
+        save(); renderNav(); closeModal();
+        if(CURRENT==="finder") finderSaved(); else if(VIEWS[CURRENT]) VIEWS[CURRENT]();
+        toast(id?"Fiche enregistrée":"Contact ajouté"); }}
     ].filter(Boolean)});
   $("#cc_lists")&&($("#cc_lists").onclick=()=>{ openListPicker([id],{exact:true,after:()=>{ editContactCard(id); }}); });
 }
@@ -2648,6 +2656,83 @@ window.planPrint=()=>{ const p=DB.projects.find(x=>x.id===PLAN_PROJ); if(!p)retu
     <table><thead><tr><th>Jour</th><th>Matin</th><th>Après-midi</th><th>Soir</th></tr></thead><tbody>${rows}</tbody></table>${coFooterHTML()}`;
   printDocument("Planning — "+(p.name||""), inner);
   logAct(`Planning imprimé : ${p.name}`); };
+
+/* ============================================================
+   PIPELINE COMMERCIAL / OPPORTUNITÉS (R.b)
+   ============================================================
+   Vue entonnoir des contacts par étape, avec valeur estimée (€) et
+   échéance de closing. Prévisionnel pondéré par probabilité d'étape.
+   Réutilise le champ `stage` des contacts ; champs additifs value/closeDate. */
+const STAGE_WEIGHTS={"À contacter":.10,"Contacté":.25,"Relancé":.40,"En discussion":.60,"Gagné":1,"Perdu":0};
+const OPEN_STAGES=["À contacter","Contacté","Relancé","En discussion"];
+let PIPE_OWNER="";
+function oppValue(c){ const v=Number(c.value); return isFinite(v)&&v>0?v:0; }
+function pipelineOpps(){ let list=DB.contacts.filter(c=>oppValue(c)>0);
+  if(PIPE_OWNER) list=list.filter(c=>(c.owner||"")===PIPE_OWNER); return list; }
+VIEWS.pipeline=()=>{
+  const opps=pipelineOpps();
+  const open=opps.filter(c=>OPEN_STAGES.includes(stageOf(c)));
+  const openSum=open.reduce((s,c)=>s+oppValue(c),0);
+  const weighted=open.reduce((s,c)=>s+oppValue(c)*(STAGE_WEIGHTS[stageOf(c)]||0),0);
+  const wonSum=opps.filter(c=>stageOf(c)==="Gagné").reduce((s,c)=>s+oppValue(c),0);
+  const owners=[...new Set(DB.contacts.map(c=>c.owner).filter(Boolean))];
+  $("#view").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Vos <b>opportunités</b> (contacts avec une <b>valeur estimée</b>) rangées par étape. Faites <b>glisser une carte</b> d'une colonne à l'autre pour changer l'étape. Le <b>prévisionnel pondéré</b> applique une probabilité selon l'avancement. Ajoutez une valeur estimée dans la fiche d'un contact (onglet « Contacts »).</div></div>
+  <div class="grid cards" style="margin-bottom:16px">
+    ${kpi("Pipeline ouvert",eur(openSum),"pipeline","var(--brand)")}
+    ${kpi("Prévisionnel pondéré",eur(Math.round(weighted)),"pipeline","var(--accent)")}
+    ${kpi("Gagné",eur(wonSum),"pipeline","var(--ok)")}
+    ${kpi("Opportunités",opps.length,"pipeline","var(--muted)")}</div>
+  <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+    ${owners.length?`<select class="input" id="pipe_owner" style="max-width:220px"><option value="">Tous les responsables</option>${owners.map(o=>`<option ${o===PIPE_OWNER?"selected":""}>${esc(o)}</option>`).join("")}</select>`:""}
+    <div class="spacer"></div>
+    <button class="btn sm ghost" data-call="exportPipeline()">Exporter CSV</button>
+    <button class="btn sm primary" data-call="openContactCard()">+ Nouvelle opportunité</button></div>
+  <div id="pipe_board" style="margin-top:10px"></div>`;
+  const os=$("#pipe_owner"); if(os) os.onchange=e=>{ PIPE_OWNER=e.target.value; VIEWS.pipeline(); };
+  pipelineDraw();
+};
+function pipelineDraw(){
+  const opps=pipelineOpps();
+  const cols=STAGES.map(st=>{ const items=opps.filter(c=>stageOf(c)===st).sort((a,b)=>oppValue(b)-oppValue(a));
+    const sum=items.reduce((s,c)=>s+oppValue(c),0);
+    return `<div class="kcol" data-oppcol="${esc(st)}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin:2px 4px 10px"><span class="tag ${stageColor(st)}">${esc(st)}</span><span class="muted" style="font-size:11.5px">${items.length} · ${esc(eur(sum))}</span></div>
+      ${items.map(c=>`<div class="kcard" draggable="true" data-oppid="${c.id}">
+        <div class="cell-strong">${esc(c.name||c.company||c.email||"—")}</div>
+        ${c.company&&c.name?`<div class="muted" style="font-size:12px">${esc(c.company)}</div>`:""}
+        <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
+          <span class="tag g">${esc(eur(oppValue(c)))}</span>
+          ${c.closeDate?`<span class="muted" style="font-size:11px">closing ${fmtDate(c.closeDate)}</span>`:""}</div>
+        ${c.nextAction?`<div class="muted" style="font-size:11.5px;margin-top:4px">${esc(c.nextAction)}</div>`:""}</div>`).join("")
+        || `<div class="muted" style="font-size:12px;padding:6px 2px">—</div>`}
+    </div>`; }).join("");
+  $("#pipe_board").innerHTML=`<div class="kanban">${cols}</div>`;
+  wirePipeline();
+}
+function wirePipeline(){
+  let dragId=null;
+  $$("#pipe_board .kcard").forEach(c=>{
+    c.addEventListener("dragstart",()=>{ dragId=c.dataset.oppid; c.classList.add("drag"); });
+    c.addEventListener("dragend",()=>c.classList.remove("drag"));
+    c.addEventListener("click",()=>openContactCard(c.dataset.oppid));
+  });
+  $$("#pipe_board .kcol").forEach(col=>{
+    col.addEventListener("dragover",e=>{ e.preventDefault(); col.classList.add("over"); });
+    col.addEventListener("dragleave",()=>col.classList.remove("over"));
+    col.addEventListener("drop",e=>{ e.preventDefault(); col.classList.remove("over");
+      const c=DB.contacts.find(x=>x.id===dragId); if(c){ const old=stageOf(c); const st=col.dataset.oppcol;
+        if(old!==st){ c.stage=st; if(st==="Contacté"||st==="Relancé") c.lastContacted=Date.now();
+          logAct(`Opportunité « ${c.name||c.company} » : ${old} → ${st}`); save(); renderNav(); pipelineDraw(); toast("Déplacé vers "+st); } } });
+  });
+}
+window.exportPipeline=()=>{
+  const rows=pipelineOpps().map(c=>({nom:c.name||"",societe:c.company||"",email:c.email||"",etape:stageOf(c),
+    valeur:oppValue(c),closing:c.closeDate?new Date(c.closeDate).toISOString().slice(0,10):"",responsable:c.owner||"",
+    prochaine_action:c.nextAction||""}));
+  if(!rows.length){ toast("Aucune opportunité à exporter","warn"); return; }
+  exportCSV("pipeline-commercial",["nom","societe","email","etape","valeur","closing","responsable","prochaine_action"],rows);
+};
 
 /* Projects view with compliance R1..R8 */
 const R_LABELS=[

@@ -400,6 +400,22 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    Honnête : les séjours plannables sont ceux qui ont une **date de début** (à
    renseigner dans la fiche projet T2).
 
+8. ~~**Pipeline commercial / Opportunités** (R.b)~~ — **FAIT & TESTÉ** (18/18
+   checks sous CSP ; total 380). Nouvelle nav **« Pipeline commercial »**
+   (`VIEWS.pipeline`). Les contacts ayant une **valeur estimée (€)** deviennent
+   des **opportunités**, affichées en **tableau entonnoir** (kanban) par étape
+   (À contacter → Contacté → Relancé → En discussion → Gagné / Perdu), avec
+   **glisser-déposer** pour changer d'étape. En-tête de colonne = nombre + **somme
+   €**. KPI : **pipeline ouvert** (€), **prévisionnel pondéré** (valeur ×
+   probabilité d'étape via `STAGE_WEIGHTS` : 10/25/40/60/100/0 %), **gagné** (€),
+   nombre d'opportunités. **Filtre par responsable**, **export CSV**, bouton
+   « + Nouvelle opportunité ». Champs additifs sur le contact : **value**
+   (valeur estimée) + **closeDate** (échéance prévisionnelle), éditables dans la
+   **fiche contact** (`editContactCard`). Fix : la sauvegarde d'une fiche contact
+   rafraîchit désormais la vue courante (avant : `finderSaved()` inconditionnel →
+   `null.innerHTML` hors onglet Contacts). Helpers : `oppValue`, `pipelineOpps`,
+   `pipelineDraw`, `wirePipeline`, `exportPipeline`, `STAGE_WEIGHTS`.
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
@@ -456,10 +472,9 @@ une fonctionnalité **en ligne** assumée et centrale.
 
 ## Prochaine action suggérée
 Points **1** (automatisations n8n), **4** (import CRM Drive), **5** (T8 registre
-documentaire), **6** (documents participants) et **7 / R.c** (calendrier &
-plannings des séjours) sont **livrés et testés**. Reste surtout le point **3
-(export CSV auto vers Drive)** et, côté roadmap Drive, **R.b (pipeline
-« Opportunités » : valeur estimée + échéance)** et **R.f (intake participants
-Google Form → fiche)**. Avant de coder une nouvelle UI : relire cette liste,
-vérifier qu'aucun handler inline n'est introduit, tester sous CSP (362 checks de
-référence dans le scratchpad : csptest.mjs → csptest18.mjs).
+documentaire), **6** (documents participants), **7 / R.c** (calendrier &
+plannings) et **8 / R.b** (pipeline commercial / opportunités) sont **livrés et
+testés**. Reste surtout le point **3 (export CSV auto vers Drive)** et **R.f
+(intake participants Google Form → fiche)**. Avant de coder une nouvelle UI :
+relire cette liste, vérifier qu'aucun handler inline n'est introduit, tester sous
+CSP (380 checks de référence dans le scratchpad : csptest.mjs → csptest19.mjs).
