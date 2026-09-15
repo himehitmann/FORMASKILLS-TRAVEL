@@ -380,6 +380,26 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    `fillDocBody`, `docSheetHTML`. Honnête : impression/PDF via la fenêtre pop-up
    (autoriser les pop-ups) — pas d'envoi réseau.
 
+7. ~~**Module Plannings / Calendrier des séjours** (R.c — FLE à Sète)~~ —
+   **FAIT & TESTÉ** (22/22 checks sous CSP ; total 362). Nouvelle nav **« T9 ·
+   Calendrier & plannings »** (`VIEWS.planning`), 2 onglets :
+   - **Calendrier des séjours** : grille mensuelle type agenda (lun→dim), chaque
+     séjour (projet daté) apparaît en **barre colorée** sur ses jours ; navigation
+     mois précédent/suivant + « Aujourd'hui » ; liste des **prochains séjours**
+     avec accès direct au planning. Lecture seule (dérivé des dates projet).
+   - **Planning d'un séjour** : sélection d'un séjour daté → tableau **jour par
+     jour** (créneaux **Matin / Après-midi / Soir**) éditable **inline**
+     (sauvegarde auto). Bouton **« Modèle FLE »** pré-remplit les journées vides
+     (semaine : cours de FLE le matin + activité l'après-midi + temps libre ;
+     week-end : programme allégé). **« Imprimer / PDF »** génère un planning
+     propre (en-tête/pied société). Stocké sur le projet (`project.planning`),
+     additif, compat ascendante, synchronisé via `mergeDB` (collection projects).
+   Helpers : `datedProjects`, `projSpansDay`, `planDays`, `planCalendar`,
+   `planDaily`, `setPlanSlot`, `planSeedFLE`, `planClear`, `planPrint`, `planOpen`.
+   CSS calendrier ajouté dans `index.html` (`.calgrid`, `.calcell`, `.calbar`).
+   Honnête : les séjours plannables sont ceux qui ont une **date de début** (à
+   renseigner dans la fiche projet T2).
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
@@ -435,10 +455,11 @@ une fonctionnalité **en ligne** assumée et centrale.
   (l'outil est autonome) ; demander une reconnexion côté claude.ai si besoin de relire le Drive.
 
 ## Prochaine action suggérée
-Points **1** (automatisations n8n), **4** (import en masse BDD/CRM Drive), **5**
-(T8 registre documentaire) et **6** (documents participants pré-remplis) sont
-**livrés et testés**. Restent surtout le point **3 (export CSV auto vers Drive)**
-et la roadmap Drive **R.c (module Plannings / Calendrier des séjours FLE à Sète —
-absent)**. Avant de coder une nouvelle UI : relire cette liste, vérifier qu'aucun
-handler inline n'est introduit, tester sous CSP (340 checks de référence dans le
-scratchpad : csptest.mjs → csptest17.mjs).
+Points **1** (automatisations n8n), **4** (import CRM Drive), **5** (T8 registre
+documentaire), **6** (documents participants) et **7 / R.c** (calendrier &
+plannings des séjours) sont **livrés et testés**. Reste surtout le point **3
+(export CSV auto vers Drive)** et, côté roadmap Drive, **R.b (pipeline
+« Opportunités » : valeur estimée + échéance)** et **R.f (intake participants
+Google Form → fiche)**. Avant de coder une nouvelle UI : relire cette liste,
+vérifier qu'aucun handler inline n'est introduit, tester sous CSP (362 checks de
+référence dans le scratchpad : csptest.mjs → csptest18.mjs).

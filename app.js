@@ -1077,7 +1077,8 @@ const ICONS = {
   auto:'<path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/><circle cx="12" cy="12" r="3"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   guide:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
-  doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>'
+  doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>',
+  cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'
 };
 const ic = k => `<svg class="ic" viewBox="0 0 24 24">${ICONS[k]||""}</svg>`;
 
@@ -1094,6 +1095,7 @@ const NAV = [
   {id:"providers", title:"T6 · Prestataires", sub:"Hôtels, guides, transporteurs", icon:"provider", entity:"providers"},
   {id:"tasks", title:"T7 · Tâches & conformité", sub:"Échéances, rappels, checklist", icon:"task", entity:"tasks"},
   {id:"registry", title:"T8 · Registre documentaire", sub:"Pièces par dossier + statut (Qualiopi / Erasmus)", icon:"doc"},
+  {id:"planning", title:"T9 · Calendrier & plannings", sub:"Calendrier des séjours + planning journalier (FLE à Sète)", icon:"cal"},
   {group:"Système"},
   {id:"automations", title:"Automatisations", sub:"Règles automatiques (remplace Make)", icon:"auto"},
   {id:"campaigns", title:"Campagnes de relance", sub:"Séquences d'emails espacées (J+3, J+7…)", icon:"finder"},
@@ -2527,6 +2529,125 @@ window.exportRegistry=()=>{
   if(!rows.length){ toast("Rien à exporter","warn"); return; }
   exportCSV("registre-documentaire",["dossier","piece","categorie","statut","echeance","responsable","note"],rows);
 };
+
+/* ============================================================
+   T9 · CALENDRIER & PLANNINGS DES SÉJOURS (FLE à Sète)
+   ============================================================
+   1) Calendrier mensuel : vue d'ensemble de tous les séjours (projets
+      avec dates) sur une grille type agenda.
+   2) Planning journalier d'un séjour : jour par jour, créneaux Matin /
+      Après-midi / Soir, modèle FLE prêt à l'emploi, impression PDF.
+   Le planning est stocké sur le projet (`project.planning`) — additif,
+   compat ascendante, synchronisé comme le reste. */
+const PLAN_COLORS=["#1d5fd6","#0e9f6e","#e0620d","#7c3aed","#0891b2","#be123c","#4d7c0f","#9333ea"];
+let PLAN_TAB="cal", PLAN_MONTH=null, PLAN_PROJ="";
+const DAYNAMES=["lun","mar","mer","jeu","ven","sam","dim"];
+function dayKey(ts){ const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function datedProjects(){ return DB.projects.filter(p=>p.start).map((p,i)=>({...p,_color:PLAN_COLORS[i%PLAN_COLORS.length]})); }
+function projSpansDay(p,ts){ const s=p.start, e=p.end||p.start; const d0=new Date(ts); d0.setHours(0,0,0,0); const t=d0.getTime();
+  const sd=new Date(s); sd.setHours(0,0,0,0); const ed=new Date(e); ed.setHours(23,59,59,999); return t>=sd.getTime() && t<=ed.getTime(); }
+VIEWS.planning=()=>{
+  $("#view").innerHTML=`
+  <div class="pill-tabs" style="margin-bottom:16px">
+    <button data-pt="cal" class="${PLAN_TAB==='cal'?'active':''}">Calendrier des séjours</button>
+    <button data-pt="day" class="${PLAN_TAB==='day'?'active':''}">Planning d'un séjour</button>
+  </div><div id="planBody"></div>`;
+  $$("#view [data-pt]").forEach(b=>b.onclick=()=>{ PLAN_TAB=b.dataset.pt; VIEWS.planning(); });
+  (PLAN_TAB==="cal"?planCalendar:planDaily)();
+};
+function planCalendar(){
+  if(!PLAN_MONTH){ const projs=datedProjects(); const base=projs.length?new Date(Math.min(...projs.map(p=>p.start))):new Date(); PLAN_MONTH=new Date(base.getFullYear(),base.getMonth(),1); }
+  const M=PLAN_MONTH, y=M.getFullYear(), mo=M.getMonth();
+  const first=new Date(y,mo,1); let startIdx=(first.getDay()+6)%7; // lundi=0
+  const daysInMonth=new Date(y,mo+1,0).getDate();
+  const projs=datedProjects();
+  const monthLabel=M.toLocaleDateString("fr-FR",{month:"long",year:"numeric"});
+  let cells="";
+  for(let i=0;i<startIdx;i++) cells+=`<div class="calcell empty"></div>`;
+  const today=dayKey(Date.now());
+  for(let d=1;d<=daysInMonth;d++){ const ts=new Date(y,mo,d).getTime(); const k=dayKey(ts);
+    const active=projs.filter(p=>projSpansDay(p,ts));
+    cells+=`<div class="calcell ${k===today?'today':''}"><div class="caldate">${d}</div>
+      ${active.slice(0,3).map(p=>`<div class="calbar" style="background:${p._color}1a;color:${p._color};border-left:3px solid ${p._color}" title="${esc(p.name)}">${esc((p.name||"").slice(0,18))}</div>`).join("")}
+      ${active.length>3?`<div class="muted" style="font-size:10px">+${active.length-3}</div>`:""}</div>`;
+  }
+  const upcoming=projs.filter(p=>p.start>=Date.now()-864e5).sort((a,b)=>a.start-b.start).slice(0,8);
+  $("#planBody").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Vue d'ensemble de tous vos <b>séjours</b> (les projets qui ont une date de début). Chaque barre = un séjour en cours ce jour-là. Cliquez « Planning d'un séjour » pour construire le programme jour par jour.</div></div>
+  <div class="card">
+    <div class="toolbar" style="margin:0 0 12px"><button class="btn sm ghost" id="pc_prev">‹</button>
+      <div class="cell-strong" style="min-width:180px;text-align:center;text-transform:capitalize">${esc(monthLabel)}</div>
+      <button class="btn sm ghost" id="pc_next">›</button><button class="btn sm" id="pc_today">Aujourd'hui</button>
+      <div class="spacer"></div><span class="muted" style="font-size:12px">${projs.length} séjour(s) planifié(s)</span></div>
+    <div class="calgrid-head">${DAYNAMES.map(d=>`<div>${d}</div>`).join("")}</div>
+    <div class="calgrid">${cells}</div>
+  </div>
+  ${upcoming.length?`<div class="card"><div class="section-title" style="margin-top:0">Prochains séjours</div>
+    ${upcoming.map(p=>`<div class="result-row"><span class="dot" style="background:${p._color}"></span>
+      <div style="flex:1"><div class="cell-strong">${esc(p.name)}</div><div class="muted" style="font-size:12px">${p.city?esc(p.city)+" · ":""}${fmtDate(p.start)}${p.end?" → "+fmtDate(p.end):""}</div></div>
+      <button class="btn sm ghost" data-call="planOpen('${p.id}')">Planning</button></div>`).join("")}</div>`:""}`;
+  $("#pc_prev").onclick=()=>{ PLAN_MONTH=new Date(y,mo-1,1); planCalendar(); };
+  $("#pc_next").onclick=()=>{ PLAN_MONTH=new Date(y,mo+1,1); planCalendar(); };
+  $("#pc_today").onclick=()=>{ const n=new Date(); PLAN_MONTH=new Date(n.getFullYear(),n.getMonth(),1); planCalendar(); };
+}
+window.planOpen=id=>{ PLAN_PROJ=id; PLAN_TAB="day"; VIEWS.planning(); };
+function planDays(p){ // liste des jours entre start et end (borné à 90)
+  if(!p||!p.start) return []; const out=[]; const s=new Date(p.start); s.setHours(12,0,0,0);
+  const e=p.end?new Date(p.end):new Date(p.start); e.setHours(12,0,0,0);
+  for(let t=s.getTime(); t<=e.getTime() && out.length<90; t+=864e5) out.push(dayKey(t));
+  return out;
+}
+function planDaily(){
+  const projs=datedProjects();
+  if(!projs.length){ $("#planBody").innerHTML=`<div class="card"><div class="empty">Aucun séjour daté. Ajoutez un projet avec une <b>date de début</b> (et de fin) dans « T2 · Projets & mobilités ».</div></div>`; return; }
+  if(!PLAN_PROJ || !projs.some(p=>p.id===PLAN_PROJ)) PLAN_PROJ=projs[0].id;
+  const p=DB.projects.find(x=>x.id===PLAN_PROJ);
+  const days=planDays(p);
+  p.planning=p.planning||[];
+  const slotOf=(k)=> p.planning.find(x=>x.date===k)||{date:k,am:"",pm:"",eve:""};
+  $("#planBody").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Construisez le <b>programme jour par jour</b> du séjour : créneaux <b>Matin / Après-midi / Soir</b>. Le bouton <b>« Modèle FLE »</b> pré-remplit les journées vides (cours le matin, activité l'après-midi). Tout se sauvegarde automatiquement. <b>Imprimez</b> le planning en PDF pour les participants et partenaires.</div></div>
+  <div class="card">
+    <div class="toolbar" style="margin:0 0 10px;gap:8px;flex-wrap:wrap">
+      <select class="input" id="pd_proj" style="max-width:300px">${projs.map(x=>`<option value="${x.id}" ${x.id===PLAN_PROJ?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+      <div class="spacer"></div>
+      <button class="btn sm" data-call="planSeedFLE()">Modèle FLE</button>
+      <button class="btn sm ghost" data-call="planClear()">Vider</button>
+      <button class="btn sm primary" data-call="planPrint()">Imprimer / PDF</button></div>
+    ${p.city||p.country?`<div class="muted" style="font-weight:600;margin-bottom:8px">${esc([p.city,p.country].filter(Boolean).join(", "))} · ${fmtDate(p.start)}${p.end?" → "+fmtDate(p.end):""} · ${days.length} jour(s)</div>`:""}
+    ${days.length? `<div class="tbl-wrap"><table><thead><tr><th style="width:130px">Jour</th><th>Matin</th><th>Après-midi</th><th>Soir</th></tr></thead>
+      <tbody>${days.map(k=>{ const s=slotOf(k); const dt=new Date(k+"T12:00:00"); const wd=DAYNAMES[(dt.getDay()+6)%7];
+        return `<tr><td class="cell-strong" style="white-space:nowrap">${wd} ${dt.getDate()}/${dt.getMonth()+1}</td>
+        <td><input class="input sm" data-pd="am" data-k="${k}" value="${esc(s.am)}" placeholder="—"></td>
+        <td><input class="input sm" data-pd="pm" data-k="${k}" value="${esc(s.pm)}" placeholder="—"></td>
+        <td><input class="input sm" data-pd="eve" data-k="${k}" value="${esc(s.eve)}" placeholder="—"></td></tr>`;}).join("")}</tbody></table></div>`
+      : `<div class="empty">Ce séjour n'a pas de dates exploitables. Renseignez une <b>date de début</b> (et de fin) dans sa fiche projet.</div>`}
+  </div>`;
+  $("#pd_proj").onchange=e=>{ PLAN_PROJ=e.target.value; planDaily(); };
+  $$("#planBody [data-pd]").forEach(inp=>inp.onchange=()=>{ setPlanSlot(p, inp.dataset.k, inp.dataset.pd, inp.value); });
+}
+function setPlanSlot(p,k,slot,val){ p.planning=p.planning||[]; let row=p.planning.find(x=>x.date===k);
+  if(!row){ row={date:k,am:"",pm:"",eve:""}; p.planning.push(row); } row[slot]=val; save(); }
+window.planSeedFLE=()=>{ const p=DB.projects.find(x=>x.id===PLAN_PROJ); if(!p)return; const days=planDays(p); p.planning=p.planning||[];
+  const DEF={am:"Cours de FLE (9h – 12h)", pm:"Visite / activité culturelle", eve:"Temps libre / dîner"};
+  let n=0; days.forEach(k=>{ let row=p.planning.find(x=>x.date===k); if(!row){ row={date:k,am:"",pm:"",eve:""}; p.planning.push(row); }
+    const dt=new Date(k+"T12:00:00"); const dow=(dt.getDay()+6)%7; // week-end = programme allégé
+    if(!row.am && !row.pm && !row.eve){ if(dow>=5){ row.am="Temps libre / excursion"; row.pm="Activité de groupe"; row.eve="Soirée conviviale"; }
+      else { row.am=DEF.am; row.pm=DEF.pm; row.eve=DEF.eve; } n++; } });
+  logAct(`Modèle FLE appliqué au planning de « ${p.name} »`); save(); planDaily(); toast(n?`${n} journée(s) pré-remplie(s)`:"Toutes les journées étaient déjà remplies", n?"ok":"warn"); };
+window.planClear=()=>{ const p=DB.projects.find(x=>x.id===PLAN_PROJ); if(!p)return;
+  confirmModal("Vider le planning ?",`Le programme jour par jour de « ${p.name} » sera effacé.`,()=>{ p.planning=[]; save(); planDaily(); },true); };
+window.planPrint=()=>{ const p=DB.projects.find(x=>x.id===PLAN_PROJ); if(!p)return; const days=planDays(p);
+  if(!days.length){ toast("Aucune date pour ce séjour","warn"); return; }
+  const slotOf=(k)=> (p.planning||[]).find(x=>x.date===k)||{am:"",pm:"",eve:""};
+  const rows=days.map(k=>{ const s=slotOf(k); const dt=new Date(k+"T12:00:00"); const wd=DAYNAMES[(dt.getDay()+6)%7];
+    return `<tr><td style="white-space:nowrap"><b>${wd} ${dt.getDate()}/${dt.getMonth()+1}</b></td><td>${esc(s.am||"—")}</td><td>${esc(s.pm||"—")}</td><td>${esc(s.eve||"—")}</td></tr>`; }).join("");
+  const inner=`<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1 style="font-size:20px;letter-spacing:1px">PLANNING DU SÉJOUR</h1></div></div>
+    <p style="font-weight:700;margin:14px 0 4px">${esc(p.name)}</p>
+    <p class="muted" style="margin:0 0 14px">${esc([p.city,p.country].filter(Boolean).join(", "))}${p.start?" · du "+fmtDate(p.start):""}${p.end?" au "+fmtDate(p.end):""}</p>
+    <table><thead><tr><th>Jour</th><th>Matin</th><th>Après-midi</th><th>Soir</th></tr></thead><tbody>${rows}</tbody></table>${coFooterHTML()}`;
+  printDocument("Planning — "+(p.name||""), inner);
+  logAct(`Planning imprimé : ${p.name}`); };
 
 /* Projects view with compliance R1..R8 */
 const R_LABELS=[
