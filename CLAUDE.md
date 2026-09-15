@@ -343,7 +343,26 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    Aperçu enrichi (colonnes reconnues affichées). Honnête : import dans le CRM
    contacts (le vrai CRM de l'outil) ; XLSX à convertir en CSV/collage TSV
    (l'outil lit TSV/CSV, pas le binaire .xlsx).
-5. **T8 Registre documentaire** par dossier (archive centralisée des pièces + statut).
+5. ~~**T8 Registre documentaire** par dossier (archive centralisée + statut)~~ —
+   **FAIT & TESTÉ** (20/20 checks sous CSP ; total 340). Nouvelle nav **« T8 ·
+   Registre documentaire »** (`VIEWS.registry`, `DB.docRegistry`). Par **dossier**
+   (projet ou « Général »), on suit chaque **pièce** avec un **statut** (Manquant
+   / Reçu / Validé / Expiré / N/A, éditable **inline**), une **échéance** (les
+   dépassées s'affichent en rouge), un **responsable**, une **note**. KPI (total /
+   manquantes / validées / à échéance < 30j), **filtres** dossier + statut,
+   **export CSV**. Bouton **« Ajouter un dossier type »** = seed d'une checklist
+   complète en 1 clic : **Dossier mobilité Erasmus** (convention subvention,
+   convention mobilité, Learning Agreement, assurances RC + rapatriement/CEAM,
+   autorisation parentale, attestation de présence, Europass, rapport participant,
+   justificatifs) ou **Pièces de structure Qualiopi** (Qualiopi, accréditation
+   Erasmus/OID, RC Pro, garantie financière, statuts/Kbis) — **dé-doublonné**.
+   Les pièces **manquantes** ou **expirées / échéance dépassée** remontent dans
+   l'Assistant « À faire maintenant » et **badgent** la nav. `docRegistry` ajouté
+   à `DEFAULT_DB`, `migrate` et `COLLECTIONS` (fusion `mergeDB` anti-perte).
+   Helpers : `regDossiers`, `regRows`, `registryDraw`, `openRegEntry`,
+   `seedRegistry`, `delRegEntry`, `exportRegistry`, `REG_TEMPLATES`. Honnête :
+   registre de suivi (métadonnées + statut) — le stockage des fichiers eux-mêmes
+   reste dans le dossier Drive/local (l'outil référence, il n'héberge pas les PDF).
 6. ~~Générer les **documents participants pré-remplis** depuis le projet~~ —
    **FAIT & TESTÉ** (24/24 checks sous CSP, 0 violation, 0 pageerror ; total 296).
    Bouton **« Documents »** dans la fiche d'un **projet** ou d'un **participant**
@@ -416,9 +435,10 @@ une fonctionnalité **en ligne** assumée et centrale.
   (l'outil est autonome) ; demander une reconnexion côté claude.ai si besoin de relire le Drive.
 
 ## Prochaine action suggérée
-Points **1** (automatisations n8n), **4** (import en masse BDD/CRM Drive) et **6**
-(documents participants pré-remplis) sont **livrés et testés**. Enchaîner sur le
-point **3 (export CSV auto vers Drive)** ou le point **5 (T8 registre
-documentaire)**. Avant de coder une nouvelle UI : relire cette liste, vérifier
-qu'aucun handler inline n'est introduit, tester sous CSP (320 checks de référence
-dans le scratchpad : csptest.mjs → csptest16.mjs).
+Points **1** (automatisations n8n), **4** (import en masse BDD/CRM Drive), **5**
+(T8 registre documentaire) et **6** (documents participants pré-remplis) sont
+**livrés et testés**. Restent surtout le point **3 (export CSV auto vers Drive)**
+et la roadmap Drive **R.c (module Plannings / Calendrier des séjours FLE à Sète —
+absent)**. Avant de coder une nouvelle UI : relire cette liste, vérifier qu'aucun
+handler inline n'est introduit, tester sous CSP (340 checks de référence dans le
+scratchpad : csptest.mjs → csptest17.mjs).

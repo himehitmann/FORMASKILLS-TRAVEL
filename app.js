@@ -25,7 +25,7 @@ const DEFAULT_DB = {
     docStyle:{ logo:"", accent:"#1d5fd6", headerExtra:"", footerMode:"auto", footerText:"", showBank:true }
   },
   partners:[], projects:[], participants:[], providers:[],
-  budget:[], tasks:[], contacts:[], automations:[], campaigns:[], emailTemplates:[], quotes:[], docs:[], activity:[],
+  budget:[], tasks:[], contacts:[], automations:[], campaigns:[], emailTemplates:[], quotes:[], docs:[], docRegistry:[], activity:[],
   customFields:{ partners:[], projects:[], participants:[], providers:[], tasks:[] }
 };
 function loadDB(){
@@ -69,7 +69,7 @@ function logAct(msg){ DB.activity.unshift({t:Date.now(),m:msg}); DB.activity=DB.
    n'est jamais perdu quand on rapproche deux copies.
    ============================================================ */
 const FS_OK = (typeof window!=="undefined" && "showSaveFilePicker" in window);
-const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns","emailTemplates","quotes","docs"];
+const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns","emailTemplates","quotes","docs","docRegistry"];
 function mergeDB(local, remote){
   if(!remote) return local;
   const out=structuredClone(local);
@@ -1093,6 +1093,7 @@ const NAV = [
   {id:"docs", title:"Devis & documents", sub:"Devis, contrats, attestations — imprimables en PDF", icon:"doc"},
   {id:"providers", title:"T6 · Prestataires", sub:"Hôtels, guides, transporteurs", icon:"provider", entity:"providers"},
   {id:"tasks", title:"T7 · Tâches & conformité", sub:"Échéances, rappels, checklist", icon:"task", entity:"tasks"},
+  {id:"registry", title:"T8 · Registre documentaire", sub:"Pièces par dossier + statut (Qualiopi / Erasmus)", icon:"doc"},
   {group:"Système"},
   {id:"automations", title:"Automatisations", sub:"Règles automatiques (remplace Make)", icon:"auto"},
   {id:"campaigns", title:"Campagnes de relance", sub:"Séquences d'emails espacées (J+3, J+7…)", icon:"finder"},
@@ -1106,7 +1107,9 @@ function renderNav(){
     providers:DB.providers.length, tasks:DB.tasks.filter(t=>t.status!=="Fait").length };
   $("#nav").innerHTML = NAV.map(n=>{
     if(n.group) return `<div class="nav-group">${esc(n.group)}</div>`;
-    const c = n.entity!=null ? counts[n.entity] : null;
+    const c = n.entity!=null ? counts[n.entity]
+      : n.id==="registry" ? (DB.docRegistry||[]).filter(d=>d.status==="Manquant"||d.status==="Expiré").length
+      : null;
     return `<button class="nav-item ${n.id===CURRENT?'active':''}" data-nav="${n.id}">
       ${ic(n.icon)}<span>${esc(n.title.replace(/^T\d[\/\d]* · /,""))}</span>
       ${c? `<span class="badge">${c}</span>`:""}</button>`;
@@ -1166,6 +1169,11 @@ function nextActions(){
   // 7e. Prochaines actions planifiées sur des contacts (échéance atteinte)
   DB.contacts.filter(c=>c.nextAction && c.nextActionDate && c.nextActionDate<=now+DAY).slice(0,6).forEach(c=>
     add(3,"",`${c.nextAction} — ${c.name||c.company||c.email||""}`,`Prochaine action prévue le ${fmtDate(c.nextActionDate)}`,{l:"Ouvrir la fiche",fn:`openContactCard('${c.id}')`}));
+  // 7f. Registre documentaire : pièces expirées ou échéance dépassée
+  const regBad=(DB.docRegistry||[]).filter(d=>d.status==="Expiré" || (d.due&&d.due<now&&d.status!=="Validé"&&d.status!=="N/A"));
+  if(regBad.length) add(3,"",`${regBad.length} pièce(s) documentaire(s) à régulariser`,"Pièce expirée ou échéance dépassée dans le registre",{l:"Ouvrir le registre",fn:`go('registry')`});
+  const regMiss=(DB.docRegistry||[]).filter(d=>d.status==="Manquant").length;
+  if(regMiss) add(1,"",`${regMiss} pièce(s) manquante(s) au registre`,"Documents obligatoires à collecter (Qualiopi / Erasmus)",{l:"Ouvrir le registre",fn:`go('registry')`});
   // 8. Amorçage si vide
   if(!DB.partners.length) add(1,"","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
   // 9. Rappel de sauvegarde (protège vos données en cas de désinstallation / changement d'ordinateur)
@@ -2396,6 +2404,129 @@ VIEWS.partners=()=>entityView("partners");
 VIEWS.participants=()=>entityView("participants");
 VIEWS.providers=()=>entityView("providers");
 VIEWS.tasks=()=>{ renderTasksExtra(); };
+
+/* ============================================================
+   T8 · REGISTRE DOCUMENTAIRE (archive centralisée des pièces + statut)
+   ============================================================
+   Par dossier (projet ou « Général »), on suit les pièces obligatoires
+   (Qualiopi / Erasmus) avec un statut. Les pièces manquantes ou expirées
+   remontent dans l'Assistant « À faire maintenant » et badgent la nav. */
+const REG_STATUSES=["Manquant","Reçu","Validé","Expiré","N/A"];
+const REG_STATUS_CLS={"Manquant":"r","Reçu":"w","Validé":"g","Expiré":"r","N/A":"n"};
+const REG_TEMPLATES={
+  erasmus:{ label:"Dossier mobilité Erasmus", items:[
+    ["Convention de subvention Erasmus","Conformité"],["Convention de mobilité / stage","Conformité"],
+    ["Contrat pédagogique (Learning Agreement)","Pédagogie"],["Assurance responsabilité civile","Assurance"],
+    ["Assurance rapatriement / CEAM","Assurance"],["Autorisation parentale (si mineur)","Participant"],
+    ["Attestation de présence / émargement","Preuve"],["Europass Mobilité","Reconnaissance"],
+    ["Rapport du participant","Reporting"],["Justificatifs de dépenses","Finances"] ]},
+  structure:{ label:"Pièces de structure (Qualiopi)", items:[
+    ["Certificat Qualiopi","Structure"],["Accréditation Erasmus (OID)","Structure"],
+    ["Attestation RC Pro","Assurance"],["Garantie financière","Structure"],["Statuts / Kbis","Structure"] ]},
+};
+let REG_DOSSIER="", REG_STATUS="";
+function regDossiers(){ const s=new Set(["Général"]); DB.projects.forEach(p=>{ if(p.name) s.add(p.name); });
+  (DB.docRegistry||[]).forEach(d=>{ if(d.dossier) s.add(d.dossier); }); return [...s]; }
+function regRows(){ let rows=(DB.docRegistry||[]).slice();
+  if(REG_DOSSIER) rows=rows.filter(d=>d.dossier===REG_DOSSIER);
+  if(REG_STATUS) rows=rows.filter(d=>(d.status||"Manquant")===REG_STATUS);
+  const order={Manquant:0,Expiré:1,Reçu:2,Validé:3,"N/A":4};
+  return rows.sort((a,b)=> (order[a.status||"Manquant"]-order[b.status||"Manquant"]) || (a.dossier||"").localeCompare(b.dossier||"")); }
+VIEWS.registry=()=>{
+  const all=DB.docRegistry||[]; const manq=all.filter(d=>d.status==="Manquant").length;
+  const exp=all.filter(d=>d.status==="Expiré").length; const val=all.filter(d=>d.status==="Validé").length;
+  const now=Date.now(), soon=all.filter(d=>d.due && d.due>now && d.due-now<30*864e5).length;
+  const doss=regDossiers();
+  $("#view").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Le <b>coffre à pièces</b> de chaque dossier : suivez ce qui est <b>manquant, reçu, validé ou expiré</b> (Qualiopi / Erasmus). Ajoutez un dossier complet en un clic avec un <b>modèle</b>, puis mettez à jour les statuts. Les pièces manquantes ou expirées remontent dans « À faire maintenant ».</div></div>
+  <div class="grid cards" style="margin-bottom:16px">
+    ${kpi("Pièces",all.length,"registry","var(--brand)")}
+    ${kpi("Manquantes",manq,"registry","var(--bad)")}
+    ${kpi("Validées",val,"registry","var(--ok)")}
+    ${kpi("À échéance < 30j",soon+exp,"registry","var(--accent)")}</div>
+  <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+    <select class="input" id="rg_doss" style="max-width:220px"><option value="">Tous les dossiers</option>${doss.map(d=>`<option ${d===REG_DOSSIER?"selected":""}>${esc(d)}</option>`).join("")}</select>
+    <select class="input" id="rg_stat" style="max-width:170px"><option value="">Tous les statuts</option>${REG_STATUSES.map(s=>`<option ${s===REG_STATUS?"selected":""}>${esc(s)}</option>`).join("")}</select>
+    <div class="spacer"></div>
+    <button class="btn sm" data-call="seedRegistry()">Ajouter un dossier type</button>
+    <button class="btn sm ghost" data-call="exportRegistry()">Exporter CSV</button>
+    <button class="btn sm primary" data-call="openRegEntry()">+ Ajouter une pièce</button></div>
+  <div id="rg_body" style="margin-top:8px"></div>`;
+  $("#rg_doss").onchange=e=>{ REG_DOSSIER=e.target.value; VIEWS.registry(); };
+  $("#rg_stat").onchange=e=>{ REG_STATUS=e.target.value; VIEWS.registry(); };
+  registryDraw();
+};
+function registryDraw(){
+  const rows=regRows();
+  $("#rg_body").innerHTML= rows.length? `<div class="tbl-wrap"><table><thead><tr>
+    <th>Dossier</th><th>Pièce</th><th>Catégorie</th><th>Statut</th><th>Échéance</th><th>Responsable</th><th></th></tr></thead>
+    <tbody>${rows.map(d=>{ const overdue=d.due&&d.due<Date.now()&&d.status!=="Validé"&&d.status!=="N/A";
+      return `<tr>
+      <td class="cell-strong">${esc(d.dossier||"—")}</td>
+      <td>${esc(d.title||"—")}${d.note?`<div class="muted" style="font-size:11.5px">${esc(d.note)}</div>`:""}</td>
+      <td class="muted">${esc(d.category||"—")}</td>
+      <td><select class="input sm" data-rgstatus="${d.id}" style="min-width:110px">${REG_STATUSES.map(s=>`<option ${s===(d.status||"Manquant")?"selected":""}>${esc(s)}</option>`).join("")}</select></td>
+      <td class="${overdue?'':'muted'}" style="${overdue?'color:var(--bad);font-weight:700':''}">${d.due?fmtDate(d.due):"—"}</td>
+      <td class="muted">${esc(d.owner||"—")}</td>
+      <td style="white-space:nowrap"><button class="btn sm ghost" data-call="openRegEntry('${d.id}')">Modifier</button>
+        <button class="btn sm ghost" data-call="delRegEntry('${d.id}')">×</button></td></tr>`; }).join("")}</tbody></table></div>`
+    : `<div class="card"><div class="empty">Aucune pièce ${REG_DOSSIER||REG_STATUS?"pour ce filtre":"pour l'instant"}. Cliquez « Ajouter un dossier type » (Erasmus / Qualiopi) ou « + Ajouter une pièce ».</div></div>`;
+  $$("#rg_body [data-rgstatus]").forEach(sel=>sel.onchange=()=>{ const d=(DB.docRegistry||[]).find(x=>x.id===sel.dataset.rgstatus);
+    if(d){ d.status=sel.value; d.updated=Date.now(); logAct(`Pièce « ${d.title} » → ${d.status}`); save(); renderNav(); registryDraw(); } });
+}
+window.setRegStatus=(id,st)=>{ const d=(DB.docRegistry||[]).find(x=>x.id===id); if(d){ d.status=st; save(); renderNav(); registryDraw(); } };
+window.delRegEntry=id=>{ const d=(DB.docRegistry||[]).find(x=>x.id===id); if(!d)return;
+  confirmModal("Retirer cette pièce ?",`« ${d.title} » sera retirée du registre.`,()=>{ DB.docRegistry=DB.docRegistry.filter(x=>x.id!==id); save(); renderNav(); VIEWS.registry(); },true); };
+window.openRegEntry=id=>{
+  const d=id?(DB.docRegistry||[]).find(x=>x.id===id):null; const doss=regDossiers();
+  const dstr=d&&d.due?new Date(d.due).toISOString().slice(0,10):"";
+  const defDoss=d?d.dossier:(REG_DOSSIER||"Général");
+  openModal({title:d?"Modifier la pièce":"Nouvelle pièce", wide:true,
+    body:`<div class="row2">
+      <div class="field"><label>Dossier</label><input class="input" id="rge_doss" list="rge_dosslist" value="${esc(defDoss)}" placeholder="Projet ou « Général »">
+        <datalist id="rge_dosslist">${doss.map(x=>`<option value="${esc(x)}">`).join("")}</datalist></div>
+      <div class="field"><label>Catégorie</label><input class="input" id="rge_cat" value="${esc(d?.category||"")}" placeholder="Assurance, Conformité…"></div>
+    </div>
+    <div class="field"><label>Pièce *</label><input class="input" id="rge_title" value="${esc(d?.title||"")}" placeholder="Ex : Convention de subvention"></div>
+    <div class="row3">
+      <div class="field"><label>Statut</label><select class="input" id="rge_stat">${REG_STATUSES.map(s=>`<option ${s===(d?.status||"Manquant")?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
+      <div class="field"><label>Échéance</label><input class="input" type="date" id="rge_due" value="${dstr}"></div>
+      <div class="field"><label>Responsable</label><input class="input" id="rge_owner" value="${esc(d?.owner||"")}"></div>
+    </div>
+    <div class="field"><label>Note</label><textarea id="rge_note" style="min-height:60px" placeholder="Référence, emplacement du fichier, remarque…">${esc(d?.note||"")}</textarea></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:d?"Enregistrer":"Ajouter",cls:"primary",act:()=>{
+      const title=$("#rge_title").value.trim(); if(!title){toast("Intitulé de la pièce requis","warn");return;}
+      const rec={ dossier:$("#rge_doss").value.trim()||"Général", category:$("#rge_cat").value.trim(), title,
+        status:$("#rge_stat").value, due:$("#rge_due").value?new Date($("#rge_due").value).getTime():0,
+        owner:$("#rge_owner").value.trim(), note:$("#rge_note").value.trim() };
+      if(d){ Object.assign(d,rec,{updated:Date.now()}); } else { DB.docRegistry.unshift({id:uid(),added:Date.now(),...rec}); }
+      logAct(d?`Pièce modifiée : ${title}`:`Pièce ajoutée : ${title}`); save(); renderNav(); closeModal(); VIEWS.registry();
+    }}]});
+};
+window.seedRegistry=()=>{
+  const doss=regDossiers();
+  openModal({title:"Ajouter un dossier type", wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">Crée d'un coup toutes les pièces obligatoires d'un dossier (statut « Manquant »), à compléter ensuite. Les doublons ne sont pas recréés.</p>
+    <div class="row2">
+      <div class="field"><label>Modèle</label><select class="input" id="sr_kind">${Object.entries(REG_TEMPLATES).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join("")}</select></div>
+      <div class="field"><label>Dossier</label><input class="input" id="sr_doss" list="sr_dosslist" value="${esc(REG_DOSSIER||(DB.projects[0]&&DB.projects[0].name)||"Général")}" placeholder="Nom du projet ou « Général »">
+        <datalist id="sr_dosslist">${doss.map(x=>`<option value="${esc(x)}">`).join("")}</datalist></div>
+    </div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Créer les pièces",cls:"primary",act:()=>{
+      const kind=$("#sr_kind").value; const dossier=$("#sr_doss").value.trim()||"Général"; const tpl=REG_TEMPLATES[kind]; if(!tpl)return;
+      let n=0; tpl.items.forEach(([title,cat])=>{
+        if((DB.docRegistry||[]).some(d=>d.dossier===dossier && d.title===title)) return;
+        DB.docRegistry.unshift({id:uid(),added:Date.now(),dossier,title,category:cat,status:"Manquant",due:0,owner:"",note:""}); n++; });
+      logAct(`${n} pièce(s) ajoutée(s) au dossier « ${dossier} »`); save(); renderNav(); closeModal();
+      REG_DOSSIER=dossier; VIEWS.registry(); toast(n?`${n} pièce(s) créée(s)`:"Toutes les pièces existaient déjà",n?"ok":"warn");
+    }}]});
+};
+window.exportRegistry=()=>{
+  const rows=regRows().map(d=>({dossier:d.dossier,piece:d.title,categorie:d.category,statut:d.status||"Manquant",
+    echeance:d.due?new Date(d.due).toISOString().slice(0,10):"",responsable:d.owner||"",note:d.note||""}));
+  if(!rows.length){ toast("Rien à exporter","warn"); return; }
+  exportCSV("registre-documentaire",["dossier","piece","categorie","statut","echeance","responsable","note"],rows);
+};
 
 /* Projects view with compliance R1..R8 */
 const R_LABELS=[
