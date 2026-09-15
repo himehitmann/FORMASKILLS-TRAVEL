@@ -326,7 +326,23 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    section `profiles`) selon le vrai DOM LinkedIn si besoin.
 3. **Export CSV automatique périodique** dans le dossier Drive (pour ouvrir les
    contacts directement dans Google Sheets) — proposé, en attente d'accord.
-4. **Import des données Airtable existantes** (reprise en masse).
+4. ~~**Import en masse de la BDD/CRM Drive / Airtable** (reprise en masse)~~ —
+   **FAIT & TESTÉ** (24/24 checks sous CSP ; total 320). L'import intelligent de
+   sheets (`detectMapping`/`smartImport`, bouton « Importer / coller » de
+   l'onglet Contacts) reconnaît maintenant **toutes les colonnes du vrai CRM
+   Drive** : Type de relation → **nature** (via `inferCategory`), Statut →
+   **étape** du pipeline (normalisé par `normStage` : Client/actif → Gagné,
+   Perdu/refus → Perdu, négociation/devis → En discussion, etc.), **Responsable**
+   → owner, **Prochaine action**, **Notes** (+ **Adresse** consolidée dedans),
+   Ville, Pays, Site → domaine. Priorité de colonnes corrigée : « Nom de
+   l'entité » → **société**, « Contact principal » → **nom** (avant : « Nom de
+   l'entité » pris pour le nom du contact). Robustesse accents : `deburrLower`
+   retire les diacritiques avant le mapping des en-têtes (les en-têtes accentués
+   « Société / Téléphone / Prochaine action » sont désormais reconnus).
+   Compat ascendante : une simple liste Nom/Email/Tél s'importe toujours.
+   Aperçu enrichi (colonnes reconnues affichées). Honnête : import dans le CRM
+   contacts (le vrai CRM de l'outil) ; XLSX à convertir en CSV/collage TSV
+   (l'outil lit TSV/CSV, pas le binaire .xlsx).
 5. **T8 Registre documentaire** par dossier (archive centralisée des pièces + statut).
 6. ~~Générer les **documents participants pré-remplis** depuis le projet~~ —
    **FAIT & TESTÉ** (24/24 checks sous CSP, 0 violation, 0 pageerror ; total 296).
@@ -400,9 +416,9 @@ une fonctionnalité **en ligne** assumée et centrale.
   (l'outil est autonome) ; demander une reconnexion côté claude.ai si besoin de relire le Drive.
 
 ## Prochaine action suggérée
-Points **1** (automatisations n8n) et **6** (documents participants pré-remplis)
-sont **livrés et testés**. Enchaîner sur le point **3 (export CSV auto vers
-Drive)**, le point **4 (import en masse de la BDD/CRM Drive — CSV/XLSX)** ou le
-point **5 (T8 registre documentaire)**. Avant de coder une nouvelle UI : relire
-cette liste, vérifier qu'aucun handler inline n'est introduit, tester sous CSP
-(296 checks de référence dans le scratchpad : csptest.mjs → csptest15.mjs).
+Points **1** (automatisations n8n), **4** (import en masse BDD/CRM Drive) et **6**
+(documents participants pré-remplis) sont **livrés et testés**. Enchaîner sur le
+point **3 (export CSV auto vers Drive)** ou le point **5 (T8 registre
+documentaire)**. Avant de coder une nouvelle UI : relire cette liste, vérifier
+qu'aucun handler inline n'est introduit, tester sous CSP (320 checks de référence
+dans le scratchpad : csptest.mjs → csptest16.mjs).

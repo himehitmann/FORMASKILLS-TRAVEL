@@ -2036,21 +2036,41 @@ function parseTable(text){
   if(delim==="\t") return lines.map(l=>l.split("\t").map(s=>s.replace(/^"|"$/g,"").trim()));
   return lines.map(splitCSV).map(r=>r.map(s=>s.trim()));
 }
-const IMPORT_FIELDS=[["email","Email"],["first","Prénom"],["name","Nom / contact"],["company","Société"],["phone","Téléphone"],["city","Ville"],["country","Pays"],["website","Site web"],["service","Fonction"]];
+const IMPORT_FIELDS=[["email","Email"],["first","Prénom"],["name","Nom / contact"],["company","Société / entité"],["phone","Téléphone"],["city","Ville"],["country","Pays"],["address","Adresse"],["website","Site web"],["service","Fonction"],["category","Type / nature"],["stage","Statut"],["owner","Responsable"],["nextAction","Prochaine action"],["note","Notes"]];
+// Normalise un statut libre (CRM Drive) vers l'étape du pipeline de l'outil.
+function deburrLower(s){ return (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim(); }
+function normStage(raw){ const t=deburrLower(raw); if(!t) return "";
+  if(/gagn|client|actif|partenaire|sign|conclu|acquis/.test(t)) return "Gagné";
+  if(/perdu|refus|abandon|clos|\bko\b|non int/.test(t)) return "Perdu";
+  if(/discussion|en cours|negoc|rdv|rendez|interess|devis|relation/.test(t)) return "En discussion";
+  if(/relanc/.test(t)) return "Relancé";
+  // « à contacter / prospect » AVANT « contacté » (le « contacter » de « à contacter »
+  // contient « contacte » et ne doit pas être pris pour « contacté »).
+  if(/\ba contacter\b|prospect|nouveau|a faire|a traiter/.test(t)) return "À contacter";
+  if(/contacte|envoy|joint|appele|premier mail|1er mail/.test(t)) return "Contacté";
+  return ""; }
 function detectMapping(rows){
-  const map={email:-1,first:-1,name:-1,phone:-1,company:-1,city:-1,country:-1,website:-1,service:-1};
+  const map={email:-1,first:-1,name:-1,phone:-1,company:-1,city:-1,country:-1,address:-1,website:-1,service:-1,category:-1,stage:-1,owner:-1,nextAction:-1,note:-1};
   const rowHasEmail=r=>r.some(c=>RE_MAIL_ONE.test(c||""));
   const hasHeader = rows.length>0 && !rowHasEmail(rows[0]);
-  if(hasHeader){ rows[0].forEach((raw,i)=>{ const t=(raw||"").toLowerCase();
+  if(hasHeader){ rows[0].forEach((raw,i)=>{ const t=deburrLower(raw);
+    // Ordre = du plus spécifique au plus générique (else-if : 1 colonne = 1 champ).
+    // t est déjà sans accents (deburrLower) : les classes [ée] restent tolérantes.
     if(map.email<0 && /e-?mail|mail|courriel/.test(t)) map.email=i;
     else if(map.first<0 && /(pr[ée]nom|first ?name)/.test(t)) map.first=i;
-    else if(map.name<0 && /(\bnom\b|name|contact|responsable|interlocuteur)/.test(t)) map.name=i;
+    else if(map.category<0 && /(type de relation|nature|cat[ée]gorie|\btype\b)/.test(t)) map.category=i;
+    else if(map.nextAction<0 && /(prochaine action|next action|à relancer|prochaine [ée]tape)/.test(t)) map.nextAction=i;
+    else if(map.stage<0 && /(statut|status|[ée]tape|stage|pipeline|avancement)/.test(t)) map.stage=i;
+    else if(map.owner<0 && /(responsable|owner|charg[ée]|assign[ée]|suivi par|r[ée]f[ée]rent)/.test(t)) map.owner=i;
+    else if(map.company<0 && /(soci[ée]t|entreprise|organisme|entit[ée]|company|[ée]tablissement|structure|enseigne|nom de l|raison sociale|lyc[ée]e|[ée]cole)/.test(t)) map.company=i;
+    else if(map.name<0 && /(\bnom\b|name|contact|interlocuteur)/.test(t)) map.name=i;
     else if(map.phone<0 && /(t[ée]l|phone|mobile|portable|gsm|fixe)/.test(t)) map.phone=i;
-    else if(map.company<0 && /(soci[ée]t|entreprise|organisme|entit[ée]|company|[ée]tablissement|structure|enseigne|nom de l)/.test(t)) map.company=i;
-    else if(map.city<0 && /(ville|city|localit)/.test(t)) map.city=i;
+    else if(map.address<0 && /(adresse|address|\brue\b|voie)/.test(t)) map.address=i;
+    else if(map.city<0 && /(ville|city|localit|commune)/.test(t)) map.city=i;
     else if(map.country<0 && /(pays|country)/.test(t)) map.country=i;
     else if(map.website<0 && /(site|web|url)/.test(t)) map.website=i;
     else if(map.service<0 && /(fonction|poste|titre|\brole\b|rôle|activit|secteur)/.test(t)) map.service=i;
+    else if(map.note<0 && /(notes?|remarques?|commentaires?|observations?|offre|int[ée]r[êe]t|besoin)/.test(t)) map.note=i;
   }); }
   if(map.email<0){ const data=hasHeader?rows.slice(1):rows; const ncol=Math.max(0,...rows.map(r=>r.length)); let best=-1,bn=0;
     for(let cc=0;cc<ncol;cc++){ let n=0; data.forEach(r=>{ if(RE_MAIL_ONE.test(r[cc]||"")) n++; }); if(n>bn){bn=n;best=cc;} }
@@ -2069,9 +2089,16 @@ function smartImport(rows, {map,hasHeader}, listName){
     if(!email && !name && !company) return;
     if(email && DB.contacts.some(c=>c.email===email)) return;
     const website=g(r,map.website);
+    const typeTxt=g(r,map.category);
+    const cat = typeTxt ? (inferCategory(typeTxt)||"") : "";
+    const stage = normStage(g(r,map.stage)) || "À contacter";
+    const addr=g(r,map.address);
+    const note=[g(r,map.note), addr?("Adresse : "+addr):""].filter(Boolean).join("\n");
     const rec={ id:uid(), email, name, company, phone:g(r,map.phone), city:g(r,map.city), country:g(r,map.country),
-      website, service:g(r,map.service), domain: website?hostFromUrl(website):(email?email.split("@")[1]:""),
-      source:"import", stage:"À contacter", added:Date.now(), tags:L?[L]:[] };
+      website, service:g(r,map.service), domain: (website&&hostFromUrl(website))||(email?email.split("@")[1]:""),
+      owner:g(r,map.owner), nextAction:g(r,map.nextAction), note,
+      source:"import", stage, added:Date.now(), tags:L?[L]:[] };
+    if(cat) rec.category=cat;
     DB.contacts.unshift(rec); added.push(rec); n++;
   });
   if(n){ logAct(`${n} contact(s) importés${L?` → « ${L} »`:""}`); save(); renderNav(); }
