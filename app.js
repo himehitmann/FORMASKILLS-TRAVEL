@@ -2942,6 +2942,7 @@ VIEWS.itinerary=()=>{
     <button class="btn sm" data-call="newItinerary()">+ Nouvel itinéraire</button>
     <div class="spacer"></div>
     <button class="btn sm" data-call="itinComputeRoutes()" id="it_road">Vraies distances (gratuit)</button>
+    <button class="btn sm primary" data-call="itinToQuote()">Créer un devis</button>
     <button class="btn sm ghost" data-call="itinPrint()">Imprimer / PDF</button>
     <button class="btn sm ghost" data-call="delItinerary('${it.id}')">Supprimer</button></div>
   <div class="grid cards" style="margin:6px 0 14px">
@@ -3090,6 +3091,21 @@ window.itinComputeRoutes=async()=>{ const it=curItin(); if(!it)return;
   if(btn) btn.disabled=false;
   logAct(`${n} trajet(s) calculé(s) sur routes réelles (OSRM)`); save(); if(CURRENT==="itinerary") VIEWS.itinerary();
   toast(n?`${n} trajet(s) calculé(s) gratuitement (routes réelles)`:"Calcul indisponible (hors ligne ?) — estimation conservée", n?"ok":"warn"); };
+// Génère un devis à partir de l'itinéraire : une ligne par expérience
+// (Jour — nom), quantité = participants, prix unitaire = prix/personne.
+// Le total du devis correspond au « Prix total » de l'itinéraire.
+window.itinToQuote=()=>{ const it=curItin(); if(!it)return; const pax=Math.max(1,+it.participants||1);
+  const items=[]; (it.days||[]).forEach((d,di)=>{ (d.items||[]).forEach(item=>{ const e=expById(item.expId); if(!e)return;
+    items.push({label:`${d.label||("Jour "+(di+1))} — ${e.name}`, qty:pax, unit:Number(e.price)>0?Number(e.price):0}); }); });
+  if(!items.length){ toast("Ajoutez d'abord des expériences à l'itinéraire","warn"); return; }
+  const q={ id:uid(), kind:"devis", number:nextQuoteNumber("devis"), date:Date.now(), validity:"30", due:Date.now()+30*864e5,
+    status:"Brouillon", clientName:it.client||"", clientAddr:"", clientContact:"", clientEmail:"",
+    object:"Séjour culturel — "+(it.name||""), items, tvaRate:DB.settings.tvaDefault||0,
+    conditions:"Acompte de 30% à la commande, solde avant le départ.\nProgramme indicatif, ajustable selon disponibilités et effectif." };
+  DB.quotes.unshift(q); DB.settings.quoteSeq=(DB.settings.quoteSeq||1)+1;
+  logAct("Devis créé depuis l'itinéraire : "+q.number); save();
+  go("docs"); DOCS_TAB="quotes"; DOCS_KIND="devis"; VIEWS.docs(); editQuote(q.id);
+  toast("Devis "+q.number+" créé — vérifiez et enregistrez"); };
 window.itinPrint=()=>{ const it=curItin(); if(!it)return; const T=itinTotals(it);
   const daysHTML=(it.days||[]).map((d,di)=>{ const rows=(d.items||[]).map((item,ii)=>{ const e=expById(item.expId); if(!e)return "";
     let leg=""; if(ii>0){ const pe=expById(d.items[ii-1].expId); if(pe){ const L=legFor(pe,e,item); const m=ITIN_MODES[item.mode||"walk"];

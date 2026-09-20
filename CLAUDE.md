@@ -462,6 +462,12 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    reste hors périmètre gratuit sans clé — le mode « bus/tram » estime le temps à
    partir de la distance routière ; le **lien Google Maps** ouvre le vrai trajet
    transit en ligne. Serveurs publics OSM/OSRM = usage raisonnable (petits volumes).
+   - **Devis depuis un itinéraire** (`itinToQuote`, bouton « Créer un devis ») :
+     génère un **devis** (une ligne par expérience « Jour — nom », quantité =
+     participants, prix unitaire = prix/pers), **total = prix total de
+     l'itinéraire**, client + objet repris, statut Brouillon → ouvre l'éditeur de
+     devis pour vérification. Activités gratuites en ligne à 0 (incluses).
+     `quoteSeq` incrémenté. (19 checks, csptest22 ; total 442.)
 
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
@@ -535,4 +541,4 @@ routage/géocodage gratuit OSM) sont **livrés et testés**. Reste le point **3
 Améliorations possibles sur T10 : événements datés, **génération d'un devis
 directement depuis un itinéraire** (reprendre le total calculé). Avant de coder
 une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP (423 checks de référence : csptest.mjs → csptest21.mjs).
+introduit, tester sous CSP (442 checks de référence : csptest.mjs → csptest22.mjs).
