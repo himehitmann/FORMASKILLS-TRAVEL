@@ -479,6 +479,19 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
      Thau). Export CSV enrichi (date, date_fin, listes). Helpers `expIsUpcoming`,
      `expEventLabel`, `expLists`, `expTogglePartner`, `expToggleUpcoming`.
 
+10. ~~**Intake participants (R.f — Google Form → fiche)**~~ — **FAIT & TESTÉ**
+    (18 checks, csptest24 ; total 477). Bouton **« Inscriptions / import »** dans
+    T3 Participants (`openParticipantIntake`) : (1) **saisie manuelle** rapide
+    (renvoie vers la fiche) ; (2) **import des réponses d'un formulaire** — coller
+    depuis Google Forms → Réponses → Sheets (TSV) ou un CSV. `detectParticipantMapping`
+    reconnaît les en-têtes (nom complet / prénom+nom, email, date de naissance,
+    nationalité, téléphone, projet, mineur), `importParticipants` crée une fiche par
+    ligne (naissance → timestamp, mineur oui/non normalisé, statut « Incomplet »,
+    projet rattaché), **dédoublonne par email** (sinon nom+projet), déclenche
+    l'automatisation `participant.created`. 100% gratuit (voie CSV, pas d'API Google
+    Forms payante). Aperçu des colonnes reconnues avant import. Helpers :
+    `PART_FIELDS`, `detectParticipantMapping`, `importParticipants`.
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
@@ -551,4 +564,4 @@ routage/géocodage gratuit OSM) sont **livrés et testés**. Reste le point **3
 Améliorations possibles sur T10 : événements datés, **génération d'un devis
 directement depuis un itinéraire** (reprendre le total calculé). Avant de coder
 une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP (459 checks de référence : csptest.mjs → csptest23.mjs).
+introduit, tester sous CSP (477 checks de référence : csptest.mjs → csptest24.mjs).

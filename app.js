@@ -2128,6 +2128,76 @@ function smartImport(rows, {map,hasHeader}, listName){
   added.forEach(rec=>Automations.run("contact.created",{...rec,_entity:"contacts",_id:rec.id}));
   return {n, added};
 }
+/* Intake participants (R.f) — « Google Form → fiche », 100% gratuit.
+   Deux voies : (1) saisie rapide d'un participant ; (2) import des réponses
+   d'un Google Form / Sheet (exporté en CSV, ou copié-collé en TSV). Mapping
+   auto des colonnes vers les champs participant (nom, naissance, nationalité,
+   email, téléphone, projet, mineur). Dédup par email (ou nom+projet). */
+const PART_FIELDS=[["name","Nom Prénom"],["birth","Date de naissance"],["nationality","Nationalité"],["email","Email"],["phone","Téléphone"],["project","Projet lié"],["minor","Mineur ?"]];
+function detectParticipantMapping(rows){
+  const map={name:-1,first:-1,last:-1,birth:-1,nationality:-1,email:-1,phone:-1,project:-1,minor:-1};
+  const rowHasEmail=r=>r.some(c=>RE_MAIL_ONE.test(c||""));
+  const hasHeader = rows.length>0 && !rowHasEmail(rows[0]);
+  if(hasHeader){ rows[0].forEach((raw,i)=>{ const t=deburrLower(raw);
+    if(map.email<0 && /e-?mail|mail|courriel/.test(t)) map.email=i;
+    else if(map.first<0 && /(prenom|first ?name|given)/.test(t)) map.first=i;
+    else if(map.last<0 && /(nom de famille|last ?name|surname|family)/.test(t)) map.last=i;
+    else if(map.name<0 && /(nom complet|nom et prenom|\bnom\b|name|participant|apprenant|eleve|etudiant)/.test(t)) map.name=i;
+    else if(map.birth<0 && /(naissance|birth|ne\(e\)|date de nais|dob)/.test(t)) map.birth=i;
+    else if(map.nationality<0 && /(nationalit|nationality|pays d'origine)/.test(t)) map.nationality=i;
+    else if(map.phone<0 && /(tel|phone|mobile|portable|gsm)/.test(t)) map.phone=i;
+    else if(map.project<0 && /(projet|sejour|mobilit|programme|groupe|destination|session)/.test(t)) map.project=i;
+    else if(map.minor<0 && /(mineur|minor|majeur|age)/.test(t)) map.minor=i;
+  }); }
+  if(map.email<0){ const data=hasHeader?rows.slice(1):rows; const ncol=Math.max(0,...rows.map(r=>r.length)); let best=-1,bn=0;
+    for(let cc=0;cc<ncol;cc++){ let n=0; data.forEach(r=>{ if(RE_MAIL_ONE.test(r[cc]||"")) n++; }); if(n>bn){bn=n;best=cc;} }
+    if(best>=0) map.email=best; }
+  return {map, hasHeader};
+}
+function importParticipants(rows, {map,hasHeader}, defaultProject){
+  const data=hasHeader?rows.slice(1):rows; const g=(r,i)=> i>=0&&i<r.length?(r[i]||"").trim():"";
+  let n=0; const added=[];
+  data.forEach(r=>{
+    let email=g(r,map.email).toLowerCase(); if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ const m=(r.join(" ").match(RE_MAIL_ONE)||[])[0]; email=m?m.toLowerCase():""; }
+    const name=[g(r,map.first),g(r,map.last),g(r,map.name)].filter(Boolean).join(" ").replace(/\s+/g," ").trim();
+    if(!name && !email) return;
+    if(email && DB.participants.some(p=>(p.email||"").toLowerCase()===email)) return;
+    if(!email && DB.participants.some(p=>p.name===name && (p.project||"")===(g(r,map.project)||defaultProject||""))) return;
+    let birth=g(r,map.birth); if(birth){ const d=new Date(birth); if(!isNaN(d)) birth=d.getTime(); else birth=""; }
+    const minorRaw=deburrLower(g(r,map.minor)); const minor= /oui|yes|mineur|true|1/.test(minorRaw)?"Oui":(minorRaw?"Non":"");
+    const rec={ id:uid(), name, email, birth, nationality:g(r,map.nationality), phone:g(r,map.phone),
+      project:g(r,map.project)||defaultProject||"", minor, insurance:"Non", ceam:"Non", status:"Incomplet", added:Date.now() };
+    DB.participants.push(rec); added.push(rec); n++;
+  });
+  if(n){ logAct(`${n} participant(s) importé(s) (intake)`); save(); renderNav(); }
+  added.forEach(rec=>Automations.run("participant.created",{...rec,_entity:"participants",_id:rec.id}));
+  return {n, added};
+}
+window.openParticipantIntake=()=>{
+  const projOpts=DB.projects.map(p=>`<option>${esc(p.name)}</option>`).join("");
+  openModal({title:"Inscriptions participants", wide:true,
+    body:`<div class="helpbox" style="margin-top:0">${ic2("info")}<div>Deux façons d'ajouter des participants, <b>100% gratuit</b> :<br>• <b>Réponses d'un formulaire</b> (Google Forms → « Réponses » → Google Sheets → sélectionner et copier, ou exporter en CSV) : collez-les ci-dessous, l'outil crée une fiche par ligne.<br>• Ou <b>« + Saisie manuelle »</b> pour une inscription unique.</div></div>
+    <div class="row2">
+      <div class="field"><label>Projet / séjour à rattacher (optionnel)</label><input class="input" id="pi_proj" list="pi_projlist" placeholder="Laisser vide pour prendre la colonne du tableau"><datalist id="pi_projlist">${projOpts}</datalist></div>
+      <div class="field" style="display:flex;align-items:flex-end"><button class="btn" id="pi_manual">+ Saisie manuelle</button></div>
+    </div>
+    <div class="field"><label>Coller les réponses (Excel / Google Sheets / CSV)</label><textarea id="pi_text" style="min-height:120px" placeholder="Nom\tEmail\tDate de naissance\tNationalité\tTéléphone\tMineur ?"></textarea></div>
+    <div class="toolbar" style="margin:0;gap:8px"><button class="btn sm" id="pi_filebtn">Ou importer un fichier CSV</button>
+      <input type="file" id="pi_file" accept=".csv,.tsv,.txt,text/csv" style="display:none"></div>
+    <div id="pi_prev" style="margin-top:12px"></div>`,
+    footer:[{label:"Fermer",cls:"ghost",act:closeModal},{label:"Analyser",cls:"",act:piAnalyze},{label:"Importer",cls:"primary",act:piDo}]});
+  $("#pi_manual").onclick=()=>{ closeModal(); editEntity("participants",null); };
+  $("#pi_filebtn").onclick=()=>$("#pi_file").click();
+  $("#pi_file").onchange=e=>{ const f=e.target.files[0]; if(!f)return; const rd=new FileReader(); rd.onload=()=>{ $("#pi_text").value=rd.result; piAnalyze(); }; rd.readAsText(f); };
+  function piAnalyze(){ const rows=parseTable($("#pi_text").value); if(!rows.length){ $("#pi_prev").innerHTML=`<div class="tag w">Collez d'abord des réponses, ou importez un CSV.</div>`; return null; }
+    const det=detectParticipantMapping(rows); const data=det.hasHeader?rows.slice(1):rows;
+    const chips=PART_FIELDS.filter(([k])=>det.map[k]>=0 || (k==="name"&&(det.map.first>=0||det.map.last>=0))).map(([k,l])=>`<span class="tag g">${l}</span>`).join(" ")||'<span class="tag w">Colonnes non reconnues — vérifiez les en-têtes</span>';
+    $("#pi_prev").innerHTML=`<div class="card" style="padding:12px"><div style="font-weight:700;margin-bottom:6px">${data.length} inscription(s) · en-têtes ${det.hasHeader?"détectés":"absents"}</div><div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div></div>`;
+    return det; }
+  function piDo(){ const rows=parseTable($("#pi_text").value); if(!rows.length){ toast("Rien à importer","warn"); return; }
+    const det=detectParticipantMapping(rows); const {n}=importParticipants(rows,det,$("#pi_proj").value.trim());
+    closeModal(); if(CURRENT==="participants") entityView("participants"); toast(n?`${n} participant(s) inscrit(s)`:"Aucun nouveau participant (déjà présents ?)", n?"ok":"warn"); }
+};
 function openImport(){
   openModal({title:"Importer des contacts", wide:true,
     body:`<p class="muted" style="font-weight:600;margin-top:0">Collez directement depuis <b>Excel</b> ou <b>Google Sheets</b> (sélectionnez les cellules, Ctrl+C, Ctrl+V ici), ou importez un <b>CSV</b>. L'outil détecte tout seul les colonnes (email, nom, société, téléphone, ville…) et repère les emails.</p>
@@ -2251,6 +2321,7 @@ function entityView(entity){
     ${sf?`<select class="input" id="ev_filter" style="max-width:190px"><option value="">Tous les statuts</option>${filterOpts.map(o=>`<option ${st.filter===o?'selected':''}>${esc(o)}</option>`).join("")}</select>`:""}
     ${canKanban?`<div class="pill-tabs"><button data-mode="kanban" class="${st.mode==='kanban'?'active':''}">Kanban</button><button data-mode="table" class="${st.mode==='table'?'active':''}">Tableau</button></div>`:""}
     <div class="spacer"></div>
+    ${entity==="participants"?`<button class="btn sm" data-call="openParticipantIntake()">Inscriptions / import</button>`:""}
     <button class="btn ghost sm" id="ev_cols">Colonnes</button>
     <button class="btn ghost sm" id="ev_exp">Exporter CSV</button>
     <button class="btn primary" id="ev_add">+ ${esc(s.label)}</button>
