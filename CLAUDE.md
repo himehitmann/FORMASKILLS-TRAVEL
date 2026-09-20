@@ -324,8 +324,17 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    *simulée* (pas de vrai compte dans l'environnement). Faire tester par
    l'utilisatrice ; ajuster les sélecteurs de `scrape-core.js` (`ftPageScrape`,
    section `profiles`) selon le vrai DOM LinkedIn si besoin.
-3. **Export CSV automatique périodique** dans le dossier Drive (pour ouvrir les
-   contacts directement dans Google Sheets) — proposé, en attente d'accord.
+3. ~~**Export CSV automatique** dans le dossier Drive~~ — **FAIT & TESTÉ**
+   (17 checks, csptest25 ; total 494). Réglages → « Export CSV automatique vers
+   Drive » : on choisit un fichier `.csv` (à placer dans le dossier Drive) ;
+   `contactsCsvText` génère un CSV des contacts (BOM UTF-8, en-têtes lisibles,
+   échappement virgules/guillemets, listes/nature/étape incluses) et `writeCsvFile`
+   le **réécrit à chaque changement** (`scheduleCsv` branché dans `save()`, débounce
+   1 s). Même mécanique que la synchro JSON : File System Access + handle en
+   IndexedDB (`idbSet("csv")`), `initCsv()` au démarrage, `reconnectCsv`/`disableCsv`.
+   Ouvrable directement dans Google Sheets. 100% gratuit, repli silencieux si
+   permission absente. Helpers : `contactsCsvText`, `writeCsvFile`, `scheduleCsv`,
+   `chooseCsvFile`, `disableCsv`, `reconnectCsv`, `initCsv`.
 4. ~~**Import en masse de la BDD/CRM Drive / Airtable** (reprise en masse)~~ —
    **FAIT & TESTÉ** (24/24 checks sous CSP ; total 320). L'import intelligent de
    sheets (`detectMapping`/`smartImport`, bouton « Importer / coller » de
@@ -564,4 +573,4 @@ routage/géocodage gratuit OSM) sont **livrés et testés**. Reste le point **3
 Améliorations possibles sur T10 : événements datés, **génération d'un devis
 directement depuis un itinéraire** (reprendre le total calculé). Avant de coder
 une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP (477 checks de référence : csptest.mjs → csptest24.mjs).
+introduit, tester sous CSP (494 checks de référence : csptest.mjs → csptest25.mjs).

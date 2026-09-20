@@ -46,7 +46,7 @@ let _saveT=null;
 function mirrorChrome(){ try{ if(typeof chrome!=="undefined" && chrome.storage && chrome.storage.local) chrome.storage.local.set({[KEY]:DB}); }catch(e){} }
 function save(){ // debounce léger pour ne pas écrire à chaque frappe
   clearTimeout(_saveT);
-  _saveT=setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } scheduleSync(); }, 120);
+  _saveT=setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } scheduleSync(); scheduleCsv(); }, 120);
 }
 function saveNow(){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){} }
 /* Résilience : si localStorage a été vidé mais que chrome.storage a survécu
@@ -148,6 +148,44 @@ async function initSync(){
     syncBanner();
   }catch(e){}
 }
+/* Export CSV automatique vers le dossier Drive (100% gratuit) : à chaque
+   changement, on réécrit un fichier .csv des contacts que Google Sheets peut
+   ouvrir directement. Même mécanique que la synchro JSON (File System Access +
+   IndexedDB pour retrouver le fichier). */
+let CSV_HANDLE=null, _csvT=null;
+function csvEsc(v){ v=(v==null?"":String(v)).replace(/"/g,'""'); return /[",\n]/.test(v)?`"${v}"`:v; }
+function contactsCsvText(){
+  const cols=[["name","Nom"],["company","Société"],["email","Email"],["phone","Téléphone"],["city","Ville"],["country","Pays"],
+    ["website","Site"],["category","Nature"],["stage","Étape"],["owner","Responsable"],["nextAction","Prochaine action"],
+    ["value","Valeur"],["note","Notes"],["tags","Listes"]];
+  const head=cols.map(c=>c[1]).join(",");
+  const body=(DB.contacts||[]).map(c=>cols.map(([k])=>{
+    let v = k==="tags"?(c.tags||[]).join(" | ") : k==="category"?catOf(c) : k==="stage"?stageOf(c) : c[k];
+    return csvEsc(v); }).join(",")).join("\n");
+  return "﻿"+head+"\n"+body;
+}
+async function writeCsvFile(){ if(!CSV_HANDLE) return false;
+  try{ if((await perm(CSV_HANDLE,"readwrite"))!=="granted") return false;
+    const w=await CSV_HANDLE.createWritable(); await w.write(contactsCsvText()); await w.close();
+    DB.settings.lastCsv=Date.now(); return true; }catch(e){ return false; } }
+function scheduleCsv(){ if(!CSV_HANDLE) return; clearTimeout(_csvT); _csvT=setTimeout(writeCsvFile,1000); }
+async function chooseCsvFile(){
+  if(!FS_OK){ toast("Ce navigateur ne gère pas l'écriture fichier. Utilisez « Exporter CSV ».","warn"); return; }
+  try{ const h=await window.showSaveFilePicker({suggestedName:"formaskills-contacts.csv",
+      types:[{description:"CSV contacts",accept:{"text/csv":[".csv"]}}]});
+    CSV_HANDLE=h; await idbSet("csv",h); DB.settings.csvSync=true; await writeCsvFile(); saveNow();
+    toast("Export CSV auto activé. Placez ce fichier dans votre dossier Google Drive — il se met à jour tout seul.");
+    if(CURRENT==="settings") VIEWS.settings();
+  }catch(e){}
+}
+async function disableCsv(){ CSV_HANDLE=null; await idbDel("csv"); DB.settings.csvSync=false; save(); if(CURRENT==="settings") VIEWS.settings(); toast("Export CSV auto désactivé."); }
+async function reconnectCsv(){ if(!CSV_HANDLE){ const h=await idbGet("csv"); if(h) CSV_HANDLE=h; }
+  if(!CSV_HANDLE) return chooseCsvFile();
+  const p=await permAsk(CSV_HANDLE,"readwrite"); if(p==="granted"){ await writeCsvFile(); toast("Export CSV reconnecté."); if(CURRENT==="settings") VIEWS.settings(); }
+  else toast("Autorisation refusée.","warn"); }
+async function initCsv(){ try{ const h=await idbGet("csv"); if(!h) return; CSV_HANDLE=h;
+  if((await perm(h,"readwrite"))==="granted") await writeCsvFile(); }catch(e){} }
+window.chooseCsvFile=chooseCsvFile; window.disableCsv=disableCsv; window.reconnectCsv=reconnectCsv;
 function syncBanner(){
   const host=$("#syncBanner"); if(!host) return;
   if(SYNC_HANDLE && DB.settings.syncEnabled){
@@ -4133,7 +4171,16 @@ VIEWS.settings=()=>{
         <button class="btn primary" id="sy_choose">${DB.settings.syncEnabled?'Changer le fichier de synchro':'Activer la synchro (choisir le fichier)'}</button>
         <button class="btn" id="sy_open">Ouvrir un fichier existant (autre PC)</button>
       </div>
-      ${DB.settings.syncEnabled?`<div class="row2" style="margin-top:10px"><button class="btn ghost" id="sy_now">Synchroniser maintenant</button><button class="btn ghost" id="sy_off" style="color:var(--bad)">Désactiver</button></div>`:''}`}
+      ${DB.settings.syncEnabled?`<div class="row2" style="margin-top:10px"><button class="btn ghost" id="sy_now">Synchroniser maintenant</button><button class="btn ghost" id="sy_off" style="color:var(--bad)">Désactiver</button></div>`:''}
+      <div class="divider"></div>
+      <div class="section-title" style="margin-top:0">Export CSV automatique vers Drive (Google Sheets)</div>
+      <p class="muted" style="font-weight:600;margin-top:0">En plus de la synchro, gardez un <b>fichier CSV des contacts</b> à jour dans votre dossier Drive : ouvrez-le directement dans <b>Google Sheets</b>. Il se réécrit <b>tout seul</b> à chaque changement. 100% gratuit.</p>
+      <div style="font-size:12.5px;font-weight:600;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+        État : <b style="color:${DB.settings.csvSync?'var(--ok)':'var(--muted)'}">${DB.settings.csvSync?'activé':'non activé'}</b>${DB.settings.lastCsv?` · dernier export ${fmtDate(DB.settings.lastCsv)}`:''}</div>
+      <div class="row2">
+        <button class="btn" data-call="chooseCsvFile()">${DB.settings.csvSync?'Changer le fichier CSV':"Activer l'export CSV auto"}</button>
+        ${DB.settings.csvSync?`<button class="btn ghost" data-call="disableCsv()" style="color:var(--bad)">Désactiver l'export CSV</button>`:''}
+      </div>`}
     </div>
     <div class="card">
       <div class="section-title" style="margin-top:0">Cadence du scraper (politesse)</div>
@@ -4340,6 +4387,7 @@ go("dash");
 checkOverdue();
 hydrateFromChrome();
 initSync();
+initCsv();
 window.addEventListener("beforeunload",saveNow);
 /* Synchronisation live : quand la popup de l'extension enregistre des contacts,
    l'application ouverte se met à jour automatiquement. */
