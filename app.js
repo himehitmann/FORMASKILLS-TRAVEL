@@ -25,7 +25,8 @@ const DEFAULT_DB = {
     docStyle:{ logo:"", accent:"#1d5fd6", headerExtra:"", footerMode:"auto", footerText:"", showBank:true }
   },
   partners:[], projects:[], participants:[], providers:[],
-  budget:[], tasks:[], contacts:[], automations:[], campaigns:[], emailTemplates:[], quotes:[], docs:[], docRegistry:[], activity:[],
+  budget:[], tasks:[], contacts:[], automations:[], campaigns:[], emailTemplates:[], quotes:[], docs:[], docRegistry:[],
+  experiences:[], itineraries:[], activity:[],
   customFields:{ partners:[], projects:[], participants:[], providers:[], tasks:[] }
 };
 function loadDB(){
@@ -69,7 +70,7 @@ function logAct(msg){ DB.activity.unshift({t:Date.now(),m:msg}); DB.activity=DB.
    n'est jamais perdu quand on rapproche deux copies.
    ============================================================ */
 const FS_OK = (typeof window!=="undefined" && "showSaveFilePicker" in window);
-const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns","emailTemplates","quotes","docs","docRegistry"];
+const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns","emailTemplates","quotes","docs","docRegistry","experiences","itineraries"];
 function mergeDB(local, remote){
   if(!remote) return local;
   const out=structuredClone(local);
@@ -1078,7 +1079,9 @@ const ICONS = {
   gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   guide:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
   doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>',
-  cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'
+  cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  pin:'<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+  route:'<circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a3 3 0 0 0 3-3V8"/>'
 };
 const ic = k => `<svg class="ic" viewBox="0 0 24 24">${ICONS[k]||""}</svg>`;
 
@@ -1097,6 +1100,8 @@ const NAV = [
   {id:"tasks", title:"T7 · Tâches & conformité", sub:"Échéances, rappels, checklist", icon:"task", entity:"tasks"},
   {id:"registry", title:"T8 · Registre documentaire", sub:"Pièces par dossier + statut (Qualiopi / Erasmus)", icon:"doc"},
   {id:"planning", title:"T9 · Calendrier & plannings", sub:"Calendrier des séjours + planning journalier (FLE à Sète)", icon:"cal"},
+  {id:"experiences", title:"T10 · Expériences & lieux", sub:"Musées, restaurants, activités, événements — cartes éditables", icon:"pin", entity:"experiences"},
+  {id:"itinerary", title:"Constructeur d'itinéraire", sub:"Glisser-déposer des expériences, calcul prix + trajets", icon:"route"},
   {group:"Système"},
   {id:"automations", title:"Automatisations", sub:"Règles automatiques (remplace Make)", icon:"auto"},
   {id:"campaigns", title:"Campagnes de relance", sub:"Séquences d'emails espacées (J+3, J+7…)", icon:"finder"},
@@ -1107,7 +1112,7 @@ const NAV = [
 let CURRENT="dash";
 function renderNav(){
   const counts={ partners:DB.partners.length, projects:DB.projects.length, participants:DB.participants.length,
-    providers:DB.providers.length, tasks:DB.tasks.filter(t=>t.status!=="Fait").length };
+    providers:DB.providers.length, tasks:DB.tasks.filter(t=>t.status!=="Fait").length, experiences:(DB.experiences||[]).length };
   $("#nav").innerHTML = NAV.map(n=>{
     if(n.group) return `<div class="nav-group">${esc(n.group)}</div>`;
     const c = n.entity!=null ? counts[n.entity]
@@ -2733,6 +2738,319 @@ window.exportPipeline=()=>{
   if(!rows.length){ toast("Aucune opportunité à exporter","warn"); return; }
   exportCSV("pipeline-commercial",["nom","societe","email","etape","valeur","closing","responsable","prochaine_action"],rows);
 };
+
+/* ============================================================
+   T10 · EXPÉRIENCES & LIEUX + CONSTRUCTEUR D'ITINÉRAIRE
+   ============================================================
+   Recensement de tout ce que les visiteurs peuvent faire (musées,
+   restaurants, activités, événements…) sous forme de cartes éditables
+   (nom, adresse, jours d'ouverture, prix/personne, badge coloré par
+   catégorie). Puis un atelier glisser-déposer pour composer l'itinéraire
+   d'un séjour : prix calculés automatiquement, trajets estimés (marche /
+   transport en commun / voiture) et lien Google Maps de l'itinéraire.
+   Honnête : le calcul d'itinéraire précis (voirie, horaires de bus/tram)
+   exige une API payante — hors périmètre autonome. On estime la distance
+   à vol d'oiseau + un temps réaliste par mode, et on ouvre le VRAI trajet
+   dans Google Maps (en ligne) via un lien pré-rempli. */
+const EXP_CATEGORIES=[
+  ["Musée","#7c3aed"],["Monument / Visite","#be123c"],["Restaurant","#e0620d"],["Bar / Café","#0891b2"],
+  ["Activité","#0e9f6e"],["Parc / Nature","#4d7c0f"],["Plage","#0284c7"],["Événement","#9333ea"],
+  ["Boutique / Marché","#a16207"],["Hébergement","#1d5fd6"],["Transport","#475569"],["Autre","#64748b"]];
+const expColor=k=>{ const f=EXP_CATEGORIES.find(c=>c[0]===k); return f?f[1]:"#64748b"; };
+function expPriceLabel(p){ const n=Number(p); return (!isFinite(n)||n<=0)?"Gratuit":eur(n)+" / pers."; }
+let EXP_CITY="", EXP_CAT="", EXP_Q="";
+function expCities(){ return [...new Set((DB.experiences||[]).map(e=>e.city).filter(Boolean))].sort(); }
+function expRows(){ let r=(DB.experiences||[]).slice();
+  if(EXP_CITY) r=r.filter(e=>e.city===EXP_CITY);
+  if(EXP_CAT) r=r.filter(e=>(e.category||"Autre")===EXP_CAT);
+  if(EXP_Q){ const q=deburrLower(EXP_Q); r=r.filter(e=>deburrLower([e.name,e.city,e.address,e.category,e.notes].join(" ")).includes(q)); }
+  return r.sort((a,b)=>(a.name||"").localeCompare(b.name||"")); }
+VIEWS.experiences=()=>{
+  const cities=expCities(); const all=DB.experiences||[];
+  $("#view").innerHTML=`
+  <div class="helpbox">${ic2("info")}<div>Votre <b>bibliothèque d'expériences</b> : recensez tout ce que les visiteurs peuvent faire (musées, restaurants, activités, événements…). Chaque carte affiche <b>adresse</b>, <b>jours d'ouverture</b>, <b>prix / personne</b> et un <b>badge de catégorie</b> coloré. Renseignez l'adresse (ou les coordonnées) pour que le <b>constructeur d'itinéraire</b> calcule les trajets.</div></div>
+  <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+    <input class="input" id="exp_q" placeholder="Rechercher…" value="${esc(EXP_Q)}" style="max-width:220px">
+    <select class="input" id="exp_city" style="max-width:180px"><option value="">Toutes les villes</option>${cities.map(c=>`<option ${c===EXP_CITY?"selected":""}>${esc(c)}</option>`).join("")}</select>
+    <select class="input" id="exp_cat" style="max-width:190px"><option value="">Toutes les catégories</option>${EXP_CATEGORIES.map(([k])=>`<option ${k===EXP_CAT?"selected":""}>${esc(k)}</option>`).join("")}</select>
+    <div class="spacer"></div>
+    <button class="btn sm" data-call="seedExperiences()">Exemples Sète / Montpellier</button>
+    <button class="btn sm ghost" data-call="exportExperiences()">Exporter CSV</button>
+    <button class="btn sm primary" data-call="openExpEntry()">+ Nouvelle expérience</button></div>
+  <div class="muted" style="font-weight:600;margin:2px 0 12px">${expRows().length} / ${all.length} expérience(s)</div>
+  <div id="exp_grid"></div>`;
+  $("#exp_q").oninput=e=>{ EXP_Q=e.target.value; expDrawGrid(); };
+  $("#exp_city").onchange=e=>{ EXP_CITY=e.target.value; VIEWS.experiences(); };
+  $("#exp_cat").onchange=e=>{ EXP_CAT=e.target.value; VIEWS.experiences(); };
+  expDrawGrid();
+};
+function expCardHTML(e){ const col=expColor(e.category);
+  return `<div class="expcard">
+    <span class="exptag" style="background:${col}">${esc(e.category||"Autre")}</span>
+    <div class="expname">${esc(e.name||"—")}</div>
+    ${e.address||e.city?`<div class="expmeta"><span>${esc([e.address,e.city].filter(Boolean).join(", "))}</span></div>`:""}
+    ${e.openDays?`<div class="expmeta"><span>Ouvert : ${esc(e.openDays)}</span></div>`:""}
+    ${e.duration?`<div class="expmeta"><span>Durée ~ ${esc(String(e.duration))} min</span></div>`:""}
+    <div class="expprice" style="color:${Number(e.price)>0?'var(--ink)':'var(--ok)'}">${expPriceLabel(e.price)}</div>
+    <div class="expacts">
+      <button class="btn sm ghost" data-call="openExpEntry('${e.id}')">Modifier</button>
+      ${e.url?`<a class="btn sm ghost" href="${esc(e.url)}" target="_blank" rel="noopener">Site</a>`:""}
+      <button class="btn sm ghost" data-call="delExp('${e.id}')">×</button></div></div>`;
+}
+function expDrawGrid(){ const rows=expRows();
+  $("#exp_grid").innerHTML= rows.length? `<div class="expgrid">${rows.map(expCardHTML).join("")}</div>`
+    : `<div class="card"><div class="empty">Aucune expérience ${EXP_CITY||EXP_CAT||EXP_Q?"pour ce filtre":"encore"}. Cliquez « Exemples Sète / Montpellier » pour démarrer, ou « + Nouvelle expérience ».</div></div>`;
+}
+window.delExp=id=>{ const e=(DB.experiences||[]).find(x=>x.id===id); if(!e)return;
+  confirmModal("Supprimer l'expérience ?",`« ${e.name} » sera retirée de la bibliothèque.`,()=>{ DB.experiences=DB.experiences.filter(x=>x.id!==id); save(); renderNav(); VIEWS.experiences(); },true); };
+window.openExpEntry=id=>{
+  const e=id?(DB.experiences||[]).find(x=>x.id===id):null; const cities=expCities();
+  openModal({title:e?"Modifier l'expérience":"Nouvelle expérience", wide:true,
+    body:`<div class="row2">
+      <div class="field"><label>Nom du lieu / de l'activité *</label><input class="input" id="xe_name" value="${esc(e?.name||"")}" placeholder="Ex : Musée Fabre"></div>
+      <div class="field"><label>Catégorie</label><select id="xe_cat">${EXP_CATEGORIES.map(([k])=>`<option ${e&&e.category===k?"selected":""}>${esc(k)}</option>`).join("")}</select></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Ville</label><input class="input" id="xe_city" list="xe_citylist" value="${esc(e?.city||"")}" placeholder="Sète, Montpellier…"><datalist id="xe_citylist">${cities.map(c=>`<option value="${esc(c)}">`).join("")}</datalist></div>
+      <div class="field"><label>Adresse</label><input class="input" id="xe_addr" value="${esc(e?.address||"")}" placeholder="39 bd Bonne Nouvelle…"></div>
+    </div>
+    <div class="row3">
+      <div class="field"><label>Prix / personne (€ · 0 = gratuit)</label><input class="input" type="number" id="xe_price" value="${e&&e.price!=null&&e.price!==""?esc(e.price):""}" placeholder="0"></div>
+      <div class="field"><label>Durée estimée (min)</label><input class="input" type="number" id="xe_dur" value="${e&&e.duration?esc(e.duration):""}" placeholder="90"></div>
+      <div class="field"><label>Jours d'ouverture</label><input class="input" id="xe_open" value="${esc(e?.openDays||"")}" placeholder="Mar–Dim 10h–18h"></div>
+    </div>
+    <div class="row3">
+      <div class="field"><label>Latitude (optionnel)</label><input class="input" id="xe_lat" value="${e&&e.lat!=null?esc(e.lat):""}" placeholder="43.408"></div>
+      <div class="field"><label>Longitude (optionnel)</label><input class="input" id="xe_lng" value="${e&&e.lng!=null?esc(e.lng):""}" placeholder="3.697"></div>
+      <div class="field"><label>Site web</label><input class="input" id="xe_url" value="${esc(e?.url||"")}" placeholder="https://…"></div>
+    </div>
+    <div class="checkline" style="cursor:pointer;margin:2px 0" id="xe_partline"><div class="chk ${e&&e.partner?'on':''}" id="xe_part"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div><div>Partenaire (tarif négocié / contact privilégié)</div></div>
+    <div class="field"><label>Notes</label><textarea id="xe_note" style="min-height:60px" placeholder="Réservation, contact, tarif groupe…">${esc(e?.note||"")}</textarea></div>
+    <p class="muted" style="font-size:12px;margin:0">Astuce : sur Google Maps, clic droit sur le lieu → les coordonnées apparaissent (à coller ici pour le calcul des trajets).</p>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:e?"Enregistrer":"Ajouter",cls:"primary",act:()=>{
+      const name=$("#xe_name").value.trim(); if(!name){toast("Nom requis","warn");return;}
+      const num=v=>{ v=(v||"").trim(); return v===""?"":(Number(v.replace(",","."))); };
+      const rec={ name, category:$("#xe_cat").value, city:$("#xe_city").value.trim(), address:$("#xe_addr").value.trim(),
+        price:num($("#xe_price").value), duration:num($("#xe_dur").value), openDays:$("#xe_open").value.trim(),
+        lat:num($("#xe_lat").value), lng:num($("#xe_lng").value), url:$("#xe_url").value.trim(),
+        partner:$("#xe_part").classList.contains("on"), note:$("#xe_note").value.trim() };
+      if(e){ Object.assign(e,rec,{updated:Date.now()}); } else { DB.experiences.unshift({id:uid(),added:Date.now(),...rec}); }
+      logAct(e?`Expérience modifiée : ${name}`:`Expérience ajoutée : ${name}`); save(); renderNav(); closeModal(); VIEWS.experiences();
+    }}]});
+  $("#xe_partline").onclick=()=>$("#xe_part").classList.toggle("on");
+};
+window.exportExperiences=()=>{
+  const rows=expRows().map(e=>({nom:e.name,categorie:e.category||"",ville:e.city||"",adresse:e.address||"",
+    prix:Number(e.price)>0?e.price:"0",duree_min:e.duration||"",ouverture:e.openDays||"",lat:e.lat||"",lng:e.lng||"",site:e.url||"",partenaire:e.partner?"oui":""}));
+  if(!rows.length){ toast("Rien à exporter","warn"); return; }
+  exportCSV("experiences",["nom","categorie","ville","adresse","prix","duree_min","ouverture","lat","lng","site","partenaire"],rows);
+};
+window.seedExperiences=()=>{
+  const seed=[
+    ["Musée Fabre","Musée","Montpellier","39 bd Bonne Nouvelle, 34000 Montpellier",8,90,"Mar–Dim 10h–18h",43.6119,3.8797],
+    ["Musée Paul Valéry","Musée","Sète","148 rue François Desnoyer, 34200 Sète",8.9,75,"Mar–Dim 9h30–18h",43.3966,3.6969],
+    ["Théâtre de la Mer","Monument / Visite","Sète","Promenade Maréchal Leclerc, 34200 Sète",0,45,"Accès libre (hors spectacles)",43.3979,3.6939],
+    ["Mont Saint-Clair","Parc / Nature","Sète","Mont Saint-Clair, 34200 Sète",0,60,"Tous les jours",43.3956,3.6875],
+    ["Les Halles de Sète","Boutique / Marché","Sète","Rue Gambetta, 34200 Sète",0,45,"Tous les jours 7h–13h",43.4075,3.6961],
+    ["La Coquerie","Restaurant","Sète","1 chemin du Cimetière Marin, 34200 Sète",65,120,"Jeu–Lun midi & soir",43.3999,3.6952],
+    ["Promenade en bateau (étang de Thau)","Activité","Sète","Quai Général Durand, 34200 Sète",18,90,"Avr–Oct",43.4028,3.6975],
+    ["Place de la Comédie","Monument / Visite","Montpellier","Place de la Comédie, 34000 Montpellier",0,30,"Tous les jours",43.6083,3.8797],
+    ["Plage de la Corniche","Plage","Sète","Corniche de Neuburg, 34200 Sète",0,120,"Tous les jours",43.3875,3.6836],
+    ["Jardin des Plantes","Parc / Nature","Montpellier","Bd Henri IV, 34000 Montpellier",0,60,"Mar–Dim",43.6146,3.8722]
+  ];
+  let n=0; DB.experiences=DB.experiences||[];
+  seed.forEach(([name,category,city,address,price,duration,openDays,lat,lng])=>{
+    if(DB.experiences.some(e=>e.name===name && e.city===city)) return;
+    DB.experiences.unshift({id:uid(),added:Date.now(),name,category,city,address,price,duration,openDays,lat,lng,url:"",partner:false,note:""}); n++; });
+  logAct(`${n} expérience(s) d'exemple ajoutée(s)`); save(); renderNav(); VIEWS.experiences();
+  toast(n?`${n} expérience(s) ajoutée(s)`:"Les exemples sont déjà présents", n?"ok":"warn");
+};
+
+/* ---------- Constructeur d'itinéraire ---------- */
+const ITIN_MODES={ walk:{l:"À pied",g:"walking",kmh:4.8,base:0}, transit:{l:"Bus / Tram",g:"transit",kmh:18,base:6}, car:{l:"Voiture",g:"driving",kmh:32,base:4} };
+let ITIN_CUR="", ITIN_PAL_CITY="", ITIN_PAL_Q="";
+function haversineKm(a,b){ if(a.lat===""||a.lng===""||b.lat===""||b.lng===""||a.lat==null||b.lat==null) return null;
+  const R=6371, dLat=(b.lat-a.lat)*Math.PI/180, dLng=(b.lng-a.lng)*Math.PI/180;
+  const s=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s)); }
+function legInfo(prev,exp,mode){ const m=ITIN_MODES[mode]||ITIN_MODES.walk; const km=haversineKm(prev,exp);
+  if(km==null) return {km:null,min:null,mode}; const min=Math.round(m.base + (km/m.kmh)*60); return {km:Math.round(km*10)/10,min,mode}; }
+function autoMode(prev,exp){ const km=haversineKm(prev,exp); return (km!=null && km>1.5)?"transit":"walk"; }
+function mapsDirUrl(a,b,mode){ const g=(ITIN_MODES[mode]||ITIN_MODES.walk).g;
+  const pt=x=> (x.lat!=null&&x.lat!==""&&x.lng!=null&&x.lng!=="")? `${x.lat},${x.lng}` : encodeURIComponent([x.name,x.address,x.city].filter(Boolean).join(" "));
+  return `https://www.google.com/maps/dir/?api=1&origin=${pt(a)}&destination=${pt(b)}&travelmode=${g}`; }
+function curItin(){ return (DB.itineraries||[]).find(x=>x.id===ITIN_CUR); }
+function expById(id){ return (DB.experiences||[]).find(e=>e.id===id); }
+function itinTotals(it){ let price=0,dur=0,count=0,legMin=0; const pax=Math.max(1,+it.participants||1);
+  (it.days||[]).forEach(d=>{ (d.items||[]).forEach((item,i)=>{ const e=expById(item.expId); if(!e)return; count++;
+    price+=(Number(e.price)>0?Number(e.price):0)*pax; dur+=Number(e.duration)||0;
+    if(i>0){ const pe=expById(d.items[i-1].expId); if(pe){ const L=legInfo(pe,e,item.mode||"walk"); if(L.min) legMin+=L.min; } } }); });
+  return {price,dur,count,legMin,pax}; }
+VIEWS.itinerary=()=>{
+  const its=DB.itineraries||[];
+  if(!its.length){ $("#view").innerHTML=`
+    <div class="helpbox">${ic2("info")}<div>Composez l'itinéraire d'un séjour en <b>glissant des expériences</b> dans les journées. L'outil calcule le <b>prix total</b> (× nombre de participants), estime les <b>trajets</b> (à pied / bus-tram / voiture) et prépare le <b>lien Google Maps</b> de chaque trajet.</div></div>
+    <div class="card"><div class="empty">Aucun itinéraire. <br><button class="btn primary" data-call="newItinerary()" style="margin-top:12px">Créer un itinéraire</button></div></div>`;
+    return; }
+  if(!ITIN_CUR || !its.some(x=>x.id===ITIN_CUR)) ITIN_CUR=its[0].id;
+  const it=curItin(); const T=itinTotals(it);
+  $("#view").innerHTML=`
+  <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+    <select class="input" id="it_sel" style="max-width:260px">${its.map(x=>`<option value="${x.id}" ${x.id===ITIN_CUR?"selected":""}>${esc(x.name||"Itinéraire")}</option>`).join("")}</select>
+    <button class="btn sm" data-call="newItinerary()">+ Nouvel itinéraire</button>
+    <div class="spacer"></div>
+    <button class="btn sm ghost" data-call="itinPrint()">Imprimer / PDF</button>
+    <button class="btn sm ghost" data-call="delItinerary('${it.id}')">Supprimer</button></div>
+  <div class="grid cards" style="margin:6px 0 14px">
+    ${kpi("Prix total",eur(T.price),"itinerary","var(--brand)")}
+    ${kpi("Participants",T.pax,"itinerary","var(--accent)")}
+    ${kpi("Activités",T.count,"itinerary","var(--ok)")}
+    ${kpi("Temps trajets",T.legMin?`${Math.round(T.legMin)} min`:"—","itinerary","var(--muted)")}</div>
+  <div class="card" style="margin-bottom:14px"><div class="row3">
+    <div class="field"><label>Nom de l'itinéraire</label><input class="input" id="it_name" value="${esc(it.name||"")}"></div>
+    <div class="field"><label>Client / projet</label><input class="input" id="it_client" list="it_projlist" value="${esc(it.client||"")}" placeholder="Groupe, lycée, projet…"><datalist id="it_projlist">${DB.projects.map(p=>`<option value="${esc(p.name)}">`).join("")}</datalist></div>
+    <div class="field"><label>Nombre de participants</label><input class="input" type="number" id="it_pax" min="1" value="${Math.max(1,+it.participants||1)}"></div>
+  </div></div>
+  <div class="itin-wrap">
+    <div class="palette card">
+      <div class="section-title" style="margin-top:0">Expériences</div>
+      <input class="input sm" id="it_palq" placeholder="Rechercher…" value="${esc(ITIN_PAL_Q)}" style="margin-bottom:8px">
+      <select class="input sm" id="it_palcity" style="margin-bottom:10px"><option value="">Toutes les villes</option>${expCities().map(c=>`<option ${c===ITIN_PAL_CITY?"selected":""}>${esc(c)}</option>`).join("")}</select>
+      <div id="it_pal"></div>
+      <div class="muted" style="font-size:11.5px;margin-top:8px">Glissez une carte dans une journée →</div>
+    </div>
+    <div>
+      <div class="toolbar" style="margin:0 0 10px"><button class="btn sm" data-call="itinAddDay()">+ Ajouter une journée</button>
+        <div class="spacer"></div><span class="muted" style="font-size:12px">Glisser-déposer pour réordonner</span></div>
+      <div id="it_suggest"></div>
+      <div class="itin-days" id="it_days"></div>
+    </div>
+  </div>`;
+  $("#it_sel").onchange=e=>{ ITIN_CUR=e.target.value; VIEWS.itinerary(); };
+  $("#it_name").onchange=e=>{ it.name=e.target.value; save(); };
+  $("#it_client").onchange=e=>{ it.client=e.target.value; save(); };
+  $("#it_pax").onchange=e=>{ it.participants=Math.max(1,+e.target.value||1); save(); VIEWS.itinerary(); };
+  $("#it_palq").oninput=e=>{ ITIN_PAL_Q=e.target.value; itinDrawPalette(); };
+  $("#it_palcity").onchange=e=>{ ITIN_PAL_CITY=e.target.value; itinDrawPalette(); };
+  itinDrawPalette(); itinDrawDays(); itinDrawSuggest();
+};
+function itinPaletteRows(){ let r=(DB.experiences||[]).slice();
+  if(ITIN_PAL_CITY) r=r.filter(e=>e.city===ITIN_PAL_CITY);
+  if(ITIN_PAL_Q){ const q=deburrLower(ITIN_PAL_Q); r=r.filter(e=>deburrLower([e.name,e.city,e.category].join(" ")).includes(q)); }
+  return r.sort((a,b)=>(a.name||"").localeCompare(b.name||"")); }
+function itinDrawPalette(){ const rows=itinPaletteRows();
+  $("#it_pal").innerHTML= rows.length? rows.map(e=>`<div class="pal-card" draggable="true" data-exp="${e.id}">
+    <span class="exptag" style="background:${expColor(e.category)}">${esc((e.category||"Autre").split(" ")[0])}</span>
+    <div style="font-weight:700;font-size:13px;padding-right:60px">${esc(e.name)}</div>
+    <div class="muted" style="font-size:11.5px">${esc(e.city||"")} · ${expPriceLabel(e.price)}</div></div>`).join("")
+    : `<div class="muted" style="font-size:12.5px">Aucune expérience. Ajoutez-en dans « T10 · Expériences ».</div>`;
+  $$("#it_pal .pal-card").forEach(c=>{ c.addEventListener("dragstart",ev=>{ ev.dataTransfer.setData("text/exp",c.dataset.exp); });
+    c.addEventListener("click",()=>{ const it=curItin(); const d=(it.days||[])[0]; if(d){ addExpToDay(it.id,d.id,c.dataset.exp); } else { toast("Ajoutez d'abord une journée","warn"); } }); });
+}
+function itinDrawDays(){ const it=curItin(); it.days=it.days||[];
+  $("#it_days").innerHTML= it.days.map((d,di)=>`<div class="itin-day" data-day="${d.id}">
+    <div style="display:flex;align-items:center;gap:6px;margin:2px 4px 10px">
+      <input class="input sm" data-dayname="${d.id}" value="${esc(d.label||("Jour "+(di+1)))}" style="font-weight:700;padding:4px 8px">
+      <button class="btn sm ghost" data-call="itinDelDay('${d.id}')">×</button></div>
+    ${(d.items||[]).map((item,ii)=>{ const e=expById(item.expId); if(!e) return "";
+      let legHTML="";
+      if(ii>0){ const pe=expById(d.items[ii-1].expId); const L=pe?legInfo(pe,e,item.mode||"walk"):{km:null};
+        const m=ITIN_MODES[item.mode||"walk"];
+        legHTML=`<div class="leg"><button data-call="cycleLeg('${d.id}','${item.expId}')">${esc(m.l)}</button>
+          <span>${L.km!=null?`${L.km} km · ${L.min} min`:"distance ?"}</span>
+          ${pe?`<a href="${esc(mapsDirUrl(pe,e,item.mode||"walk"))}" target="_blank" rel="noopener" style="color:var(--brand)">Maps</a>`:""}</div>`; }
+      return `${legHTML}<div class="itin-item" draggable="true" data-item="${d.id}:${ii}">
+        <span class="exptag" style="background:${expColor(e.category)}">${esc((e.category||"Autre").split(" ")[0])}</span>
+        <div style="font-weight:700;font-size:13px;padding-right:56px">${esc(e.name)}</div>
+        ${e.address?`<div class="muted" style="font-size:11px">${esc(e.address)}</div>`:""}
+        <div class="muted" style="font-size:11.5px;margin-top:3px">${expPriceLabel(e.price)}${e.duration?` · ~${e.duration} min`:""}</div>
+        <div style="display:flex;gap:4px;margin-top:7px">
+          <button class="btn sm ghost" data-call="moveItinItem('${d.id}',${ii},-1)">↑</button>
+          <button class="btn sm ghost" data-call="moveItinItem('${d.id}',${ii},1)">↓</button>
+          <button class="btn sm ghost" data-call="removeItinItem('${d.id}',${ii})">Retirer</button></div></div>`; }).join("")
+      || `<div class="muted" style="font-size:12px;padding:6px 2px">Glissez une expérience ici</div>`}
+  </div>`).join("") || `<div class="muted">Ajoutez une journée pour commencer.</div>`;
+  $$("#it_days [data-dayname]").forEach(inp=>inp.onchange=()=>{ const d=it.days.find(x=>x.id===inp.dataset.dayname); if(d){ d.label=inp.value; save(); } });
+  itinWireDnD();
+}
+function itinWireDnD(){ const it=curItin();
+  $$("#it_days .itin-item").forEach(el=>{ el.addEventListener("dragstart",ev=>{ ev.dataTransfer.setData("text/item",el.dataset.item); ev.stopPropagation(); }); });
+  $$("#it_days .itin-day").forEach(col=>{
+    col.addEventListener("dragover",ev=>{ ev.preventDefault(); col.classList.add("over"); });
+    col.addEventListener("dragleave",()=>col.classList.remove("over"));
+    col.addEventListener("drop",ev=>{ ev.preventDefault(); col.classList.remove("over"); const dayId=col.dataset.day;
+      const expId=ev.dataTransfer.getData("text/exp"); const itemRef=ev.dataTransfer.getData("text/item");
+      if(expId){ addExpToDay(it.id,dayId,expId); }
+      else if(itemRef){ const [fromDay,idx]=itemRef.split(":"); moveItinItemToDay(fromDay,+idx,dayId); } });
+  });
+}
+function itinDrawSuggest(){ const it=curItin(); const sug=suggestNext(it);
+  $("#it_suggest").innerHTML= sug.length? `<div class="card" style="margin-bottom:12px;padding:12px">
+    <div class="muted" style="font-weight:700;font-size:11.5px;text-transform:uppercase;margin-bottom:8px">Suggestions — à ajouter ensuite</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${sug.map(s=>`<button class="btn sm" data-call="applySuggestion('${s.exp.id}')" title="${esc(s.reason)}">
+      + ${esc(s.exp.name)} <span class="muted" style="font-size:10.5px">· ${esc(s.reason)}</span></button>`).join("")}</div></div>` : "";
+}
+// Suggestion intelligente : même ville, catégorie différente de la dernière,
+// proximité + enchaînement logique (musée→déjeuner→visite→café→événement).
+const FLOW_NEXT={"Musée":["Restaurant","Bar / Café","Monument / Visite"],"Monument / Visite":["Restaurant","Musée","Parc / Nature"],
+  "Restaurant":["Bar / Café","Monument / Visite","Parc / Nature","Musée"],"Bar / Café":["Monument / Visite","Événement","Boutique / Marché"],
+  "Activité":["Restaurant","Bar / Café"],"Parc / Nature":["Restaurant","Bar / Café"],"Plage":["Restaurant","Bar / Café"],
+  "Boutique / Marché":["Restaurant","Bar / Café"],"Événement":["Bar / Café","Restaurant"]};
+function suggestNext(it){ const used=new Set(); let last=null,lastDay=null;
+  (it.days||[]).forEach(d=>{ (d.items||[]).forEach(item=>{ used.add(item.expId); const e=expById(item.expId); if(e){ last=e; lastDay=d; } }); });
+  let pool=(DB.experiences||[]).filter(e=>!used.has(e.id));
+  const city=last?last.city:(ITIN_PAL_CITY||null);
+  if(city) pool=pool.filter(e=>!e.city || e.city===city);
+  if(!pool.length) return [];
+  const flow=last?(FLOW_NEXT[last.category]||[]):[];
+  const scored=pool.map(e=>{ let sc=0; let reason=[];
+    if(last && e.category!==last.category){ sc+=2; }
+    const fi=flow.indexOf(e.category); if(fi>=0){ sc+=4-fi; reason.push("suite logique"); }
+    if(last){ const km=haversineKm(last,e); if(km!=null){ sc+=Math.max(0,3-km); if(km<1.2) reason.push("tout près"); } }
+    if(e.partner) sc+=1;
+    if(!reason.length) reason.push(e.city||e.category||"à proximité");
+    return {exp:e,score:sc,reason:reason[0]}; });
+  return scored.sort((a,b)=>b.score-a.score).slice(0,3);
+}
+window.newItinerary=()=>{ DB.itineraries=DB.itineraries||[];
+  const it={id:uid(),name:"Itinéraire "+(DB.itineraries.length+1),client:"",participants:1,
+    days:[{id:uid(),label:"Jour 1",items:[]}],added:Date.now()};
+  DB.itineraries.unshift(it); ITIN_CUR=it.id; logAct("Itinéraire créé"); save(); renderNav(); VIEWS.itinerary(); };
+window.delItinerary=id=>{ const it=(DB.itineraries||[]).find(x=>x.id===id); if(!it)return;
+  confirmModal("Supprimer l'itinéraire ?",`« ${it.name} » sera supprimé.`,()=>{ DB.itineraries=DB.itineraries.filter(x=>x.id!==id); ITIN_CUR=""; save(); renderNav(); VIEWS.itinerary(); },true); };
+window.itinAddDay=()=>{ const it=curItin(); if(!it)return; it.days=it.days||[]; it.days.push({id:uid(),label:"Jour "+(it.days.length+1),items:[]}); save(); itinDrawDays(); };
+window.itinDelDay=id=>{ const it=curItin(); if(!it)return; it.days=(it.days||[]).filter(d=>d.id!==id); save(); itinDrawDays(); itinDrawSuggest(); };
+window.addExpToDay=(itinId,dayId,expId)=>{ const it=(DB.itineraries||[]).find(x=>x.id===itinId)||curItin(); if(!it)return;
+  const d=(it.days||[]).find(x=>x.id===dayId); const e=expById(expId); if(!d||!e)return;
+  d.items=d.items||[]; const prev=d.items.length?expById(d.items[d.items.length-1].expId):null;
+  d.items.push({expId, mode: prev?autoMode(prev,e):"walk"}); save();
+  if(CURRENT==="itinerary") VIEWS.itinerary(); };
+window.removeItinItem=(dayId,idx)=>{ const it=curItin(); const d=(it.days||[]).find(x=>x.id===dayId); if(!d)return; d.items.splice(idx,1); save(); VIEWS.itinerary(); };
+window.moveItinItem=(dayId,idx,dir)=>{ const it=curItin(); const d=(it.days||[]).find(x=>x.id===dayId); if(!d)return;
+  const j=idx+dir; if(j<0||j>=d.items.length)return; const t=d.items[idx]; d.items[idx]=d.items[j]; d.items[j]=t; save(); VIEWS.itinerary(); };
+function moveItinItemToDay(fromDayId,idx,toDayId){ const it=curItin(); const fd=(it.days||[]).find(x=>x.id===fromDayId), td=(it.days||[]).find(x=>x.id===toDayId);
+  if(!fd||!td)return; const item=fd.items[idx]; if(!item)return; fd.items.splice(idx,1);
+  const prev=td.items.length?expById(td.items[td.items.length-1].expId):null; const e=expById(item.expId);
+  item.mode= prev&&e?autoMode(prev,e):"walk"; td.items.push(item); save(); VIEWS.itinerary(); }
+window.cycleLeg=(dayId,expId)=>{ const it=curItin(); const d=(it.days||[]).find(x=>x.id===dayId); if(!d)return;
+  const item=d.items.find(x=>x.expId===expId); if(!item)return; const order=["walk","transit","car"];
+  item.mode=order[(order.indexOf(item.mode||"walk")+1)%order.length]; save(); itinDrawDays(); };
+window.applySuggestion=expId=>{ const it=curItin(); if(!it)return; const days=it.days||[]; const d=days[days.length-1]||days[0];
+  if(!d){ itinAddDay(); return applySuggestion(expId); } addExpToDay(it.id,d.id,expId); };
+window.itinPrint=()=>{ const it=curItin(); if(!it)return; const T=itinTotals(it);
+  const daysHTML=(it.days||[]).map((d,di)=>{ const rows=(d.items||[]).map((item,ii)=>{ const e=expById(item.expId); if(!e)return "";
+    let leg=""; if(ii>0){ const pe=expById(d.items[ii-1].expId); if(pe){ const L=legInfo(pe,e,item.mode||"walk"); const m=ITIN_MODES[item.mode||"walk"];
+      leg=`<tr><td colspan="3" style="color:#889;font-size:11px;padding:2px 12px">↳ ${esc(m.l)}${L.km!=null?` · ${L.km} km · ${L.min} min`:""}</td></tr>`; } }
+    return `${leg}<tr><td><b>${esc(e.name)}</b>${e.address?`<div style="color:#889;font-size:11px">${esc(e.address)}</div>`:""}</td>
+      <td>${esc(e.category||"")}</td><td class="r">${expPriceLabel(e.price)}</td></tr>`; }).join("");
+    return `<h3 style="margin:18px 0 4px">${esc(d.label||("Jour "+(di+1)))}</h3>
+      <table><thead><tr><th>Expérience</th><th>Type</th><th class="r">Prix</th></tr></thead><tbody>${rows||'<tr><td colspan="3" style="color:#889">—</td></tr>'}</tbody></table>`; }).join("");
+  const inner=`<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1 style="font-size:20px;letter-spacing:1px">ITINÉRAIRE</h1></div></div>
+    <p style="font-weight:700;margin:14px 0 2px">${esc(it.name||"")}</p>
+    <p class="muted" style="margin:0 0 6px">${esc(it.client||"")} · ${T.pax} participant(s)</p>
+    ${daysHTML}
+    <div class="totals"><div class="grand"><span>Total (${T.pax} pers.)</span><span>${esc(eur(T.price))}</span></div></div>${coFooterHTML()}`;
+  printDocument("Itinéraire — "+(it.name||""), inner); logAct(`Itinéraire imprimé : ${it.name}`); };
 
 /* Projects view with compliance R1..R8 */
 const R_LABELS=[

@@ -416,6 +416,47 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    `null.innerHTML` hors onglet Contacts). Helpers : `oppValue`, `pipelineOpps`,
    `pipelineDraw`, `wirePipeline`, `exportPipeline`, `STAGE_WEIGHTS`.
 
+9. ~~**Expériences & lieux + Constructeur d'itinéraire** (T10 — demande explicite
+   « experience builder »)~~ — **FAIT & TESTÉ** (28/28 checks sous CSP ; total 408).
+   Deux nouvelles nav :
+   - **« T10 · Expériences & lieux »** (`VIEWS.experiences`, `DB.experiences`) :
+     bibliothèque de tout ce que les visiteurs peuvent faire (musées, restaurants,
+     activités, événements, plages, parcs…). **Cartes éditables** affichant, comme
+     demandé : **nom** en gras, **adresse** juste dessous, **jours d'ouverture**,
+     **prix / personne** (ou **« Gratuit »**), et un **badge pilule coloré** en
+     haut à droite par **catégorie** (`EXP_CATEGORIES`, 12 catégories = 12
+     couleurs). Champs : ville, adresse, prix, durée, ouverture, **lat/lng**
+     (pour les trajets), site, partenaire, notes. Filtres ville/catégorie +
+     recherche, **export CSV**, seed d'**exemples Sète/Montpellier** (Musée Fabre,
+     Musée Paul Valéry, Mont Saint-Clair, Les Halles, plages…).
+   - **« Constructeur d'itinéraire »** (`VIEWS.itinerary`, `DB.itineraries`) :
+     atelier **glisser-déposer** — palette d'expériences (filtrable) à gauche,
+     **journées** à droite ; on glisse une carte dans une journée (ou clic =
+     ajout au J1). **Nombre de participants** réglable (petit/grand groupe) →
+     **prix total = Σ(prix) × participants** calculé automatiquement. Entre deux
+     activités, un **trajet** avec **bascule à pied / bus-tram / voiture**
+     (`cycleLeg`), **distance à vol d'oiseau** (Haversine) + **temps estimé** par
+     mode, et un **lien Google Maps** pré-rempli (mode + coords) qui ouvre le vrai
+     trajet en ligne. **Suggestions intelligentes** de la suite (`suggestNext` :
+     même ville, catégorie différente, proximité, enchaînement logique
+     musée→déjeuner→visite→café…). Réordonner (↑/↓ ou glisser entre journées),
+     retirer, ajouter/supprimer des journées, **imprimer / PDF** l'itinéraire
+     (jours + trajets + total). Mode de transport auto-sélectionné (`autoMode` :
+     transport si > 1,5 km).
+   `experiences` + `itineraries` ajoutés à `DEFAULT_DB`/`migrate`/`COLLECTIONS`
+   (fusion `mergeDB` anti-perte). CSS ajouté (`.expcard`, `.exptag`, `.itin-wrap`,
+   `.itin-day`, `.itin-item`, `.leg`, `.pal-card`). Icônes `pin` + `route`.
+   Helpers : `expColor`, `expRows`, `expCardHTML`, `openExpEntry`, `seedExperiences`,
+   `haversineKm`, `legInfo`, `autoMode`, `mapsDirUrl`, `itinTotals`, `suggestNext`,
+   `addExpToDay`, `cycleLeg`, `moveItinItem`, `itinPrint`, `FLOW_NEXT`, `ITIN_MODES`.
+   **Honnête (limite assumée)** : le calcul d'itinéraire **précis** (voirie réelle,
+   horaires de bus/tram en direct) exige une **API payante** (Google Directions /
+   Transit) — hors périmètre « autonome, sans API ». L'outil **estime** la distance
+   (vol d'oiseau) + un temps réaliste par mode, et **ouvre le VRAI trajet dans
+   Google Maps** (en ligne) via un lien pré-rempli. Les coordonnées lat/lng se
+   collent depuis Google Maps (clic droit sur le lieu). Une vraie synchro live
+   Maps intégrée n'est pas possible sans serveur/API.
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
@@ -471,10 +512,13 @@ une fonctionnalité **en ligne** assumée et centrale.
   (l'outil est autonome) ; demander une reconnexion côté claude.ai si besoin de relire le Drive.
 
 ## Prochaine action suggérée
-Points **1** (automatisations n8n), **4** (import CRM Drive), **5** (T8 registre
-documentaire), **6** (documents participants), **7 / R.c** (calendrier &
-plannings) et **8 / R.b** (pipeline commercial / opportunités) sont **livrés et
-testés**. Reste surtout le point **3 (export CSV auto vers Drive)** et **R.f
-(intake participants Google Form → fiche)**. Avant de coder une nouvelle UI :
-relire cette liste, vérifier qu'aucun handler inline n'est introduit, tester sous
-CSP (380 checks de référence dans le scratchpad : csptest.mjs → csptest19.mjs).
+Points **1** (automatisations n8n), **4** (import CRM Drive), **5** (T8 registre),
+**6** (documents participants), **7 / R.c** (calendrier & plannings), **8 / R.b**
+(pipeline commercial) et **9 / T10** (expériences & constructeur d'itinéraire) sont
+**livrés et testés**. Reste le point **3 (export CSV auto vers Drive)** et **R.f
+(intake participants Google Form → fiche)**. Améliorations possibles sur T10 à
+valider avec l'utilisatrice : coordonnées auto depuis l'adresse (nécessiterait un
+géocodage = API, donc saisie manuelle pour l'instant), événements avec dates,
+génération d'un devis directement depuis un itinéraire. Avant de coder une
+nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
+introduit, tester sous CSP (408 checks de référence : csptest.mjs → csptest20.mjs).
