@@ -2578,11 +2578,14 @@ function planCalendar(){
   let cells="";
   for(let i=0;i<startIdx;i++) cells+=`<div class="calcell empty"></div>`;
   const today=dayKey(Date.now());
+  const events=(DB.experiences||[]).filter(e=>e.date);
   for(let d=1;d<=daysInMonth;d++){ const ts=new Date(y,mo,d).getTime(); const k=dayKey(ts);
     const active=projs.filter(p=>projSpansDay(p,ts));
+    const evs=events.filter(e=>projSpansDay({start:e.date,end:e.dateEnd||e.date},ts));
     cells+=`<div class="calcell ${k===today?'today':''}"><div class="caldate">${d}</div>
       ${active.slice(0,3).map(p=>`<div class="calbar" style="background:${p._color}1a;color:${p._color};border-left:3px solid ${p._color}" title="${esc(p.name)}">${esc((p.name||"").slice(0,18))}</div>`).join("")}
-      ${active.length>3?`<div class="muted" style="font-size:10px">+${active.length-3}</div>`:""}</div>`;
+      ${evs.slice(0,2).map(e=>{ const col=expColor(e.category); return `<div class="calbar" style="background:${col}1a;color:${col};border-left:3px dotted ${col}" title="Événement : ${esc(e.name)}">◆ ${esc((e.name||"").slice(0,16))}</div>`; }).join("")}
+      ${(active.length>3||evs.length>2)?`<div class="muted" style="font-size:10px">+${(active.length>3?active.length-3:0)+(evs.length>2?evs.length-2:0)}</div>`:""}</div>`;
   }
   const upcoming=projs.filter(p=>p.start>=Date.now()-864e5).sort((a,b)=>a.start-b.start).slice(0,8);
   $("#planBody").innerHTML=`
@@ -2778,21 +2781,34 @@ const EXP_CATEGORIES=[
   ["Boutique / Marché","#a16207"],["Hébergement","#1d5fd6"],["Transport","#475569"],["Autre","#64748b"]];
 const expColor=k=>{ const f=EXP_CATEGORIES.find(c=>c[0]===k); return f?f[1]:"#64748b"; };
 function expPriceLabel(p){ const n=Number(p); return (!isFinite(n)||n<=0)?"Gratuit":eur(n)+" / pers."; }
-let EXP_CITY="", EXP_CAT="", EXP_Q="";
+let EXP_CITY="", EXP_CAT="", EXP_Q="", EXP_LIST="", EXP_PARTNER=false, EXP_UPCOMING=false;
 function expCities(){ return [...new Set((DB.experiences||[]).map(e=>e.city).filter(Boolean))].sort(); }
+function expLists(){ return [...new Set((DB.experiences||[]).flatMap(e=>e.tags||[]))].sort(); }
+function expIsUpcoming(e){ if(!e.date) return false; const end=e.dateEnd||e.date; return end>=Date.now()-864e5; }
+function expEventLabel(e){ if(!e.date) return "";
+  const d=fmtDate(e.date); const range=e.dateEnd&&e.dateEnd>e.date?` → ${fmtDate(e.dateEnd)}`:"";
+  return `${d}${range}${e.time?` · ${e.time}`:""}`; }
 function expRows(){ let r=(DB.experiences||[]).slice();
   if(EXP_CITY) r=r.filter(e=>e.city===EXP_CITY);
   if(EXP_CAT) r=r.filter(e=>(e.category||"Autre")===EXP_CAT);
-  if(EXP_Q){ const q=deburrLower(EXP_Q); r=r.filter(e=>deburrLower([e.name,e.city,e.address,e.category,e.notes].join(" ")).includes(q)); }
-  return r.sort((a,b)=>(a.name||"").localeCompare(b.name||"")); }
+  if(EXP_LIST) r=r.filter(e=>(e.tags||[]).includes(EXP_LIST));
+  if(EXP_PARTNER) r=r.filter(e=>e.partner);
+  if(EXP_UPCOMING) r=r.filter(expIsUpcoming);
+  if(EXP_Q){ const q=deburrLower(EXP_Q); r=r.filter(e=>deburrLower([e.name,e.city,e.address,e.category,e.notes,(e.tags||[]).join(" ")].join(" ")).includes(q)); }
+  // événements à venir triés par date, sinon par nom
+  return r.sort((a,b)=>{ if(EXP_UPCOMING||(a.date&&b.date)) return (a.date||0)-(b.date||0)||(a.name||"").localeCompare(b.name||"");
+    return (a.name||"").localeCompare(b.name||""); }); }
 VIEWS.experiences=()=>{
   const cities=expCities(); const all=DB.experiences||[];
   $("#view").innerHTML=`
-  <div class="helpbox">${ic2("info")}<div>Votre <b>bibliothèque d'expériences</b> : recensez tout ce que les visiteurs peuvent faire (musées, restaurants, activités, événements…). Chaque carte affiche <b>adresse</b>, <b>jours d'ouverture</b>, <b>prix / personne</b> et un <b>badge de catégorie</b> coloré. Renseignez l'adresse (ou les coordonnées) pour que le <b>constructeur d'itinéraire</b> calcule les trajets.</div></div>
+  <div class="helpbox">${ic2("info")}<div>Votre <b>bibliothèque d'expériences</b> : recensez tout ce que les visiteurs peuvent faire (musées, restaurants, activités, <b>événements datés</b>…). Chaque carte affiche <b>adresse</b>, <b>jours d'ouverture</b> (ou <b>date</b> pour un événement), <b>prix / personne</b> et un <b>badge de catégorie</b> coloré. Regroupez-les en <b>listes</b> (ex. « Partenaires 2026 ») ; les événements datés apparaissent aussi dans le <b>calendrier</b> (T9) et se marquent tout seuls « À venir / Passé ».</div></div>
   <div class="toolbar" style="gap:8px;flex-wrap:wrap">
     <input class="input" id="exp_q" placeholder="Rechercher…" value="${esc(EXP_Q)}" style="max-width:220px">
     <select class="input" id="exp_city" style="max-width:180px"><option value="">Toutes les villes</option>${cities.map(c=>`<option ${c===EXP_CITY?"selected":""}>${esc(c)}</option>`).join("")}</select>
     <select class="input" id="exp_cat" style="max-width:190px"><option value="">Toutes les catégories</option>${EXP_CATEGORIES.map(([k])=>`<option ${k===EXP_CAT?"selected":""}>${esc(k)}</option>`).join("")}</select>
+    ${expLists().length?`<select class="input" id="exp_list" style="max-width:180px"><option value="">Toutes les listes</option>${expLists().map(l=>`<option ${l===EXP_LIST?"selected":""}>${esc(l)}</option>`).join("")}</select>`:""}
+    <button class="btn sm ${EXP_PARTNER?'primary':'ghost'}" data-call="expTogglePartner()">Partenaires</button>
+    <button class="btn sm ${EXP_UPCOMING?'primary':'ghost'}" data-call="expToggleUpcoming()">Événements à venir</button>
     <div class="spacer"></div>
     <button class="btn sm" data-call="geocodeMissing()" id="exp_geo">Compléter les coordonnées (gratuit)</button>
     <button class="btn sm" data-call="seedExperiences()">Exemples Sète / Montpellier</button>
@@ -2803,16 +2819,21 @@ VIEWS.experiences=()=>{
   $("#exp_q").oninput=e=>{ EXP_Q=e.target.value; expDrawGrid(); };
   $("#exp_city").onchange=e=>{ EXP_CITY=e.target.value; VIEWS.experiences(); };
   $("#exp_cat").onchange=e=>{ EXP_CAT=e.target.value; VIEWS.experiences(); };
+  const ls=$("#exp_list"); if(ls) ls.onchange=e=>{ EXP_LIST=e.target.value; VIEWS.experiences(); };
   expDrawGrid();
 };
-function expCardHTML(e){ const col=expColor(e.category);
+window.expTogglePartner=()=>{ EXP_PARTNER=!EXP_PARTNER; VIEWS.experiences(); };
+window.expToggleUpcoming=()=>{ EXP_UPCOMING=!EXP_UPCOMING; VIEWS.experiences(); };
+function expCardHTML(e){ const col=expColor(e.category); const ev=expEventLabel(e); const up=e.date?expIsUpcoming(e):null;
   return `<div class="expcard">
     <span class="exptag" style="background:${col}">${esc(e.category||"Autre")}</span>
     <div class="expname">${esc(e.name||"—")}</div>
     ${e.address||e.city?`<div class="expmeta"><span>${esc([e.address,e.city].filter(Boolean).join(", "))}</span></div>`:""}
+    ${ev?`<div class="expmeta"><span style="font-weight:700;color:${up?'var(--brand)':'var(--muted)'}">${up?"À venir":"Passé"} · ${esc(ev)}</span></div>`:""}
     ${e.openDays?`<div class="expmeta"><span>Ouvert : ${esc(e.openDays)}</span></div>`:""}
     ${e.duration?`<div class="expmeta"><span>Durée ~ ${esc(String(e.duration))} min</span></div>`:""}
     <div class="expprice" style="color:${Number(e.price)>0?'var(--ink)':'var(--ok)'}">${expPriceLabel(e.price)}</div>
+    ${(e.partner||(e.tags||[]).length)?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px">${e.partner?'<span class="tag g">Partenaire</span>':''}${(e.tags||[]).map(t=>`<span class="tag n">${esc(t)}</span>`).join("")}</div>`:""}
     <div class="expacts">
       <button class="btn sm ghost" data-call="openExpEntry('${e.id}')">Modifier</button>
       ${e.url?`<a class="btn sm ghost" href="${esc(e.url)}" target="_blank" rel="noopener">Site</a>`:""}
@@ -2841,19 +2862,28 @@ window.openExpEntry=id=>{
       <div class="field"><label>Jours d'ouverture</label><input class="input" id="xe_open" value="${esc(e?.openDays||"")}" placeholder="Mar–Dim 10h–18h"></div>
     </div>
     <div class="row3">
+      <div class="field"><label>Date (événement) — optionnel</label><input class="input" type="date" id="xe_date" value="${e&&e.date?new Date(e.date).toISOString().slice(0,10):""}"></div>
+      <div class="field"><label>Date de fin (si plusieurs jours)</label><input class="input" type="date" id="xe_dateend" value="${e&&e.dateEnd?new Date(e.dateEnd).toISOString().slice(0,10):""}"></div>
+      <div class="field"><label>Horaire (texte)</label><input class="input" id="xe_time" value="${esc(e?.time||"")}" placeholder="20h30"></div>
+    </div>
+    <div class="row3">
       <div class="field"><label>Latitude (optionnel)</label><input class="input" id="xe_lat" value="${e&&e.lat!=null?esc(e.lat):""}" placeholder="43.408"></div>
       <div class="field"><label>Longitude (optionnel)</label><input class="input" id="xe_lng" value="${e&&e.lng!=null?esc(e.lng):""}" placeholder="3.697"></div>
       <div class="field"><label>Site web</label><input class="input" id="xe_url" value="${esc(e?.url||"")}" placeholder="https://…"></div>
     </div>
+    <div class="field"><label>Listes (séparées par des virgules — ex : Partenaires 2026, Coups de cœur)</label><input class="input" id="xe_tags" value="${esc((e&&e.tags||[]).join(", "))}" placeholder="Partenaires 2026, Incontournables"></div>
     <div class="checkline" style="cursor:pointer;margin:2px 0" id="xe_partline"><div class="chk ${e&&e.partner?'on':''}" id="xe_part"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div><div>Partenaire (tarif négocié / contact privilégié)</div></div>
     <div class="field"><label>Notes</label><textarea id="xe_note" style="min-height:60px" placeholder="Réservation, contact, tarif groupe…">${esc(e?.note||"")}</textarea></div>
     <p class="muted" style="font-size:12px;margin:0">Astuce : sur Google Maps, clic droit sur le lieu → les coordonnées apparaissent (à coller ici pour le calcul des trajets).</p>`,
     footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:e?"Enregistrer":"Ajouter",cls:"primary",act:()=>{
       const name=$("#xe_name").value.trim(); if(!name){toast("Nom requis","warn");return;}
       const num=v=>{ v=(v||"").trim(); return v===""?"":(Number(v.replace(",","."))); };
+      const dts=v=>{ v=(v||"").trim(); return v?new Date(v).getTime():0; };
+      const tags=$("#xe_tags").value.split(",").map(s=>s.trim()).filter(Boolean);
       const rec={ name, category:$("#xe_cat").value, city:$("#xe_city").value.trim(), address:$("#xe_addr").value.trim(),
         price:num($("#xe_price").value), duration:num($("#xe_dur").value), openDays:$("#xe_open").value.trim(),
-        lat:num($("#xe_lat").value), lng:num($("#xe_lng").value), url:$("#xe_url").value.trim(),
+        date:dts($("#xe_date").value), dateEnd:dts($("#xe_dateend").value), time:$("#xe_time").value.trim(),
+        lat:num($("#xe_lat").value), lng:num($("#xe_lng").value), url:$("#xe_url").value.trim(), tags,
         partner:$("#xe_part").classList.contains("on"), note:$("#xe_note").value.trim() };
       if(e){ Object.assign(e,rec,{updated:Date.now()}); } else { DB.experiences.unshift({id:uid(),added:Date.now(),...rec}); }
       logAct(e?`Expérience modifiée : ${name}`:`Expérience ajoutée : ${name}`); save(); renderNav(); closeModal(); VIEWS.experiences();
@@ -2876,9 +2906,11 @@ window.geocodeMissing=async()=>{
 };
 window.exportExperiences=()=>{
   const rows=expRows().map(e=>({nom:e.name,categorie:e.category||"",ville:e.city||"",adresse:e.address||"",
-    prix:Number(e.price)>0?e.price:"0",duree_min:e.duration||"",ouverture:e.openDays||"",lat:e.lat||"",lng:e.lng||"",site:e.url||"",partenaire:e.partner?"oui":""}));
+    prix:Number(e.price)>0?e.price:"0",duree_min:e.duration||"",ouverture:e.openDays||"",
+    date:e.date?new Date(e.date).toISOString().slice(0,10):"",date_fin:e.dateEnd?new Date(e.dateEnd).toISOString().slice(0,10):"",
+    lat:e.lat||"",lng:e.lng||"",site:e.url||"",partenaire:e.partner?"oui":"",listes:(e.tags||[]).join(" | ")}));
   if(!rows.length){ toast("Rien à exporter","warn"); return; }
-  exportCSV("experiences",["nom","categorie","ville","adresse","prix","duree_min","ouverture","lat","lng","site","partenaire"],rows);
+  exportCSV("experiences",["nom","categorie","ville","adresse","prix","duree_min","ouverture","date","date_fin","lat","lng","site","partenaire","listes"],rows);
 };
 window.seedExperiences=()=>{
   const seed=[
@@ -2893,10 +2925,18 @@ window.seedExperiences=()=>{
     ["Plage de la Corniche","Plage","Sète","Corniche de Neuburg, 34200 Sète",0,120,"Tous les jours",43.3875,3.6836],
     ["Jardin des Plantes","Parc / Nature","Montpellier","Bd Henri IV, 34000 Montpellier",0,60,"Mar–Dim",43.6146,3.8722]
   ];
+  const y=new Date().getFullYear()+ (new Date().getMonth()>6?1:0);
+  const events=[ // événements datés (date/dateEnd) pour illustrer « event par date »
+    ["Fête de la Saint-Louis","Événement","Sète","Cadre Royal, 34200 Sète",0,Date.UTC(y,7,22),Date.UTC(y,7,26),"Joutes nautiques"],
+    ["Festival de Thau","Événement","Sète","Bassin de Thau, 34200 Sète",29,Date.UTC(y,6,17),Date.UTC(y,6,23),"Concerts en soirée"]
+  ];
   let n=0; DB.experiences=DB.experiences||[];
   seed.forEach(([name,category,city,address,price,duration,openDays,lat,lng])=>{
     if(DB.experiences.some(e=>e.name===name && e.city===city)) return;
-    DB.experiences.unshift({id:uid(),added:Date.now(),name,category,city,address,price,duration,openDays,lat,lng,url:"",partner:false,note:""}); n++; });
+    DB.experiences.unshift({id:uid(),added:Date.now(),name,category,city,address,price,duration,openDays,lat,lng,url:"",partner:false,tags:[],note:""}); n++; });
+  events.forEach(([name,category,city,address,price,date,dateEnd,time])=>{
+    if(DB.experiences.some(e=>e.name===name && e.city===city)) return;
+    DB.experiences.unshift({id:uid(),added:Date.now(),name,category,city,address,price,duration:0,openDays:"",date,dateEnd,time,lat:"",lng:"",url:"",partner:false,tags:[],note:""}); n++; });
   logAct(`${n} expérience(s) d'exemple ajoutée(s)`); save(); renderNav(); VIEWS.experiences();
   toast(n?`${n} expérience(s) ajoutée(s)`:"Les exemples sont déjà présents", n?"ok":"warn");
 };

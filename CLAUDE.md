@@ -467,7 +467,17 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
      participants, prix unitaire = prix/pers), **total = prix total de
      l'itinéraire**, client + objet repris, statut Brouillon → ouvre l'éditeur de
      devis pour vérification. Activités gratuites en ligne à 0 (incluses).
-     `quoteSeq` incrémenté. (19 checks, csptest22 ; total 442.)
+     `quoteSeq` incrémenté. (19 checks, csptest22.)
+   - **Événements datés + listes + partenaires** (csptest23, 17 checks ; total 459) :
+     les expériences ont maintenant **date / date de fin / horaire** (« event par
+     date »), affichés sur la carte avec un badge **« À venir » / « Passé »**
+     auto-calculé ; des **listes** libres (`tags`, ex. « Partenaires 2026 ») et un
+     indicateur **Partenaire**. Filtres ajoutés dans T10 : par **liste**, bouton
+     **Partenaires**, bouton **Événements à venir** (tri par date). Les événements
+     datés s'affichent aussi dans le **calendrier T9** (barre pointillée ◆ sur leur
+     date, couleur de catégorie). Seed enrichi (Fête de la Saint-Louis, Festival de
+     Thau). Export CSV enrichi (date, date_fin, listes). Helpers `expIsUpcoming`,
+     `expEventLabel`, `expLists`, `expTogglePartner`, `expToggleUpcoming`.
 
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
@@ -541,4 +551,4 @@ routage/géocodage gratuit OSM) sont **livrés et testés**. Reste le point **3
 Améliorations possibles sur T10 : événements datés, **génération d'un devis
 directement depuis un itinéraire** (reprendre le total calculé). Avant de coder
 une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP (442 checks de référence : csptest.mjs → csptest22.mjs).
+introduit, tester sous CSP (459 checks de référence : csptest.mjs → csptest23.mjs).
