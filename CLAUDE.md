@@ -449,13 +449,19 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    Helpers : `expColor`, `expRows`, `expCardHTML`, `openExpEntry`, `seedExperiences`,
    `haversineKm`, `legInfo`, `autoMode`, `mapsDirUrl`, `itinTotals`, `suggestNext`,
    `addExpToDay`, `cycleLeg`, `moveItinItem`, `itinPrint`, `FLOW_NEXT`, `ITIN_MODES`.
-   **Honnête (limite assumée)** : le calcul d'itinéraire **précis** (voirie réelle,
-   horaires de bus/tram en direct) exige une **API payante** (Google Directions /
-   Transit) — hors périmètre « autonome, sans API ». L'outil **estime** la distance
-   (vol d'oiseau) + un temps réaliste par mode, et **ouvre le VRAI trajet dans
-   Google Maps** (en ligne) via un lien pré-rempli. Les coordonnées lat/lng se
-   collent depuis Google Maps (clic droit sur le lieu). Une vraie synchro live
-   Maps intégrée n'est pas possible sans serveur/API.
+   **Routage & géocodage 100% GRATUITS (OpenStreetMap)** — `Geo` (app.js) :
+   **Nominatim** (`nominatim.openstreetmap.org`) géocode les adresses → lat/lng
+   (bouton **« Compléter les coordonnées (gratuit) »** dans Expériences,
+   `geocodeMissing`, 1 req/s poli) ; **OSRM** (`router.project-osrm.org`) calcule
+   les **distances/temps sur routes réelles** (bouton **« Vraies distances
+   (gratuit) »** dans l'itinéraire, `itinComputeRoutes`, cache `item.osrm`).
+   Aucune clé, aucun abonnement. `legFor` privilégie la distance réelle et **se
+   replie automatiquement** sur l'estimation à vol d'oiseau si hors ligne. Marche
+   dans l'extension installée (host_permissions `<all_urls>`) et en mode fichier
+   (CORS ouvert côté OSM). Honnête : le transit fin (horaires bus/tram en direct)
+   reste hors périmètre gratuit sans clé — le mode « bus/tram » estime le temps à
+   partir de la distance routière ; le **lien Google Maps** ouvre le vrai trajet
+   transit en ligne. Serveurs publics OSM/OSRM = usage raisonnable (petits volumes).
 
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
@@ -511,14 +517,22 @@ une fonctionnalité **en ligne** assumée et centrale.
 - Connecteurs Google Drive/Gamma souvent déconnectés dans la session : ne bloque rien
   (l'outil est autonome) ; demander une reconnexion côté claude.ai si besoin de relire le Drive.
 
+## Principe directeur (consigne utilisatrice)
+Chaque fois qu'un blocage apparaît, trouver une **solution 100% GRATUITE** (pas
+d'API payante, pas d'abonnement, pas de clé si possible) — l'outil doit au final
+être **complet et fonctionnel**. Ex. déjà appliqué : routage/géocodage via
+**OpenStreetMap (Nominatim + OSRM)** au lieu de Google Directions payant ; envoi
+email via **Gmail API OAuth gratuit** au lieu d'un SMTP payant ; scraping via
+l'extension au lieu d'un serveur de scraping payant. Toujours documenter la
+solution gratuite retenue et son repli hors-ligne.
+
 ## Prochaine action suggérée
 Points **1** (automatisations n8n), **4** (import CRM Drive), **5** (T8 registre),
 **6** (documents participants), **7 / R.c** (calendrier & plannings), **8 / R.b**
-(pipeline commercial) et **9 / T10** (expériences & constructeur d'itinéraire) sont
-**livrés et testés**. Reste le point **3 (export CSV auto vers Drive)** et **R.f
-(intake participants Google Form → fiche)**. Améliorations possibles sur T10 à
-valider avec l'utilisatrice : coordonnées auto depuis l'adresse (nécessiterait un
-géocodage = API, donc saisie manuelle pour l'instant), événements avec dates,
-génération d'un devis directement depuis un itinéraire. Avant de coder une
-nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP (408 checks de référence : csptest.mjs → csptest20.mjs).
+(pipeline commercial) et **9 / T10** (expériences & constructeur d'itinéraire, +
+routage/géocodage gratuit OSM) sont **livrés et testés**. Reste le point **3
+(export CSV auto vers Drive)** et **R.f (intake participants Google Form → fiche)**.
+Améliorations possibles sur T10 : événements datés, **génération d'un devis
+directement depuis un itinéraire** (reprendre le total calculé). Avant de coder
+une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
+introduit, tester sous CSP (423 checks de référence : csptest.mjs → csptest21.mjs).

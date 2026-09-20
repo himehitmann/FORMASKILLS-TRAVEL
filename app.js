@@ -2752,6 +2752,26 @@ window.exportPipeline=()=>{
    exige une API payante — hors périmètre autonome. On estime la distance
    à vol d'oiseau + un temps réaliste par mode, et on ouvre le VRAI trajet
    dans Google Maps (en ligne) via un lien pré-rempli. */
+/* Géolocalisation & routage 100% GRATUITS via OpenStreetMap — aucune clé, aucun
+   abonnement. Nominatim = géocodage (adresse -> lat/lng). OSRM = distance/temps
+   sur routes réelles. Repli automatique sur l'estimation à vol d'oiseau si hors
+   ligne ou service indisponible. Politesse : 1 requête/s (règle Nominatim). */
+const Geo=(()=>{
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms)); let last=0;
+  async function polite(){ const w=1100-(Date.now()-last); if(w>0) await sleep(w); last=Date.now(); }
+  async function geocode(q){ if(!q) return null; try{ await polite();
+    const url="https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=fr&q="+encodeURIComponent(q);
+    const r=await fetch(url,{headers:{Accept:"application/json"}}); if(!r.ok) return null; const j=await r.json();
+    if(j&&j[0]&&j[0].lat) return {lat:+(+j[0].lat).toFixed(6), lng:+(+j[0].lon).toFixed(6)}; return null; }catch(e){ return null; } }
+  // Distance/temps routiers réels (profil voiture, seul garanti sur le serveur
+  // public OSRM). On en dérive le temps des autres modes via les vitesses.
+  async function roadDistance(a,b){ try{ await polite();
+    const url=`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`;
+    const r=await fetch(url); if(!r.ok) return null; const j=await r.json();
+    if(j&&j.routes&&j.routes[0]) return {km:Math.round(j.routes[0].distance/100)/10, carMin:Math.round(j.routes[0].duration/60)}; return null; }catch(e){ return null; } }
+  return {geocode, roadDistance};
+})();
+
 const EXP_CATEGORIES=[
   ["Musée","#7c3aed"],["Monument / Visite","#be123c"],["Restaurant","#e0620d"],["Bar / Café","#0891b2"],
   ["Activité","#0e9f6e"],["Parc / Nature","#4d7c0f"],["Plage","#0284c7"],["Événement","#9333ea"],
@@ -2774,6 +2794,7 @@ VIEWS.experiences=()=>{
     <select class="input" id="exp_city" style="max-width:180px"><option value="">Toutes les villes</option>${cities.map(c=>`<option ${c===EXP_CITY?"selected":""}>${esc(c)}</option>`).join("")}</select>
     <select class="input" id="exp_cat" style="max-width:190px"><option value="">Toutes les catégories</option>${EXP_CATEGORIES.map(([k])=>`<option ${k===EXP_CAT?"selected":""}>${esc(k)}</option>`).join("")}</select>
     <div class="spacer"></div>
+    <button class="btn sm" data-call="geocodeMissing()" id="exp_geo">Compléter les coordonnées (gratuit)</button>
     <button class="btn sm" data-call="seedExperiences()">Exemples Sète / Montpellier</button>
     <button class="btn sm ghost" data-call="exportExperiences()">Exporter CSV</button>
     <button class="btn sm primary" data-call="openExpEntry()">+ Nouvelle expérience</button></div>
@@ -2839,6 +2860,20 @@ window.openExpEntry=id=>{
     }}]});
   $("#xe_partline").onclick=()=>$("#xe_part").classList.toggle("on");
 };
+function expGeoQuery(e){ const base=[e.address,e.city].filter(Boolean).join(", ") || [e.name,e.city].filter(Boolean).join(", ") || e.name || "";
+  return base + (/france/i.test(base)?"":", France"); }
+window.geocodeMissing=async()=>{
+  const todo=(DB.experiences||[]).filter(e=>(e.lat==null||e.lat==="")&&(e.address||e.city||e.name));
+  if(!todo.length){ toast("Toutes les expériences ont déjà des coordonnées","ok"); return; }
+  const btn=$("#exp_geo"); if(btn){ btn.disabled=true; }
+  let n=0;
+  for(let i=0;i<todo.length;i++){ const e=todo[i]; if(btn) btn.textContent=`Géocodage ${i+1}/${todo.length}…`;
+    const g=await Geo.geocode(expGeoQuery(e));
+    if(g){ e.lat=g.lat; e.lng=g.lng; n++; save(); } }
+  if(btn){ btn.disabled=false; }
+  logAct(`${n} coordonnée(s) complétée(s) (OpenStreetMap)`); save(); VIEWS.experiences();
+  toast(n?`${n} lieu(x) géolocalisé(s) gratuitement`:"Aucune coordonnée trouvée (vérifiez l'adresse)", n?"ok":"warn");
+};
 window.exportExperiences=()=>{
   const rows=expRows().map(e=>({nom:e.name,categorie:e.category||"",ville:e.city||"",adresse:e.address||"",
     prix:Number(e.price)>0?e.price:"0",duree_min:e.duration||"",ouverture:e.openDays||"",lat:e.lat||"",lng:e.lng||"",site:e.url||"",partenaire:e.partner?"oui":""}));
@@ -2876,6 +2911,13 @@ function haversineKm(a,b){ if(a.lat===""||a.lng===""||b.lat===""||b.lng===""||a.
 function legInfo(prev,exp,mode){ const m=ITIN_MODES[mode]||ITIN_MODES.walk; const km=haversineKm(prev,exp);
   if(km==null) return {km:null,min:null,mode}; const min=Math.round(m.base + (km/m.kmh)*60); return {km:Math.round(km*10)/10,min,mode}; }
 function autoMode(prev,exp){ const km=haversineKm(prev,exp); return (km!=null && km>1.5)?"transit":"walk"; }
+// Trajet affiché : privilégie la distance routière réelle (OSRM, gratuit) mise
+// en cache sur l'item ; sinon repli sur l'estimation à vol d'oiseau.
+function legFor(prev,exp,item){ const mode=item.mode||"walk"; const m=ITIN_MODES[mode]||ITIN_MODES.walk;
+  if(item.osrm && item.osrm.km!=null){ const km=item.osrm.km;
+    const min = mode==="car" ? (item.osrm.carMin||Math.round(m.base+km/m.kmh*60)) : Math.round(m.base+km/m.kmh*60);
+    return {km, min, mode, real:true}; }
+  return legInfo(prev,exp,mode); }
 function mapsDirUrl(a,b,mode){ const g=(ITIN_MODES[mode]||ITIN_MODES.walk).g;
   const pt=x=> (x.lat!=null&&x.lat!==""&&x.lng!=null&&x.lng!=="")? `${x.lat},${x.lng}` : encodeURIComponent([x.name,x.address,x.city].filter(Boolean).join(" "));
   return `https://www.google.com/maps/dir/?api=1&origin=${pt(a)}&destination=${pt(b)}&travelmode=${g}`; }
@@ -2884,7 +2926,7 @@ function expById(id){ return (DB.experiences||[]).find(e=>e.id===id); }
 function itinTotals(it){ let price=0,dur=0,count=0,legMin=0; const pax=Math.max(1,+it.participants||1);
   (it.days||[]).forEach(d=>{ (d.items||[]).forEach((item,i)=>{ const e=expById(item.expId); if(!e)return; count++;
     price+=(Number(e.price)>0?Number(e.price):0)*pax; dur+=Number(e.duration)||0;
-    if(i>0){ const pe=expById(d.items[i-1].expId); if(pe){ const L=legInfo(pe,e,item.mode||"walk"); if(L.min) legMin+=L.min; } } }); });
+    if(i>0){ const pe=expById(d.items[i-1].expId); if(pe){ const L=legFor(pe,e,item); if(L.min) legMin+=L.min; } } }); });
   return {price,dur,count,legMin,pax}; }
 VIEWS.itinerary=()=>{
   const its=DB.itineraries||[];
@@ -2899,6 +2941,7 @@ VIEWS.itinerary=()=>{
     <select class="input" id="it_sel" style="max-width:260px">${its.map(x=>`<option value="${x.id}" ${x.id===ITIN_CUR?"selected":""}>${esc(x.name||"Itinéraire")}</option>`).join("")}</select>
     <button class="btn sm" data-call="newItinerary()">+ Nouvel itinéraire</button>
     <div class="spacer"></div>
+    <button class="btn sm" data-call="itinComputeRoutes()" id="it_road">Vraies distances (gratuit)</button>
     <button class="btn sm ghost" data-call="itinPrint()">Imprimer / PDF</button>
     <button class="btn sm ghost" data-call="delItinerary('${it.id}')">Supprimer</button></div>
   <div class="grid cards" style="margin:6px 0 14px">
@@ -2954,10 +2997,10 @@ function itinDrawDays(){ const it=curItin(); it.days=it.days||[];
       <button class="btn sm ghost" data-call="itinDelDay('${d.id}')">×</button></div>
     ${(d.items||[]).map((item,ii)=>{ const e=expById(item.expId); if(!e) return "";
       let legHTML="";
-      if(ii>0){ const pe=expById(d.items[ii-1].expId); const L=pe?legInfo(pe,e,item.mode||"walk"):{km:null};
+      if(ii>0){ const pe=expById(d.items[ii-1].expId); const L=pe?legFor(pe,e,item):{km:null};
         const m=ITIN_MODES[item.mode||"walk"];
         legHTML=`<div class="leg"><button data-call="cycleLeg('${d.id}','${item.expId}')">${esc(m.l)}</button>
-          <span>${L.km!=null?`${L.km} km · ${L.min} min`:"distance ?"}</span>
+          <span>${L.km!=null?`${L.km} km · ${L.min} min${L.real?" · réel":""}`:"distance ?"}</span>
           ${pe?`<a href="${esc(mapsDirUrl(pe,e,item.mode||"walk"))}" target="_blank" rel="noopener" style="color:var(--brand)">Maps</a>`:""}</div>`; }
       return `${legHTML}<div class="itin-item" draggable="true" data-item="${d.id}:${ii}">
         <span class="exptag" style="background:${expColor(e.category)}">${esc((e.category||"Autre").split(" ")[0])}</span>
@@ -3037,9 +3080,19 @@ window.cycleLeg=(dayId,expId)=>{ const it=curItin(); const d=(it.days||[]).find(
   item.mode=order[(order.indexOf(item.mode||"walk")+1)%order.length]; save(); itinDrawDays(); };
 window.applySuggestion=expId=>{ const it=curItin(); if(!it)return; const days=it.days||[]; const d=days[days.length-1]||days[0];
   if(!d){ itinAddDay(); return applySuggestion(expId); } addExpToDay(it.id,d.id,expId); };
+window.itinComputeRoutes=async()=>{ const it=curItin(); if(!it)return;
+  const legs=[]; (it.days||[]).forEach(d=>{ (d.items||[]).forEach((item,i)=>{ if(i>0){ const pe=expById(d.items[i-1].expId); const e=expById(item.expId);
+    if(pe&&e&&pe.lat!=null&&pe.lat!==""&&e.lat!=null&&e.lat!=="") legs.push({item,a:pe,b:e}); } }); });
+  if(!legs.length){ toast("Renseignez d'abord les coordonnées des lieux (bouton « Compléter les coordonnées »)","warn"); return; }
+  const btn=$("#it_road"); if(btn) btn.disabled=true; let n=0;
+  for(let i=0;i<legs.length;i++){ const L=legs[i]; if(btn) btn.textContent=`Calcul ${i+1}/${legs.length}…`;
+    const d=await Geo.roadDistance(L.a,L.b); if(d){ L.item.osrm={km:d.km,carMin:d.carMin}; n++; save(); } }
+  if(btn) btn.disabled=false;
+  logAct(`${n} trajet(s) calculé(s) sur routes réelles (OSRM)`); save(); if(CURRENT==="itinerary") VIEWS.itinerary();
+  toast(n?`${n} trajet(s) calculé(s) gratuitement (routes réelles)`:"Calcul indisponible (hors ligne ?) — estimation conservée", n?"ok":"warn"); };
 window.itinPrint=()=>{ const it=curItin(); if(!it)return; const T=itinTotals(it);
   const daysHTML=(it.days||[]).map((d,di)=>{ const rows=(d.items||[]).map((item,ii)=>{ const e=expById(item.expId); if(!e)return "";
-    let leg=""; if(ii>0){ const pe=expById(d.items[ii-1].expId); if(pe){ const L=legInfo(pe,e,item.mode||"walk"); const m=ITIN_MODES[item.mode||"walk"];
+    let leg=""; if(ii>0){ const pe=expById(d.items[ii-1].expId); if(pe){ const L=legFor(pe,e,item); const m=ITIN_MODES[item.mode||"walk"];
       leg=`<tr><td colspan="3" style="color:#889;font-size:11px;padding:2px 12px">↳ ${esc(m.l)}${L.km!=null?` · ${L.km} km · ${L.min} min`:""}</td></tr>`; } }
     return `${leg}<tr><td><b>${esc(e.name)}</b>${e.address?`<div style="color:#889;font-size:11px">${esc(e.address)}</div>`:""}</td>
       <td>${esc(e.category||"")}</td><td class="r">${expPriceLabel(e.price)}</td></tr>`; }).join("");
