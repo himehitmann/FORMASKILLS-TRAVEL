@@ -97,6 +97,37 @@ function idbReq(fn){ return new Promise((res,rej)=>{ const r=indexedDB.open("ft_
 function idbSet(k,v){ return idbReq((db,res,rej)=>{ const t=db.transaction("h","readwrite"); t.objectStore("h").put(v,k); t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
 function idbGet(k){ return idbReq((db,res)=>{ const t=db.transaction("h","readonly"); const q=t.objectStore("h").get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>res(null); }); }
 function idbDel(k){ return idbReq((db,res)=>{ const t=db.transaction("h","readwrite"); t.objectStore("h").delete(k); t.oncomplete=()=>res(); }); }
+function idbKeys(){ return idbReq((db,res)=>{ const t=db.transaction("h","readonly"); const q=t.objectStore("h").getAllKeys(); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>res([]); }); }
+
+/* Sauvegardes automatiques locales (anti-perte) : un instantané par jour dans
+   IndexedDB, 10 conservés. Restaurable en 1 clic — protège des suppressions
+   accidentelles même sans synchro fichier. 100% local, gratuit. */
+async function snapshotDaily(){ try{
+  const today=new Date().toISOString().slice(0,10);
+  if(DB.settings.lastSnap===today) return;
+  await idbSet("snap:"+today, {t:Date.now(), json:JSON.stringify(DB)});
+  DB.settings.lastSnap=today; saveNow();
+  const keys=(await idbKeys()).filter(k=>String(k).startsWith("snap:")).sort();
+  while(keys.length>10){ await idbDel(keys.shift()); }
+}catch(e){} }
+async function listSnapshots(){ try{
+  const keys=(await idbKeys()).filter(k=>String(k).startsWith("snap:")).sort().reverse();
+  const out=[]; for(const k of keys){ const v=await idbGet(k); out.push({key:k, date:k.slice(5), t:v&&v.t, size:v&&v.json?v.json.length:0}); }
+  return out;
+}catch(e){ return []; } }
+window.restoreSnapshot=key=>{ confirmModal("Restaurer cette sauvegarde ?","Vos données actuelles seront remplacées par l'instantané choisi. (Un nouvel instantané du jour est conservé.)",async()=>{
+  try{ const v=await idbGet(key); if(!v||!v.json){ toast("Instantané introuvable","bad"); return; }
+    DB=migrate(JSON.parse(v.json)); saveNow(); renderNav(); go("dash"); toast("Sauvegarde restaurée."); }catch(e){ toast("Échec de la restauration","bad"); }
+},true); };
+window.downloadSnapshot=async key=>{ try{ const v=await idbGet(key); if(!v||!v.json)return;
+  const blob=new Blob([v.json],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download=`formaskills-sauvegarde-${key.slice(5)}.json`; a.click(); URL.revokeObjectURL(a.href); toast("Sauvegarde téléchargée"); }catch(e){} };
+window.refreshSnapshots=async()=>{ const host=$("#snapList"); if(!host) return;
+  const snaps=await listSnapshots();
+  host.innerHTML= snaps.length? snaps.map(s=>`<div class="result-row"><div style="flex:1"><b>${esc(fmtDate(s.t||Date.parse(s.date)))}</b> <span class="muted" style="font-size:12px">· ${(s.size/1024).toFixed(0)} Ko</span></div>
+    <button class="btn sm ghost" data-call="downloadSnapshot('${s.key}')">Télécharger</button>
+    <button class="btn sm" data-call="restoreSnapshot('${s.key}')">Restaurer</button></div>`).join("")
+    : `<div class="muted" style="font-weight:600;font-size:12.5px">Aucun instantané encore — le premier est créé automatiquement aujourd'hui.</div>`; };
 
 let SYNC_HANDLE=null, _syncT=null;
 async function perm(handle,mode){ try{ return await handle.queryPermission({mode}); }catch(e){ return "denied"; } }
@@ -4159,6 +4190,10 @@ VIEWS.settings=()=>{
         ${["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns"].map(k=>`<span class="tag n">${k} : ${(DB[k]||[]).length}</span>`).join("")}
       </div>
       <div class="divider"></div>
+      <div class="section-title" style="margin-top:0">Sauvegardes automatiques (restauration en 1 clic)</div>
+      <p class="muted" style="font-weight:600;margin-top:0;font-size:12.5px">L'outil garde <b>un instantané par jour</b> (10 derniers), en local. Si vous supprimez quelque chose par erreur, <b>restaurez</b> une version précédente.</p>
+      <div id="snapList" style="margin-bottom:10px"><div class="muted" style="font-size:12px">Chargement…</div></div>
+      <div class="divider"></div>
       <button class="btn ghost" id="s_reset" style="color:var(--bad)">Réinitialiser toutes les données</button>
     </div>
     <div class="card" style="grid-column:1/-1;border-left:4px solid var(--accent)">
@@ -4229,6 +4264,7 @@ VIEWS.settings=()=>{
   $("#s_save").onclick=()=>{ Object.assign(DB.settings,{caTarget:+$("#s_ca").value||0,panier:+$("#s_panier").value||1,
     convDevis:+$("#s_cd").value||.3,convRdv:+$("#s_cr").value||.25,convContact:+$("#s_cc").value||.35}); save(); toast("Réglages enregistrés"); };
   $("#s_exp").onclick=exportDB;
+  if($("#snapList")) refreshSnapshots();
   $("#s_imp").onclick=()=>$("#s_file").click();
   $("#s_file").onchange=importDB;
   $("#s_reset").onclick=()=>confirmModal("Tout réinitialiser ?","Toutes vos données seront effacées de ce navigateur. Exportez d'abord une sauvegarde !",()=>{DB=structuredClone(DEFAULT_DB);saveNow();renderNav();go("dash");toast("Réinitialisé");},true);
@@ -4426,6 +4462,7 @@ checkOverdue();
 hydrateFromChrome();
 initSync();
 initCsv();
+setTimeout(snapshotDaily, 4000);
 window.addEventListener("beforeunload",saveNow);
 /* Synchronisation live : quand la popup de l'extension enregistre des contacts,
    l'application ouverte se met à jour automatiquement. */
