@@ -192,6 +192,7 @@ code.k{background:var(--panel-2);border:1px solid var(--line);padding:1px 6px;bo
   #menuBtn{display:inline-flex!important}
 }
 #menuBtn{display:none}
+@media(max-width:640px){ .hide-sm{display:none} }
 /* Calendrier des séjours (T9) */
 .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
 .calgrid-head{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
@@ -248,6 +249,7 @@ code.k{background:var(--panel-2);border:1px solid var(--line);padding:1px 6px;bo
         <div class="sub" id="viewSub">Vue d'ensemble de l'activité</div>
       </div>
       <div class="spacer"></div>
+      <button class="btn ghost" id="globalSearch" title="Rechercher partout (Ctrl+K)"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><span class="hide-sm">Rechercher</span></button>
       <button class="btn primary" id="quickAdd">+ Ajouter</button>
     </header>
     <div id="syncBanner" style="padding:0 22px"></div>

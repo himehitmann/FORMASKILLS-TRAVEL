@@ -4355,6 +4355,44 @@ $("#quickAdd").onclick=()=>{
   editEntity("partners",null);
 };
 
+/* ============================================================
+   RECHERCHE GLOBALE (retrouver n'importe quoi + y aller)
+   ============================================================ */
+function globalSearchResults(q){
+  q=deburrLower(q); if(q.length<2) return [];
+  const hit=(...parts)=>deburrLower(parts.filter(Boolean).join(" ")).includes(q);
+  const out=[];
+  (DB.contacts||[]).forEach(c=>{ if(hit(c.name,c.company,c.email,c.phone,c.city,(c.tags||[]).join(" "))) out.push({t:"Contact",label:c.name||c.company||c.email||"—",sub:[c.company,c.email].filter(Boolean).join(" · "),act:`openContactCard('${c.id}')`}); });
+  (DB.partners||[]).forEach(p=>{ if(hit(p.name,p.contactName,p.email,p.type,p.country)) out.push({t:"Partenaire",label:p.name,sub:[p.type,p.contactName].filter(Boolean).join(" · "),act:`openRec('partners','${p.id}')`}); });
+  (DB.projects||[]).forEach(p=>{ if(hit(p.name,p.city,p.country,p.status)) out.push({t:"Projet",label:p.name,sub:[p.city,p.status].filter(Boolean).join(" · "),act:`openRec('projects','${p.id}')`}); });
+  (DB.participants||[]).forEach(p=>{ if(hit(p.name,p.email,p.project,p.nationality)) out.push({t:"Participant",label:p.name,sub:[p.project,p.email].filter(Boolean).join(" · "),act:`openRec('participants','${p.id}')`}); });
+  (DB.providers||[]).forEach(p=>{ if(hit(p.name,p.type,p.city,p.contactName,p.email)) out.push({t:"Prestataire",label:p.name,sub:[p.type,p.city].filter(Boolean).join(" · "),act:`openRec('providers','${p.id}')`}); });
+  (DB.experiences||[]).forEach(e=>{ if(hit(e.name,e.category,e.city,e.address,(e.tags||[]).join(" "))) out.push({t:"Expérience",label:e.name,sub:[e.category,e.city].filter(Boolean).join(" · "),act:`openExpEntry('${e.id}')`}); });
+  (DB.itineraries||[]).forEach(i=>{ if(hit(i.name,i.client)) out.push({t:"Itinéraire",label:i.name,sub:i.client||"",act:`openItinFromSearch('${i.id}')`}); });
+  (DB.quotes||[]).forEach(x=>{ if(hit(x.number,x.clientName,x.object)) out.push({t:x.kind==="facture"?"Facture":"Devis",label:x.number+" — "+(x.clientName||""),sub:x.object||"",act:`openQuoteFromSearch('${x.id}')`}); });
+  (DB.tasks||[]).forEach(t=>{ if(hit(t.title,t.linked)) out.push({t:"Tâche",label:t.title,sub:t.status||"",act:`openRec('tasks','${t.id}')`}); });
+  return out.slice(0,40);
+}
+window.openItinFromSearch=id=>{ ITIN_CUR=id; closeModal(); go("itinerary"); };
+window.openQuoteFromSearch=id=>{ const q=DB.quotes.find(x=>x.id===id); closeModal(); go("docs"); DOCS_TAB="quotes"; DOCS_KIND=(q&&q.kind)||"devis"; VIEWS.docs(); editQuote(id); };
+window.openGlobalSearch=()=>{
+  openModal({title:"Rechercher partout", wide:true,
+    body:`<input class="input" id="gs_q" placeholder="Nom, email, ville, société, projet, devis…" autocomplete="off" style="font-size:15px">
+      <div class="muted" style="font-size:12px;margin:6px 0 4px">Contacts, partenaires, projets, participants, prestataires, expériences, itinéraires, devis, tâches.</div>
+      <div id="gs_out" style="max-height:52vh;overflow:auto;margin-top:8px"></div>`,
+    footer:[{label:"Fermer",cls:"ghost",act:closeModal}]});
+  const draw=()=>{ const q=$("#gs_q").value.trim(); const res=globalSearchResults(q);
+    $("#gs_out").innerHTML= q.length<2? `<div class="muted" style="padding:10px">Tapez au moins 2 caractères…</div>`
+      : res.length? res.map(r=>`<div class="result-row gs-item" data-call="${r.act.replace(/"/g,'&quot;')}" style="cursor:pointer">
+          <span class="tag n" style="min-width:86px;text-align:center">${esc(r.t)}</span>
+          <div style="flex:1;min-width:0"><div class="cell-strong" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.label)}</div>
+          ${r.sub?`<div class="muted" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.sub)}</div>`:""}</div><span class="muted">›</span></div>`).join("")
+      : `<div class="empty" style="padding:24px">Aucun résultat pour « ${esc(q)} ».</div>`; };
+  const inp=$("#gs_q"); inp.oninput=draw; setTimeout(()=>inp.focus(),50); draw();
+};
+$("#globalSearch")&&($("#globalSearch").onclick=openGlobalSearch);
+document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&(e.key==="k"||e.key==="K")){ e.preventDefault(); openGlobalSearch(); } });
+
 // Déclencheurs "à l'ouverture" : tâches/factures en retard, échéances de
 // départ proches, planning quotidien (une seule fois par jour).
 function checkOverdue(){

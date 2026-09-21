@@ -501,6 +501,19 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
     Forms payante). Aperçu des colonnes reconnues avant import. Helpers :
     `PART_FIELDS`, `detectParticipantMapping`, `importParticipants`.
 
+11. **Recherche globale** (idée ajoutée, csptest27 : 16 checks) + **smoke test
+    complet** (csptest26 : 7 checks ; total 517). Bouton **« Rechercher »** dans
+    l'en-tête (+ raccourci **Ctrl/Cmd+K**) → `openGlobalSearch` : retrouve
+    n'importe quoi (contacts, partenaires, projets, participants, prestataires,
+    expériences, itinéraires, devis/factures, tâches), **insensible aux accents**
+    (`globalSearchResults` via `deburrLower`), et **clic = on y va** (ouvre la fiche
+    / l'écran concerné : `openContactCard`, `openRec`, `openExpEntry`,
+    `openItinFromSearch`, `openQuoteFromSearch`). Le **smoke test** (csptest26)
+    seede toutes les collections, visite **les 18 vues**, ouvre les modaux clés,
+    vérifie **0 pageerror, 0 violation CSP, 0 ID HTML dupliqué** — garde-fou anti-
+    régression global. Aucun handler inline (vérifié). CSS `.hide-sm` (masque le
+    libellé du bouton en mobile).
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
@@ -573,4 +586,4 @@ routage/géocodage gratuit OSM) sont **livrés et testés**. Reste le point **3
 Améliorations possibles sur T10 : événements datés, **génération d'un devis
 directement depuis un itinéraire** (reprendre le total calculé). Avant de coder
 une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP (494 checks de référence : csptest.mjs → csptest25.mjs).
+introduit, tester sous CSP (517 checks de référence : csptest.mjs → csptest27.mjs).
