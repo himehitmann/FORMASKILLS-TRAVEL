@@ -4571,13 +4571,25 @@ setTimeout(snapshotDaily, 4000);
 window.addEventListener("beforeunload",saveNow);
 /* Synchronisation live : quand la popup de l'extension enregistre des contacts,
    l'application ouverte se met à jour automatiquement. */
+// Les contacts NOUVEAUX arrivés par la bulle déclenchent les automatisations
+// « contact ajouté » (comme une saisie dans l'app) et reçoivent leur nature.
+function onExtensionStorageChange(nv){
+  if(!nv || JSON.stringify(nv.contacts||[])===JSON.stringify(DB.contacts||[])) return 0;
+  const before=new Set((DB.contacts||[]).map(c=>c.id));
+  DB=migrate(nv);
+  const added=(DB.contacts||[]).filter(c=>c && !before.has(c.id));
+  added.forEach(c=>{ if(!c.category){ const cat=inferCategory([c.name,c.service,c.domain,c.company].filter(Boolean).join(" ")); if(cat) c.category=cat; } });
+  try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){}
+  added.forEach(c=>Automations.run("contact.created",{...c,_entity:"contacts",_id:c.id}));
+  if(added.length) save();
+  renderNav(); if(VIEWS[CURRENT]) VIEWS[CURRENT]();
+  toast(added.length?`${added.length} contact(s) ajouté(s) depuis l'extension`:"Contacts synchronisés depuis l'extension");
+  return added.length;
+}
+window.onExtensionStorageChange=onExtensionStorageChange;
 try{ if(typeof chrome!=="undefined" && chrome.storage && chrome.storage.onChanged){
   chrome.storage.onChanged.addListener((changes,area)=>{
     if(area!=="local" || !changes[KEY] || !changes[KEY].newValue) return;
-    const nv=changes[KEY].newValue;
-    if(JSON.stringify(nv.contacts||[])===JSON.stringify(DB.contacts||[])) return;
-    DB=migrate(nv); try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){}
-    renderNav(); if(VIEWS[CURRENT]) VIEWS[CURRENT]();
-    toast("Contacts synchronisés depuis l'extension");
+    onExtensionStorageChange(changes[KEY].newValue);
   });
 } }catch(e){}

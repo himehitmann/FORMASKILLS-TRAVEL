@@ -194,6 +194,18 @@ const snap = await ev(async()=>{ const ks=(await idbKeys()).filter(k=>String(k).
   DB.settings.lastSnap=""; await snapshotDaily(); const n1=(await listSnapshots()).length; await snapshotDaily(); return {n1, n2:(await listSnapshots()).length}; });
 ok(snap.n1===1 && snap.n2===1, "instantané quotidien (sans doublon)");
 
+/* ---------- 8b. Bulle → app : nouveaux contacts déclenchent les automatisations ---------- */
+section("bulle");
+const bub = await ev(()=>{ DB.contacts=[{id:"old",name:"Ancien",email:"o@x.fr",tags:[]}]; saveNow();
+  const fired=[]; const _run=Automations.run; Automations.run=(evn,ctx)=>{ fired.push(evn+":"+ctx._id); };
+  const nv=JSON.parse(JSON.stringify(DB)); nv.contacts.push({id:"nw",name:"Lycée Victor Hugo",email:"vh@lycee.fr",source:"linkedin",tags:["Prospection LinkedIn"]});
+  const n1=onExtensionStorageChange(nv); const n2=onExtensionStorageChange(JSON.parse(JSON.stringify(DB)));
+  Automations.run=_run; const c=DB.contacts.find(x=>x.id==="nw");
+  return {n1, n2, fired, cat:c&&c.category, kept:DB.contacts.some(x=>x.id==="old")}; });
+ok(bub.n1===1 && bub.fired.length===1 && bub.fired[0]==="contact.created:nw", "contact reçu de la bulle → automatisation « contact ajouté »");
+ok(bub.n2===0, "pas de re-déclenchement sur une synchro identique");
+ok(bub.cat==="Lycée / École" && bub.kept, "nature déduite + contacts existants conservés");
+
 /* ---------- 9. Recherche globale ---------- */
 section("recherche");
 const gs = await ev(()=>{ DB.contacts=[{id:"c",name:"Marie Valéry",email:"m@x.fr",tags:[]}]; DB.experiences=[{id:"e",name:"Musée Fabre",category:"Musée"}];

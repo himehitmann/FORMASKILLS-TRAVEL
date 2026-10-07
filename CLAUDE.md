@@ -317,9 +317,10 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    **compatibilité ascendante** avec les anciennes règles (format simple converti
    à la volée par `Automations.norm`). n8n lui-même n'est PAS intégrable (serveur
    Node.js) — on en reproduit l'esprit, 100 % local. À valider par l'utilisatrice.
-   Note honnête : les contacts arrivant via la bulle (chrome.storage.onChanged)
-   ne redéclenchent pas encore `contact.created` (fusion de DB) — à brancher si
-   souhaité.
+   Les contacts arrivant via la bulle (`chrome.storage.onChanged` →
+   `onExtensionStorageChange`) **déclenchent désormais `contact.created`** (1 fois
+   par nouveau contact, pas de re-déclenchement sur une synchro identique) et
+   reçoivent leur **nature déduite** (section « bulle » de la suite).
 2. **Validation réelle de la bulle LinkedIn** — testée seulement sur page LinkedIn
    *simulée* (pas de vrai compte dans l'environnement). Faire tester par
    l'utilisatrice ; ajuster les sélecteurs de `scrape-core.js` (`ftPageScrape`,
@@ -626,12 +627,11 @@ l'extension au lieu d'un serveur de scraping payant. Toujours documenter la
 solution gratuite retenue et son repli hors-ligne.
 
 ## Prochaine action suggérée
-Points **1** (automatisations n8n), **4** (import CRM Drive), **5** (T8 registre),
-**6** (documents participants), **7 / R.c** (calendrier & plannings), **8 / R.b**
-(pipeline commercial) et **9 / T10** (expériences & constructeur d'itinéraire, +
-routage/géocodage gratuit OSM) sont **livrés et testés**. Reste le point **3
-(export CSV auto vers Drive)** et **R.f (intake participants Google Form → fiche)**.
-Améliorations possibles sur T10 : événements datés, **génération d'un devis
-directement depuis un itinéraire** (reprendre le total calculé). Avant de coder
-une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP avec `node tests/regression.mjs` (suite versionnée, 0 FAIL attendu).
+Tous les points 1 → 13 sont **livrés et testés** (`node tests/regression.mjs` :
+60 PASS / 0 FAIL), y compris devis/factures (acompte, solde, encaissements,
+mentions légales) et le déclenchement des automatisations pour les contacts venus
+de la bulle. Reste **à valider par l'utilisatrice** dans l'extension installée :
+bulle LinkedIn / Google / Maps sur le vrai DOM, envoi Gmail réel, détection des
+réponses. Avant de coder une nouvelle UI : relire cette liste, vérifier qu'aucun
+handler inline n'est introduit, tester sous CSP avec `node tests/regression.mjs`
+(suite versionnée, 0 FAIL attendu).
