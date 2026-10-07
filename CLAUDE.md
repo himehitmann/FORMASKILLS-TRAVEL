@@ -350,9 +350,9 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
    retire les diacritiques avant le mapping des en-têtes (les en-têtes accentués
    « Société / Téléphone / Prochaine action » sont désormais reconnus).
    Compat ascendante : une simple liste Nom/Email/Tél s'importe toujours.
-   Aperçu enrichi (colonnes reconnues affichées). Honnête : import dans le CRM
-   contacts (le vrai CRM de l'outil) ; XLSX à convertir en CSV/collage TSV
-   (l'outil lit TSV/CSV, pas le binaire .xlsx).
+   Aperçu enrichi (colonnes reconnues affichées). **Fichiers Excel .xlsx lus
+   nativement** (point 15). Seul l'ancien format binaire .xls doit être
+   ré-enregistré en .xlsx/.csv (message clair).
 5. ~~**T8 Registre documentaire** par dossier (archive centralisée + statut)~~ —
    **FAIT & TESTÉ** (20/20 checks sous CSP ; total 340). Nouvelle nav **« T8 ·
    Registre documentaire »** (`VIEWS.registry`, `DB.docRegistry`). Par **dossier**
@@ -599,6 +599,23 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
     - Sans objet (expliqué dans l'écran) : auth/sessions/RLS/CORS/CSRF/SEO
       public/cookies/infra serveur — pas de serveur ni de site public.
 
+15. **Excel natif + RGPD bout en bout** — **FAIT & TESTÉ** (sections « excel » et
+    « rgpd-bulle » ; suite à 99 PASS / 0 FAIL).
+    - **Import .xlsx sans librairie** (`zipEntries` lit l'archive ZIP,
+      `DecompressionStream("deflate-raw")` natif de Chrome, `xlsxToRows` : 1re
+      feuille via workbook.rels, chaînes partagées + texte enrichi, chaînes en
+      ligne, booléens, cellules creuses, **dates Excel → ISO** via styles.xml).
+      `readTableFile` branché sur « Importer / coller » (Contacts) et
+      « Inscriptions / import » (Participants). 100% gratuit, hors-ligne.
+    - **Dates françaises** : `parseDateLoose` (15/03/2009, 2009-03-15, série
+      Excel ; rejette 31/02) — corrige la date de naissance vide des Google Forms FR.
+    - **Bulle** : `ftSuppHash` (dans scrape-core.js, partagé app + bulle) ; la
+      bulle n'enregistre jamais un email opposé/effacé et dédoublonne sans casse ;
+      l'app applique aussi la liste d'opposition au chargement (`loadDB`).
+    - **Réponse « STOP »** : `gmailCheckReplies` cherche aussi les mots de
+      désinscription (`STOP_QUERY`) → contact « Ne plus contacter » + brouillons
+      retirés automatiquement.
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
@@ -672,8 +689,8 @@ l'extension au lieu d'un serveur de scraping payant. Toujours documenter la
 solution gratuite retenue et son repli hors-ligne.
 
 ## Prochaine action suggérée
-Tous les points 1 → 14 sont **livrés et testés** (`node tests/regression.mjs` :
-91 PASS / 0 FAIL), y compris devis/factures (acompte, solde, encaissements,
+Tous les points 1 → 15 sont **livrés et testés** (`node tests/regression.mjs` :
+99 PASS / 0 FAIL), y compris devis/factures (acompte, solde, encaissements,
 mentions légales) et le déclenchement des automatisations pour les contacts venus
 de la bulle. Reste **à valider par l'utilisatrice** dans l'extension installée :
 bulle LinkedIn / Google / Maps sur le vrai DOM, envoi Gmail réel, détection des

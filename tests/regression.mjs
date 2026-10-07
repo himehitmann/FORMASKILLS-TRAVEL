@@ -423,6 +423,65 @@ const perf = await ev(async()=>{
 });
 ok(perf.contacts<1500 && perf.dash<1500 && perf.partners<2000, "performance : 3000 contacts / 800 partenaires rendus vite "+JSON.stringify(perf));
 
+section("excel");
+/* Fabrique un vrai .xlsx (ZIP deflate) en mémoire : feuille nommée avec chemin non standard,
+   chaînes partagées (dont texte enrichi), chaîne en ligne, date au format Excel, cellules creuses. */
+const zlib = await import("zlib");
+function makeZip(files){ const loc=[], cen=[]; let off=0;
+  for(const [name,content,store] of files){ const nm=Buffer.from(name), raw=Buffer.from(content,"utf8"), data=store?raw:zlib.deflateRawSync(raw), crc=zlib.crc32(raw);
+    const h=Buffer.alloc(30); h.writeUInt32LE(0x04034b50,0); h.writeUInt16LE(20,4); h.writeUInt16LE(store?0:8,8); h.writeUInt32LE(crc,14); h.writeUInt32LE(data.length,18); h.writeUInt32LE(raw.length,22); h.writeUInt16LE(nm.length,26);
+    loc.push(h,nm,data);
+    const c=Buffer.alloc(46); c.writeUInt32LE(0x02014b50,0); c.writeUInt16LE(20,4); c.writeUInt16LE(20,6); c.writeUInt16LE(store?0:8,10); c.writeUInt32LE(crc,16); c.writeUInt32LE(data.length,20); c.writeUInt32LE(raw.length,24); c.writeUInt16LE(nm.length,28); c.writeUInt32LE(off,42);
+    cen.push(c,nm); off+=30+nm.length+data.length; }
+  const cd=Buffer.concat(cen), e=Buffer.alloc(22); e.writeUInt32LE(0x06054b50,0); e.writeUInt16LE(files.length,8); e.writeUInt16LE(files.length,10); e.writeUInt32LE(cd.length,12); e.writeUInt32LE(off,16);
+  return Buffer.concat([...loc,cd,e]); }
+const NS='xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+const XLSX = makeZip([
+  ["[Content_Types].xml",'<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',true],
+  ["xl/workbook.xml",`<?xml version="1.0"?><workbook ${NS}><sheets><sheet name="Entités" sheetId="1" r:id="rId3"/></sheets></workbook>`],
+  ["xl/_rels/workbook.xml.rels",'<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId3" Type="ws" Target="worksheets/sheet7.xml"/></Relationships>'],
+  ["xl/sharedStrings.xml",`<?xml version="1.0"?><sst ${NS}><si><t>Nom de l'entité</t></si><si><t>E-mail</t></si><si><t>Type de relation</t></si><si><r><t>Lycée </t></r><r><t>Joliot-Curie</t></r></si><si><t>Lycées</t></si><si><t>Date de naissance</t></si><si><t>Ville</t></si></sst>`],
+  ["xl/styles.xml",`<?xml version="1.0"?><styleSheet ${NS}><numFmts count="1"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/></numFmts><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="164"/></cellXfs></styleSheet>`],
+  ["xl/worksheets/sheet7.xml",`<?xml version="1.0"?><worksheet ${NS}><sheetData>
+    <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c><c r="D1" t="s"><v>5</v></c><c r="E1" t="s"><v>6</v></c></row>
+    <row r="2"><c r="A2" t="s"><v>3</v></c><c r="B2" t="inlineStr"><is><t>direction@joliot.fr</t></is></c><c r="C2" t="s"><v>4</v></c><c r="D2" s="1"><v>39887</v></c><c r="E2" t="str"><v>Sète</v></c></row>
+    <row r="3"><c r="A3" t="inlineStr"><is><t>Agence Soleil</t></is></c><c r="C3" t="inlineStr"><is><t>Agence de voyage</t></is></c><c r="D3" s="2"><v>40000</v></c></row>
+  </sheetData></worksheet>`],
+]);
+const xl = await ev(async(b64)=>{
+  const buf=Uint8Array.from(atob(b64),c=>c.charCodeAt(0)).buffer;
+  const rows=await xlsxToRows(buf);
+  const f=new File([buf],"crm.xlsx"); const tsv=await readTableFile(f);
+  DB.contacts=[]; const rr=parseTable(tsv); const det=detectMapping(rr); smartImport(rr,det,"Import Excel");
+  let oldXls=""; try{ await readTableFile(new File(["x"],"vieux.xls")); }catch(e){ oldXls=e.message; }
+  let bad=""; try{ await xlsxToRows(new TextEncoder().encode("pas un zip").buffer); }catch(e){ bad=e.message; }
+  const c=DB.contacts.find(x=>/joliot/.test(x.email||""));
+  return {rows, n:DB.contacts.length, comp:c&&c.company, cat:c&&c.category, city:c&&c.city, oldXls, bad,
+    fr:parseDateLoose("15/03/2009")===new Date(2009,2,15).getTime(), iso:parseDateLoose("2009-03-15")===new Date(2009,2,15).getTime(), serial:typeof parseDateLoose("39887")==="number", junk:parseDateLoose("31/02/2009")==="" };
+}, XLSX.toString("base64"));
+ok(xl.rows.length===3 && xl.rows[0][0]==="Nom de l'entité" && xl.rows[1][0]==="Lycée Joliot-Curie", "xlsx : chaînes partagées (texte enrichi) + feuille au chemin non standard");
+ok(xl.rows[1][1]==="direction@joliot.fr" && xl.rows[1][4]==="Sète" && xl.rows[2][1]==="", "xlsx : chaînes en ligne, formules texte, cellules vides");
+ok(xl.rows[1][3]==="2009-03-15" && xl.rows[2][3]==="2009-07-06", "xlsx : dates Excel converties (format standard et personnalisé)");
+ok(xl.n===2 && xl.comp==="Lycée Joliot-Curie" && /Lyc/.test(xl.cat||"") && xl.city==="Sète", "import Excel → contacts (société, nature, ville)");
+ok(/xls/.test(xl.oldXls) && /illisible/.test(xl.bad), "ancien .xls et faux fichier : message clair");
+ok(xl.fr && xl.iso && xl.serial && xl.junk, "dates françaises / ISO / série Excel lues ; date impossible rejetée");
+
+section("rgpd-bulle");
+const rb = await ev(()=>{ const h=ftSuppHash(" Bob@Lycee.fr ");
+  return { same: h===suppHash("bob@lycee.fr"), noplain: !/bob/.test(h) }; });
+ok(rb.same && rb.noplain, "empreinte d'opposition identique app ↔ bulle (sans email en clair)");
+const stop = await ev(async()=>{
+  DB.settings.gmail={clientId:"x",connected:true,token:"t",email:"me@x.fr",expiry:Date.now()+6e4};
+  DB.contacts=[{id:"r1",name:"Répond",email:"ok@x.fr",lastSentAt:Date.now()-864e5,tags:[]},{id:"r2",name:"Stop",email:"stop@x.fr",lastSentAt:Date.now()-864e5,tags:[]}];
+  DB.tasks=[{id:"dr",contactId:"r2",status:"À faire",kind:"email-draft",title:"x"}];
+  const of=window.fetch; window.fetch=async(u)=>{ const q=decodeURIComponent(String(u)); const hit=/from:ok@x\.fr/.test(q)&&!/STOP/.test(q) || /from:stop@x\.fr/.test(q);
+    return new Response(JSON.stringify(hit?{messages:[{id:"m"}]}:{}),{status:200}); };
+  await gmailCheckReplies(); window.fetch=of;
+  const a=DB.contacts.find(c=>c.id==="r1"), b=DB.contacts.find(c=>c.id==="r2");
+  return {a:a.stage, b:!!b.optOut, drafts:DB.tasks.filter(t=>t.contactId==="r2"&&t.status!=="Fait").length};
+});
+ok(stop.a==="En discussion" && stop.b && stop.drafts===0, "réponse « STOP » détectée → « Ne plus contacter » + brouillons retirés");
+
 /* ---------- Bilan ---------- */
 section("global");
 for(const v of ["dash","settings","itinerary","experiences"]){ await ev(i=>go(i),v); await page.waitForTimeout(40); }

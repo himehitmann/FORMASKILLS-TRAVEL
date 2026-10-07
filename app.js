@@ -31,7 +31,7 @@ const DEFAULT_DB = {
   customFields:{ partners:[], projects:[], participants:[], providers:[], tasks:[] }
 };
 function loadDB(){
-  try{ const raw=localStorage.getItem(KEY); if(raw){ return migrate(JSON.parse(raw)); } }
+  try{ const raw=localStorage.getItem(KEY); if(raw){ const d=migrate(JSON.parse(raw)); applySuppression(d); return d; } }
   catch(e){ console.warn("DB corrompue, réinit",e); }
   return structuredClone(DEFAULT_DB);
 }
@@ -1013,10 +1013,11 @@ async function gmailSend({to,cc,bcc,subject,body}){
 }
 // Détection de réponses : interroge la boîte pour un message reçu de l'adresse du
 // lead depuis l'envoi. Nécessite le scope gmail.readonly (consenti à la connexion).
-async function gmailHasReplyFrom(email, sinceMs){
+const STOP_QUERY='(STOP OR désinscrire OR désinscription OR désabonner OR unsubscribe OR "ne plus recevoir" OR "ne plus être contacté")';
+async function gmailHasReplyFrom(email, sinceMs, extra){
   const g=gmailCfg(); if(!gmailConnected()||!email) return false;
   const after=Math.floor((sinceMs||0)/1000);
-  const q=`from:${email} in:anywhere${after?` after:${after}`:""}`;
+  const q=`from:${email} in:anywhere${after?` after:${after}`:""}${extra?" "+extra:""}`;
   const r=await fetchT("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=1&q="+encodeURIComponent(q),
     {headers:{Authorization:"Bearer "+g.token}},{timeout:15000,retries:2});
   if(!r.ok){ if(r.status===401){ g.connected=false; save(); } return false; }
@@ -1026,14 +1027,17 @@ async function gmailCheckReplies(){
   if(!gmailConnected()){ toast("Connectez Gmail pour vérifier les réponses","warn"); return; }
   const cands=DB.contacts.filter(c=>c.email && c.lastSentAt && !c.replyAt);
   if(!cands.length){ toast("Aucun envoi à vérifier"); return; }
-  let found=0;
+  let found=0, stops=0;
   for(const c of cands){
-    try{ if(await gmailHasReplyFrom(c.email, c.lastSentAt-864e5)){ c.replyAt=Date.now(); c.stage="En discussion"; found++; } }
+    try{ if(await gmailHasReplyFrom(c.email, c.lastSentAt-864e5)){
+        // Réponse « STOP » / désinscription → opposition RGPD automatique (exclu de tout envoi)
+        if(await gmailHasReplyFrom(c.email, c.lastSentAt-864e5, STOP_QUERY)){ c.optOut=true; c.optOutAt=Date.now(); c.replyAt=Date.now(); dropContactTraces(c.id); stops++; logAct("Désinscription reçue par email : contact passé en « Ne plus contacter »"); }
+        else { c.replyAt=Date.now(); c.stage="En discussion"; found++; } } }
     catch(e){ if(String(e.message).includes("401")) break; }
     await new Promise(r=>setTimeout(r,250));
   }
   save(); renderNav(); if(CURRENT==="finder"&&FINDER_TAB==="saved") csDraw();
-  toast(found?`${found} réponse(s) reçue(s) détectée(s)`:"Aucune nouvelle réponse", found?"ok":"");
+  toast((found||stops)?`${found} réponse(s) reçue(s)${stops?` · ${stops} désinscription(s) appliquée(s)`:""}`:"Aucune nouvelle réponse", (found||stops)?"ok":"");
 }
 /* ---- Pipeline de mailing séquencé : envoi + déplacement auto entre listes ----
    1er mail envoyé → 2e relance → 3e relance (max réglable). Les contacts sans
@@ -2268,7 +2272,7 @@ function importParticipants(rows, {map,hasHeader}, defaultProject){
     if(!name && !email) return;
     if(email && DB.participants.some(p=>(p.email||"").toLowerCase()===email)) return;
     if(!email && DB.participants.some(p=>p.name===name && (p.project||"")===(g(r,map.project)||defaultProject||""))) return;
-    let birth=g(r,map.birth); if(birth){ const d=new Date(birth); if(!isNaN(d)) birth=d.getTime(); else birth=""; }
+    let birth=g(r,map.birth); if(birth) birth=parseDateLoose(birth);
     const minorRaw=deburrLower(g(r,map.minor)); const minor= /oui|yes|mineur|true|1/.test(minorRaw)?"Oui":(minorRaw?"Non":"");
     const rec={ id:uid(), name, email, birth, nationality:g(r,map.nationality), phone:g(r,map.phone),
       project:g(r,map.project)||defaultProject||"", minor, insurance:"Non", ceam:"Non", status:"Incomplet", added:Date.now() };
@@ -2287,13 +2291,14 @@ window.openParticipantIntake=()=>{
       <div class="field" style="display:flex;align-items:flex-end"><button class="btn" id="pi_manual">+ Saisie manuelle</button></div>
     </div>
     <div class="field"><label>Coller les réponses (Excel / Google Sheets / CSV)</label><textarea id="pi_text" style="min-height:120px" placeholder="Nom\tEmail\tDate de naissance\tNationalité\tTéléphone\tMineur ?"></textarea></div>
-    <div class="toolbar" style="margin:0;gap:8px"><button class="btn sm" id="pi_filebtn">Ou importer un fichier CSV</button>
-      <input type="file" id="pi_file" accept=".csv,.tsv,.txt,text/csv" style="display:none"></div>
+    <div class="toolbar" style="margin:0;gap:8px"><button class="btn sm" id="pi_filebtn">Ou importer un fichier Excel (.xlsx) / CSV</button>
+      <input type="file" id="pi_file" accept=".xlsx,.csv,.tsv,.txt,text/csv" style="display:none" aria-label="Fichier à importer"></div>
     <div id="pi_prev" style="margin-top:12px"></div>`,
     footer:[{label:"Fermer",cls:"ghost",act:closeModal},{label:"Analyser",cls:"",act:piAnalyze},{label:"Importer",cls:"primary",act:piDo}]});
   $("#pi_manual").onclick=()=>{ closeModal(); editEntity("participants",null); };
   $("#pi_filebtn").onclick=()=>$("#pi_file").click();
-  $("#pi_file").onchange=e=>{ const f=e.target.files[0]; if(!f)return; const rd=new FileReader(); rd.onload=()=>{ $("#pi_text").value=rd.result; piAnalyze(); }; rd.readAsText(f); };
+  $("#pi_file").onchange=async e=>{ const f=e.target.files[0]; if(!f)return; e.target.value="";
+    try{ $("#pi_text").value=await readTableFile(f); piAnalyze(); }catch(err){ toast("Import impossible : "+err.message,"bad"); } };
   function piAnalyze(){ const rows=parseTable($("#pi_text").value); if(!rows.length){ $("#pi_prev").innerHTML=`<div class="tag w">Collez d'abord des réponses, ou importez un CSV.</div>`; return null; }
     const det=detectParticipantMapping(rows); const data=det.hasHeader?rows.slice(1):rows;
     const chips=PART_FIELDS.filter(([k])=>det.map[k]>=0 || (k==="name"&&(det.map.first>=0||det.map.last>=0))).map(([k,l])=>`<span class="tag g">${l}</span>`).join(" ")||'<span class="tag w">Colonnes non reconnues — vérifiez les en-têtes</span>';
@@ -2303,19 +2308,90 @@ window.openParticipantIntake=()=>{
     const det=detectParticipantMapping(rows); const {n}=importParticipants(rows,det,$("#pi_proj").value.trim());
     closeModal(); if(CURRENT==="participants") entityView("participants"); toast(n?`${n} participant(s) inscrit(s)`:"Aucun nouveau participant (déjà présents ?)", n?"ok":"warn"); }
 };
+/* ---------- Lecture native des fichiers Excel (.xlsx) — 100% gratuit ----------
+   Un .xlsx est un ZIP de fichiers XML : on lit le ZIP nous-mêmes et on
+   décompresse avec DecompressionStream (intégré à Chrome), sans librairie. */
+async function zipEntries(buf){
+  const u8=new Uint8Array(buf), dv=new DataView(buf); let eocd=-1;
+  for(let i=u8.length-22;i>=Math.max(0,u8.length-66000);i--){ if(dv.getUint32(i,true)===0x06054b50){ eocd=i; break; } }
+  if(eocd<0) throw new Error("fichier .xlsx illisible (archive ZIP introuvable)");
+  const n=dv.getUint16(eocd+10,true); let p=dv.getUint32(eocd+16,true); const out={};
+  for(let k=0;k<n;k++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), csize=dv.getUint32(p+20,true), nl=dv.getUint16(p+28,true), xl=dv.getUint16(p+30,true), cl=dv.getUint16(p+32,true), off=dv.getUint32(p+42,true);
+    const name=new TextDecoder().decode(u8.subarray(p+46,p+46+nl));
+    out[name]={method,csize,off}; p+=46+nl+xl+cl;
+  }
+  out.__read=async name=>{ const e=out[name]; if(!e) return null;
+    const ln=dv.getUint16(e.off+26,true), lx=dv.getUint16(e.off+28,true), start=e.off+30+ln+lx;
+    const data=u8.slice(start,start+e.csize);
+    if(e.method===0) return new TextDecoder().decode(data);
+    if(e.method!==8) throw new Error("compression non prise en charge");
+    const stream=new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return await new Response(stream).text(); };
+  return out;
+}
+function xmlDoc(t){ return new DOMParser().parseFromString(t||"<x/>","application/xml"); }
+const xEls=(node,tag)=>[...node.getElementsByTagNameNS("*",tag)];
+function excelSerialToISO(n){ const d=new Date(Math.round((+n-25569)*864e5)); return isNaN(d)?String(n):d.toISOString().slice(0,10); }
+/* Renvoie les lignes (tableau de tableaux de textes) de la 1re feuille. */
+async function xlsxToRows(buf){
+  const z=await zipEntries(buf);
+  let sheetPath="xl/worksheets/sheet1.xml";
+  try{ const wb=xmlDoc(await z.__read("xl/workbook.xml")), rels=xmlDoc(await z.__read("xl/_rels/workbook.xml.rels"));
+    const first=xEls(wb,"sheet")[0]; const rid=first&&(first.getAttribute("r:id")||first.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships","id"));
+    const rel=xEls(rels,"Relationship").find(r=>r.getAttribute("Id")===rid);
+    if(rel){ const t=rel.getAttribute("Target"); sheetPath=t.startsWith("/")?t.slice(1):("xl/"+t.replace(/^\.\//,"")); } }catch(e){}
+  const sheetXml=await z.__read(sheetPath); if(!sheetXml) throw new Error("aucune feuille trouvée dans le fichier");
+  const ss=xEls(xmlDoc(await z.__read("xl/sharedStrings.xml")),"si").map(si=>xEls(si,"t").map(t=>t.textContent).join(""));
+  // styles → quelles cellules sont des dates
+  const dateStyle=new Set();
+  try{ const st=xmlDoc(await z.__read("xl/styles.xml")); const custom={};
+    xEls(st,"numFmt").forEach(f=>custom[f.getAttribute("numFmtId")]=f.getAttribute("formatCode")||"");
+    const xfs=xEls(st,"cellXfs")[0]; (xfs?xEls(xfs,"xf"):[]).forEach((xf,i)=>{ const id=+xf.getAttribute("numFmtId");
+      const code=custom[id]||""; if((id>=14&&id<=22)||(id>=45&&id<=47)||(code && /[dy]/i.test(code.replace(/"[^"]*"|\[[^\]]*\]/g,"")))) dateStyle.add(String(i)); }); }catch(e){}
+  const col=ref=>{ const m=/^([A-Z]+)/.exec(ref||""); if(!m) return -1; let n=0; for(const ch of m[1]) n=n*26+(ch.charCodeAt(0)-64); return n-1; };
+  const rows=[];
+  xEls(xmlDoc(sheetXml),"row").forEach(row=>{ const r=[]; let auto=0;
+    xEls(row,"c").forEach(c=>{ let i=col(c.getAttribute("r")); if(i<0) i=auto; auto=i+1;
+      const t=c.getAttribute("t"), v=xEls(c,"v")[0], raw=v?v.textContent:"";
+      let val= t==="s"? (ss[+raw]||"") : t==="inlineStr"? xEls(c,"t").map(x=>x.textContent).join("") : t==="b"? (raw==="1"?"Oui":"Non") : raw;
+      if(!t && raw!=="" && dateStyle.has(c.getAttribute("s")||"0") && /^\d+(\.\d+)?$/.test(raw)) val=excelSerialToISO(raw);
+      r[i]=String(val).replace(/[\t\r\n]+/g," ").trim(); });
+    for(let k=0;k<r.length;k++) if(r[k]==null) r[k]="";
+    if(r.some(x=>x!=="")) rows.push(r); });
+  return rows;
+}
+/* Fichier choisi → texte tabulé (TSV) compris par l'import intelligent.
+   .xlsx lu nativement ; .csv/.tsv/.txt lus comme texte ; .xls (ancien format) refusé avec explication. */
+async function readTableFile(f){
+  if(f.size>IMPORT_MAX) throw new Error("fichier trop volumineux (50 Mo maximum)");
+  if(/\.xlsx$/i.test(f.name)) return (await xlsxToRows(await f.arrayBuffer())).map(r=>r.join("\t")).join("\n");
+  if(/\.xls$/i.test(f.name)) throw new Error("ancien format .xls : ouvrez-le et « Enregistrer sous » .xlsx ou .csv");
+  return await f.text();
+}
+/* Dates saisies à la française (15/03/2009), ISO (2009-03-15) ou numéro de série Excel. */
+function parseDateLoose(s){
+  s=String(s||"").trim(); if(!s) return "";
+  let m=/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/.exec(s);
+  if(m){ let y=+m[3]; if(y<100) y+= y>30?1900:2000; const d=new Date(y,+m[2]-1,+m[1]); return isNaN(d)||d.getMonth()!==+m[2]-1?"":d.getTime(); }
+  m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); if(m){ const d=new Date(+m[1],+m[2]-1,+m[3]); return isNaN(d)?"":d.getTime(); }
+  if(/^\d{4,5}$/.test(s) && +s>10000 && +s<80000) return new Date(Math.round((+s-25569)*864e5)).getTime();
+  const d=new Date(s); return isNaN(d)?"":d.getTime();
+}
 function openImport(){
   openModal({title:"Importer des contacts", wide:true,
     body:`<p class="muted" style="font-weight:600;margin-top:0">Collez directement depuis <b>Excel</b> ou <b>Google Sheets</b> (sélectionnez les cellules, Ctrl+C, Ctrl+V ici), ou importez un <b>CSV</b>. L'outil détecte tout seul les colonnes (email, nom, société, téléphone, ville…) et repère les emails.</p>
     <div class="field"><label>Coller le tableau</label><textarea id="imp_text" style="min-height:120px" placeholder="Collez vos lignes (avec ou sans en-têtes)…"></textarea></div>
-    <div class="toolbar" style="margin:0;gap:8px"><button class="btn sm" id="imp_filebtn">Ou importer un fichier CSV</button>
-      <input type="file" id="imp_file" accept=".csv,.tsv,.txt,text/csv" style="display:none">
+    <div class="toolbar" style="margin:0;gap:8px"><button class="btn sm" id="imp_filebtn">Ou importer un fichier Excel (.xlsx) / CSV</button>
+      <input type="file" id="imp_file" accept=".xlsx,.csv,.tsv,.txt,text/csv" style="display:none" aria-label="Fichier à importer">
       <div class="spacer"></div>
       <div class="field" style="margin:0;min-width:230px"><input class="input" id="imp_list" value="Import ${new Date().toLocaleDateString('fr-FR')}" placeholder="Nom de la liste"></div></div>
     <div id="imp_prev" style="margin-top:12px"></div>`,
     footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Analyser",cls:"",act:impAnalyze},{label:"Importer",cls:"primary",act:impDoImport}]});
   $("#imp_filebtn").onclick=()=>$("#imp_file").click();
-  $("#imp_file").onchange=e=>{ const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
-    rd.onload=()=>{ $("#imp_text").value=rd.result; impAnalyze(); }; rd.readAsText(f); };
+  $("#imp_file").onchange=async e=>{ const f=e.target.files[0]; if(!f)return; e.target.value="";
+    try{ $("#imp_text").value=await readTableFile(f); impAnalyze(); }catch(err){ toast("Import impossible : "+err.message,"bad"); } };
   function impAnalyze(){
     const rows=parseTable($("#imp_text").value); if(!rows.length){ $("#imp_prev").innerHTML=`<div class="tag w">Collez d'abord un tableau, ou importez un CSV.</div>`; return null; }
     const det=detectMapping(rows); const data=det.hasHeader?rows.slice(1):rows;
@@ -4281,6 +4357,8 @@ const FAQ=[
   ["Les emails partent-ils tout seuls ?","Non, sauf si vous connectez Gmail et cliquez « Envoyer ». Sinon, l'outil prépare des brouillons que vous envoyez depuis « À faire maintenant »."],
   ["Pourquoi l'email d'un profil LinkedIn n'apparaît pas ?","LinkedIn ne publie pas les emails. L'outil récupère nom, poste et société, puis devine l'email si le site de la société est connu."],
   ["Mes données sont-elles sécurisées ?","Aucun serveur, aucun traceur, aucun cookie. Les sauvegardes peuvent être chiffrées (AES-256). Activez aussi le chiffrement du disque de votre ordinateur (BitLocker / FileVault)."],
+  ["Puis-je importer mon fichier Excel ?","Oui : Contacts → « Importer / coller » → « Importer un fichier Excel (.xlsx) / CSV ». Les colonnes (société, email, type de relation, ville…) sont reconnues automatiquement. Un ancien fichier .xls doit d'abord être enregistré en .xlsx."],
+  ["Un prospect répond « STOP ».","Si Gmail est connecté, « Vérifier les réponses » le détecte et le passe automatiquement en « Ne plus contacter ». Sinon, ouvrez sa fiche et cliquez « Ne plus contacter »."],
   ["Puis-je l'utiliser au clavier ?","Oui : Tab pour naviguer, Entrée pour activer, Échap pour fermer une fenêtre, Ctrl+K pour rechercher partout."],
 ];
 VIEWS.guide=()=>{
@@ -4515,13 +4593,8 @@ function editSender(id){
    journal d'erreurs, diagnostic de santé, appels réseau robustes.
    ============================================================ */
 /* Hachage léger (cyrb53) : la liste d'opposition ne garde PAS l'email en clair. */
-function cyrb53(str,seed=0){ let h1=0xdeadbeef^seed,h2=0x41c6ce57^seed;
-  for(let i=0;i<str.length;i++){ const ch=str.charCodeAt(i); h1=Math.imul(h1^ch,2654435761); h2=Math.imul(h2^ch,1597334677); }
-  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
-  h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
-  return 4294967296*(2097151&h2)+(h1>>>0); }
 function emailKey(e){ return String(e||"").trim().toLowerCase(); }
-function suppHash(e){ return "s"+cyrb53(emailKey(e)).toString(36); }
+function suppHash(e){ return ftSuppHash(e); } // défini dans scrape-core.js (partagé avec la bulle)
 function isOptedOut(email){ const e=emailKey(email); if(!e||!/@/.test(e)) return false;
   if((DB.contacts||[]).some(c=>c.optOut && emailKey(c.email)===e)) return true;
   const h=suppHash(e); return (DB.suppression||[]).some(x=>x.id===h); }
@@ -4709,7 +4782,7 @@ function complianceItems(){
     S("Mentions légales des factures","ok","Pénalités, indemnité 40 €, escompte — sur chaque facture."),
     S("Coordonnées de l'entreprise","auto",companyComplete()?"Fiche société complète.":"Fiche société incomplète (nom, forme juridique, adresse, email, téléphone).",companyComplete()),
     S("Lien de désinscription dans les emails","auto",optOutFooter()?"Mention « répondez STOP » ajoutée à chaque email.":"Désactivé — à réactiver dans l'onglet RGPD.",!!optOutFooter()),
-    S("Opposition respectée (« Ne plus contacter »)","ok","Les contacts opposés sont exclus des envois, campagnes, mailings et automatisations ; envoi bloqué même manuellement."),
+    S("Opposition respectée (« Ne plus contacter »)","ok","Exclus des envois, campagnes, mailings, automatisations et de la bulle ; envoi bloqué même manuellement ; réponse « STOP » détectée automatiquement (Gmail)."),
     S("Demande de suppression des données","ok","Bouton « Effacer (RGPD) » sur la fiche contact + liste d'opposition anti-réimport."),
     S("Droit d'accès / portabilité","ok","Bouton « Exporter ses données » sur la fiche contact."),
     S("Durée de conservation des prospects","auto",stale?`${stale} contact(s) inactif(s) depuis plus de ${rgpdCfg().retentionYears||3} ans à examiner.`:"Aucun contact au-delà de la durée de conservation.",!stale),

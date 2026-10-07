@@ -142,12 +142,16 @@ async function save(){
   const db=await ensureDB();
   const list=$("#listSel").value.trim()||"Prospection LinkedIn";
   const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
-  let n=0;
+  let n=0, blocked=0;
+  // RGPD : on n'enregistre jamais une personne opposée ou effacée (liste d'opposition)
+  const supp=new Set((db.suppression||[]).map(x=>x.id));
+  const opposed=new Set(db.contacts.filter(c=>c.optOut&&c.email).map(c=>c.email.toLowerCase()));
   ROWS.filter(r=>r.sel).forEach(r=>{
-    const dup = r.email ? db.contacts.some(c=>c.email===r.email)
+    if(r.email){ r.email=r.email.trim().toLowerCase(); if(supp.has(ftSuppHash(r.email))||opposed.has(r.email)){ blocked++; return; } }
+    const dup = r.email ? db.contacts.some(c=>(c.email||"").toLowerCase()===r.email)
               : db.contacts.some(c=>c.name===r.name && (c.sourceUrl===r.url));
     if(dup){ // ajoute juste la liste
-      const c=db.contacts.find(c=>r.email?c.email===r.email:(c.name===r.name&&c.sourceUrl===r.url));
+      const c=db.contacts.find(c=>r.email?(c.email||"").toLowerCase()===r.email:(c.name===r.name&&c.sourceUrl===r.url));
       if(c){ c.tags=c.tags||[]; if(!c.tags.includes(list)) c.tags.push(list); }
       return;
     }
@@ -156,7 +160,7 @@ async function save(){
     n++;
   });
   writeDB(db);
-  $("#status").textContent = `${n} contact(s) enregistré(s) dans « ${list} ».`;
+  $("#status").textContent = `${n} contact(s) enregistré(s) dans « ${list} ».`+(blocked?` ${blocked} ignoré(s) : opposition RGPD.`:"");
   refreshLists(db);
 }
 
