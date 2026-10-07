@@ -524,6 +524,35 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
     Helpers : `idbKeys`, `snapshotDaily`, `listSnapshots`, `restoreSnapshot`,
     `downloadSnapshot`, `refreshSnapshots`.
 
+13. ~~**Devis & factures — finalisation** (gardés « pour la fin » à la demande de
+    l'utilisatrice)~~ — **FAIT & TESTÉ** (section « factures » de
+    `tests/regression.mjs` ; suite à 57 PASS / 0 FAIL).
+    - **Remise %** (sur le HT brut ; `quoteTotals` renvoie `brut/remise/ht/tva/ttc`,
+      compat ascendante : sans remise rien ne change) et **participants** → « soit
+      X € par participant » sur le document (repris automatiquement depuis
+      l'itinéraire via `itinToQuote`).
+    - **Acompte & solde** : depuis un devis, bouton **« Acompte »** (% au choix,
+      défaut 30) → *facture d'acompte* rattachée (`invType:"acompte"`,
+      `sourceQuote`) ; bouton **« Solde »** → *facture de solde* = HT du devis −
+      tout ce qui est déjà facturé (acomptes référencés dans le libellé). Garde-fous :
+      pas de facture complète si un acompte existe, pas de double solde, pas de
+      dépassement du devis (`invoicedHTFor`, `makeInvoiceFrom`).
+    - **Encaissements** : dans l'éditeur de facture, ajout/suppression de paiements
+      (date, montant, mode) → **déjà réglé / reste à payer** en direct et sur le
+      PDF ; statut auto **Partiellement payée / Payée** (`invoiceStatusFromPayments`
+      — compat : sans paiement saisi, le statut manuel est conservé). Champ
+      **Échéance** éditable pour les factures.
+    - **Mentions légales obligatoires** sur toute facture (date d'échéance,
+      pénalités de retard 3× taux légal, indemnité forfaitaire 40 € pour les pros
+      — art. L441-10 / D441-5 C. com., pas d'escompte) — texte modifiable dans
+      **Fiche société** (`invoiceMentions`, défaut `INVOICE_MENTIONS_DEFAULT`).
+      Titres « FACTURE D'ACOMPTE / DE SOLDE », réf. devis affichée.
+    - **Synthèse CA** en tête de « Devis & documents » (`quoteStats`) : devis en
+      cours, acceptés, **taux de transformation** ; facturé, **encaissé**, **à
+      encaisser**, **en retard** (factures annulées exclues). Colonne **Reste dû**
+      (rouge si échue). **Dupliquer** un devis/une facture. L'Assistant signale
+      toute facture échue non soldée (y compris partiellement payée) avec le reste.
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en

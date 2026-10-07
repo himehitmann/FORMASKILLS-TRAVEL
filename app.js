@@ -1219,8 +1219,8 @@ function nextActions(){
   DB.quotes.filter(q=>(q.kind||"devis")==="devis" && q.status==="Envoyé" && (now-(q.date||now))>7*DAY).forEach(q=>
     add(2,"",`Relancer le devis ${q.number}`,`${q.clientName||""} · envoyé il y a ${Math.round((now-q.date)/DAY)} j`,{l:"Relancer",fn:`relanceDevis('${q.id}')`}));
   // 3. Factures en retard
-  DB.quotes.filter(q=>q.kind==="facture" && q.status==="Émise" && q.due && q.due<now).forEach(q=>
-    add(3,"",`Facture ${q.number} en retard`,`${q.clientName||""} · échéance ${fmtDate(q.due)}`,{l:"Ouvrir",fn:`openQuoteRec('${q.id}')`}));
+  DB.quotes.filter(q=>q.kind==="facture" && q.status!=="Annulée" && q.status!=="Payée" && q.due && q.due<now && (quoteTotals(q).ttc-invoiceCollected(q))>0.009).forEach(q=>
+    add(3,"",`Facture ${q.number} en retard`,`${q.clientName||""} · échéance ${fmtDate(q.due)} · reste ${eur(quoteTotals(q).ttc-invoiceCollected(q))}`,{l:"Ouvrir",fn:`openQuoteRec('${q.id}')`}));
   // 4. Conventions AVANT départ (R2) — départ proche
   DB.projects.filter(p=>p.start && p.start>now && (p.start-now)<21*DAY && !((p.R||{}).R2)).forEach(p=>
     add(3,"",`Conventions à signer AVANT le départ`,`${p.name} · départ le ${fmtDate(p.start)} — R2 non validé`,{l:"Ouvrir",fn:`openRec('projects','${p.id}')`}));
@@ -2375,7 +2375,7 @@ function statusTag(entity,v){
     "À contacter":"w","À signer":"w","À faire":"w","Incomplet":"w","Cadrage":"w",
     "Urgente":"r","Haute":"r","Non":"n","Non catégorisée":"n",
     "Accepté":"g","Envoyé":"b","Brouillon":"n","Refusé":"r",
-    "Payée":"g","Émise":"b","En retard":"r","Annulée":"n" };
+    "Payée":"g","Partiellement payée":"a","Émise":"b","En retard":"r","Annulée":"n" };
   return `<span class="tag ${map[v]||'n'}">${esc(v)}</span>`;
 }
 let ENTITY_VIEW={}; // per-entity: {mode, q, filter, sel:Set}
@@ -3280,7 +3280,7 @@ window.itinToQuote=()=>{ const it=curItin(); if(!it)return; const pax=Math.max(1
   if(!items.length){ toast("Ajoutez d'abord des expériences à l'itinéraire","warn"); return; }
   const q={ id:uid(), kind:"devis", number:nextQuoteNumber("devis"), date:Date.now(), validity:"30", due:Date.now()+30*864e5,
     status:"Brouillon", clientName:it.client||"", clientAddr:"", clientContact:"", clientEmail:"",
-    object:"Séjour culturel — "+(it.name||""), items, tvaRate:DB.settings.tvaDefault||0,
+    object:"Séjour culturel — "+(it.name||""), items, tvaRate:DB.settings.tvaDefault||0, pax,
     conditions:"Acompte de 30% à la commande, solde avant le départ.\nProgramme indicatif, ajustable selon disponibilités et effectif." };
   DB.quotes.unshift(q); DB.settings.quoteSeq=(DB.settings.quoteSeq||1)+1;
   logAct("Devis créé depuis l'itinéraire : "+q.number); save();
@@ -3506,10 +3506,29 @@ function coFooterHTML(){ const c=co(), s=ds();
   const bits=[c.legal,c.atout?("Atout France "+c.atout):"",c.rcp?("RCP "+c.rcp):"",c.garantie?("Garantie financière "+c.garantie):"",c.tvaMention].filter(Boolean);
   const bank=s.showBank!==false?`\nIBAN ${c.iban||""} · BIC ${c.bic||""}`:"";
   return `<div class="foot">${esc((c.name||"")+" — "+bits.join(" · ")+bank)}</div>`; }
-function quoteTotals(q){ const ht=(q.items||[]).reduce((s,it)=>s+(Number(it.qty)||0)*(Number(it.unit)||0),0);
-  const tva=ht*(Number(q.tvaRate)||0)/100; return {ht,tva,ttc:ht+tva}; }
+const r2=n=>Math.round((Number(n)||0)*100)/100;
+// Totaux devis/facture. Remise % optionnelle (appliquée sur le HT brut) —
+// compat ascendante : sans `discount`, ht/tva/ttc sont inchangés.
+function quoteTotals(q){ const brut=(q.items||[]).reduce((s,it)=>s+(Number(it.qty)||0)*(Number(it.unit)||0),0);
+  const pct=Math.min(100,Math.max(0,Number(q.discount)||0)); const remise=r2(brut*pct/100);
+  const ht=r2(brut-remise); const tva=r2(ht*(Number(q.tvaRate)||0)/100);
+  return {brut:r2(brut),remise,ht,tva,ttc:r2(ht+tva)}; }
+// Encaissements d'une facture : déjà réglé / reste à payer.
+function quotePaid(q){ const paid=r2((q.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0)); const ttc=quoteTotals(q).ttc;
+  return {paid, rest:r2(Math.max(0,ttc-paid)), ttc}; }
+// Statut d'une facture déduit des paiements (Annulée reste manuelle).
+// Compat : sans paiement enregistré, on garde le statut choisi à la main.
+function invoiceStatusFromPayments(q){ if(q.status==="Annulée") return q.status;
+  if(!(q.payments||[]).length) return q.status||"Émise";
+  const {paid,ttc}=quotePaid(q); if(ttc>0 && paid>=ttc) return "Payée"; if(paid>0) return "Partiellement payée";
+  return q.status||"Émise"; }
+const INVOICE_MENTIONS_DEFAULT="En cas de retard de paiement : pénalités au taux de 3 fois le taux d'intérêt légal, et, pour les clients professionnels, indemnité forfaitaire pour frais de recouvrement de 40 € (art. L441-10 et D441-5 du Code de commerce). Pas d'escompte pour paiement anticipé.";
 function quoteDocHTML(q){ const t=quoteTotals(q); const c=co(); const isInv=q.kind==="facture";
-  return `<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1>${isInv?"FACTURE":"DEVIS"}</h1><div class="num">${esc(q.number||"")}</div>
+  const f=n=>(Number(n)||0).toLocaleString("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const P=quotePaid(q); const pax=Math.max(0,Number(q.pax)||0);
+  const docTitle=isInv?(q.invType==="acompte"?"FACTURE D'ACOMPTE":q.invType==="solde"?"FACTURE DE SOLDE":"FACTURE"):"DEVIS";
+  return `<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1>${docTitle}</h1><div class="num">${esc(q.number||"")}</div>
+    ${q.sourceQuote?`<div class="dt">Réf. devis : ${esc(q.sourceQuote)}</div>`:""}
     <div class="dt">Date : ${fmtDate(q.date)}<br>${isInv?("Échéance : "+(q.due?fmtDate(q.due):esc(q.validity||"30")+" jours")):("Validité : "+esc(q.validity||"30")+" jours")}</div></div></div>
   <div class="blocks">
     <div class="block"><h4>Client</h4><div class="bd"><b>${esc(q.clientName||"—")}</b><br>${esc(q.clientAddr||"").replace(/\n/g,"<br>")}
@@ -3521,11 +3540,15 @@ function quoteDocHTML(q){ const t=quoteTotals(q); const c=co(); const isInv=q.ki
     <td class="r">${(Number(it.unit)||0).toLocaleString("fr-FR",{minimumFractionDigits:2})}</td>
     <td class="r">${((Number(it.qty)||0)*(Number(it.unit)||0)).toLocaleString("fr-FR",{minimumFractionDigits:2})}</td></tr>`).join("")}</tbody></table>
   <div class="totals">
-    <div><span>Total HT</span><b>${t.ht.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</b></div>
-    ${q.tvaRate?`<div><span>TVA ${q.tvaRate}%</span><b>${t.tva.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</b></div>`:`<div><span>TVA</span><b>${esc(c.tvaMention||"—")}</b></div>`}
-    <div class="grand"><span>Total ${q.tvaRate?"TTC":"net"}</span><span>${t.ttc.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</span></div>
+    ${t.remise?`<div><span>Total brut</span><b>${f(t.brut)} €</b></div><div><span>Remise ${esc(String(q.discount))} %</span><b>− ${f(t.remise)} €</b></div>`:""}
+    <div><span>Total HT</span><b>${f(t.ht)} €</b></div>
+    ${q.tvaRate?`<div><span>TVA ${q.tvaRate}%</span><b>${f(t.tva)} €</b></div>`:`<div><span>TVA</span><b>${esc(c.tvaMention||"—")}</b></div>`}
+    <div class="grand"><span>Total ${q.tvaRate?"TTC":"net"}</span><span>${f(t.ttc)} €</span></div>
+    ${pax?`<div><span>Soit par participant (${pax})</span><b>${f(t.ttc/pax)} €</b></div>`:""}
+    ${isInv&&P.paid?`<div><span>Déjà réglé</span><b>− ${f(P.paid)} €</b></div><div class="grand"><span>Reste à payer</span><span>${f(P.rest)} €</span></div>`:""}
   </div>
   ${q.conditions?`<div class="conditions"><b>Conditions</b>\n${esc(q.conditions)}</div>`:""}
+  ${isInv?`<div class="conditions" style="font-size:11px;color:#667"><b>Mentions légales</b>\n${q.due?`Date d'échéance : ${fmtDate(q.due)}. `:""}${esc(c.invoiceMentions||INVOICE_MENTIONS_DEFAULT)}</div>`:""}
   <div class="sign"><div>Pour ${esc(c.name||"")}<div class="line"></div></div>
     <div>Bon pour accord (date, signature, cachet)<div class="line"></div></div></div>
   ${coFooterHTML()}`;
@@ -3542,35 +3565,87 @@ VIEWS.docs=()=>{
   ({quotes:docsQuotes,templates:docsTemplates,company:docsCompany,style:docsStyle}[DOCS_TAB])();
 };
 let DOCS_KIND="devis";
+// Encaissé d'une facture : paiements enregistrés, ou TTC si marquée « Payée » à la main.
+function invoiceCollected(q){ if(q.status==="Annulée") return 0; const P=quotePaid(q);
+  return (q.payments||[]).length ? Math.min(P.paid,P.ttc) : (q.status==="Payée"?P.ttc:0); }
+function quoteStats(){ const now=Date.now(); const dv=DB.quotes.filter(x=>(x.kind||"devis")==="devis"), fa=DB.quotes.filter(x=>x.kind==="facture"&&x.status!=="Annulée");
+  const sum=a=>r2(a.reduce((s,x)=>s+quoteTotals(x).ttc,0));
+  const acc=dv.filter(x=>x.status==="Accepté"), ref=dv.filter(x=>x.status==="Refusé");
+  const factured=sum(fa), collected=r2(fa.reduce((s,x)=>s+invoiceCollected(x),0));
+  const late=fa.filter(x=>x.due && x.due<now && (quoteTotals(x).ttc-invoiceCollected(x))>0.009).length;
+  return { pending:sum(dv.filter(x=>["Brouillon","Envoyé",""].includes(x.status||""))), accepted:sum(acc),
+    conv:(acc.length+ref.length)?Math.round(100*acc.length/(acc.length+ref.length)):null,
+    factured, collected, toCollect:r2(Math.max(0,factured-collected)), late }; }
 function docsQuotes(){
   const q=DB.quotes.filter(x=>(x.kind||"devis")===DOCS_KIND);
-  const isInv=DOCS_KIND==="facture";
+  const isInv=DOCS_KIND==="facture"; const S=quoteStats();
   $("#docsBody").innerHTML=`
+  <div class="grid cards" style="margin-bottom:14px">
+    ${isInv? kpi("Facturé",eur(S.factured),"docs","var(--brand)")+kpi("Encaissé",eur(S.collected),"docs","var(--ok)")+kpi("À encaisser",eur(S.toCollect),"docs","var(--accent)")+kpi("En retard",S.late,"docs","var(--bad)")
+      : kpi("Devis en cours",eur(S.pending),"docs","var(--brand)")+kpi("Acceptés",eur(S.accepted),"docs","var(--ok)")+kpi("Taux de transformation",S.conv==null?"—":S.conv+" %","docs","var(--accent)")+kpi("Devis",DB.quotes.filter(x=>(x.kind||"devis")==="devis").length,"docs","var(--muted)")}
+  </div>
   <div class="toolbar">
     <div class="pill-tabs"><button data-k="devis" class="${!isInv?'active':''}">Devis</button><button data-k="facture" class="${isInv?'active':''}">Factures</button></div>
     <div class="spacer"></div><button class="btn primary" id="dq_add">+ ${isInv?"Nouvelle facture":"Nouveau devis"}</button></div>
-  ${q.length?`<div class="tbl-wrap"><table><thead><tr><th>N°</th><th>Client</th><th>Date</th><th>Montant</th><th>Statut</th><th></th></tr></thead>
-    <tbody>${q.map(x=>{const t=quoteTotals(x);return `<tr>
-      <td class="cell-strong mono">${esc(x.number)}</td><td>${esc(x.clientName||"—")}</td><td class="muted">${fmtDate(x.date)}</td>
-      <td class="cell-strong">${eur(t.ttc)}</td><td>${statusTag("_",x.status)}</td>
+  ${q.length?`<div class="tbl-wrap"><table><thead><tr><th>N°</th><th>Client</th><th>Date</th><th>Montant</th>${isInv?"<th>Reste dû</th>":""}<th>Statut</th><th></th></tr></thead>
+    <tbody>${q.map(x=>{const t=quoteTotals(x); const rest=r2(t.ttc-invoiceCollected(x));
+      const kindLbl=x.invType==="acompte"?' <span class="tag n">acompte</span>':x.invType==="solde"?' <span class="tag n">solde</span>':"";
+      return `<tr>
+      <td class="cell-strong mono">${esc(x.number)}${kindLbl}</td><td>${esc(x.clientName||"—")}</td><td class="muted">${fmtDate(x.date)}</td>
+      <td class="cell-strong">${eur(t.ttc)}</td>${isInv?`<td class="${rest>0.009?'cell-strong':'muted'}" style="${rest>0.009&&x.due&&x.due<Date.now()?'color:var(--bad)':''}">${x.status==="Annulée"?"—":eur(rest)}</td>`:""}
+      <td>${statusTag("_",x.status)}</td>
       <td class="rowact"><button class="btn sm ghost" data-call="printQuote('${x.id}')">Imprimer</button>
-      ${!isInv?`<button class="btn sm ghost" data-call="convertToInvoice('${x.id}')">→ Facture</button>`:""}
+      ${!isInv?`<button class="btn sm ghost" data-call="convertToInvoice('${x.id}')">→ Facture</button>
+        <button class="btn sm ghost" data-call="invoiceDeposit('${x.id}')">Acompte</button>
+        <button class="btn sm ghost" data-call="invoiceBalance('${x.id}')">Solde</button>`:""}
+      <button class="btn sm ghost" data-call="duplicateQuote('${x.id}')">Dupliquer</button>
       <button class="btn sm ghost" data-call="editQuote('${x.id}')">Ouvrir</button>
       <button class="btn sm ghost" data-call="delQuote('${x.id}')">✕</button></td></tr>`;}).join("")}</tbody></table></div>`
-    :`<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.doc}</svg><div>Aucun ${isInv?"e facture":" devis"}. ${isInv?"Créez-en une, ou convertissez un devis accepté.":"Créez votre premier devis — imprimable en PDF, pré-rempli avec votre fiche société."}</div></div></div>`}`;
+    :`<div class="card"><div class="empty"><svg viewBox="0 0 24 24">${ICONS.doc}</svg><div>Aucun${isInv?"e facture":" devis"}. ${isInv?"Créez-en une, ou convertissez un devis accepté (facture complète, acompte ou solde).":"Créez votre premier devis — imprimable en PDF, pré-rempli avec votre fiche société."}</div></div></div>`}`;
   $$("#docsBody [data-k]").forEach(b=>b.onclick=()=>{DOCS_KIND=b.dataset.k;VIEWS.docs();});
   $("#dq_add").onclick=()=>editQuote(null,DOCS_KIND);
 }
+// Crée une facture rattachée à un devis (complète, acompte ou solde).
+function makeInvoiceFrom(d,extra){
+  const inv={...structuredClone(d),id:uid(),kind:"facture",number:nextQuoteNumber("facture"),status:"Émise",date:Date.now(),
+    due:Date.now()+30*864e5, sourceQuote:d.number, payments:[], invType:"",
+    conditions:"Règlement à réception, par virement (coordonnées bancaires en pied de page).", ...extra};
+  DB.quotes.unshift(inv); DB.settings.invoiceSeq=(DB.settings.invoiceSeq||1)+1; return inv;
+}
+// HT déjà facturé sur un devis (toutes factures non annulées qui y sont rattachées).
+function invoicedHTFor(d){ return r2(DB.quotes.filter(x=>x.kind==="facture"&&x.status!=="Annulée"&&x.sourceQuote===d.number).reduce((s,x)=>s+quoteTotals(x).ht,0)); }
 window.convertToInvoice=id=>{
   const d=DB.quotes.find(x=>x.id===id); if(!d)return;
-  const inv={...structuredClone(d),id:uid(),kind:"facture",number:nextQuoteNumber("facture"),status:"Émise",date:Date.now(),
-    due:Date.now()+30*864e5, sourceQuote:d.number};
-  DB.quotes.unshift(inv); DB.settings.invoiceSeq=(DB.settings.invoiceSeq||1)+1;
+  if(invoicedHTFor(d)>0){ toast("Ce devis a déjà des factures (acompte…) : utilisez « Solde » pour facturer le reste.","warn"); return; }
+  const inv=makeInvoiceFrom(d,{});
   logAct(`Facture ${inv.number} créée depuis le devis ${d.number}`); save();
   DOCS_KIND="facture"; VIEWS.docs(); toast("Facture "+inv.number+" créée");
 };
-window.delQuote=id=>{ const q=DB.quotes.find(x=>x.id===id); confirmModal("Supprimer le devis ?",`« ${q?.number} » sera supprimé.`,()=>{DB.quotes=DB.quotes.filter(x=>x.id!==id);save();VIEWS.docs();},true); };
-window.printQuote=id=>{ const q=DB.quotes.find(x=>x.id===id); if(q) printDocument("Devis "+q.number, quoteDocHTML(q)); };
+window.invoiceDeposit=id=>{ const d=DB.quotes.find(x=>x.id===id); if(!d)return; const t=quoteTotals(d);
+  openModal({title:"Facture d'acompte — "+d.number, body:`<div class="field"><label>Pourcentage d'acompte (%)</label><input class="input" type="number" id="dep_pct" min="1" max="100" value="30"></div>
+    <div class="muted" id="dep_prev" style="font-weight:600"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Créer la facture d'acompte",cls:"primary",act:()=>{
+      const pct=Math.min(100,Math.max(1,+$("#dep_pct").value||0)); const unit=r2(t.ht*pct/100);
+      if(r2(invoicedHTFor(d)+unit)>t.ht+0.009){ toast("Le total facturé dépasserait le devis","warn"); return; }
+      const inv=makeInvoiceFrom(d,{invType:"acompte",depositPct:pct,discount:0,pax:0,
+        items:[{label:`Acompte de ${pct} % sur devis ${d.number}${d.object?" — "+d.object:""}`,qty:1,unit}]});
+      logAct(`Facture d'acompte ${inv.number} (${pct} %) sur ${d.number}`); save(); closeModal(); DOCS_KIND="facture"; VIEWS.docs(); toast("Facture d'acompte "+inv.number+" créée"); }}]});
+  const prev=()=>{ const pct=Math.min(100,Math.max(0,+$("#dep_pct").value||0)); $("#dep_prev").textContent=`Montant HT de l'acompte : ${eur(r2(t.ht*pct/100))} (devis ${eur(t.ht)} HT)`; };
+  $("#dep_pct").oninput=prev; prev(); };
+window.invoiceBalance=id=>{ const d=DB.quotes.find(x=>x.id===id); if(!d)return; const t=quoteTotals(d);
+  const prior=DB.quotes.filter(x=>x.kind==="facture"&&x.status!=="Annulée"&&x.sourceQuote===d.number);
+  const rest=r2(t.ht-invoicedHTFor(d));
+  if(rest<=0.009){ toast("Ce devis est déjà entièrement facturé","warn"); return; }
+  const inv=makeInvoiceFrom(d,{invType:"solde",discount:0,pax:0,
+    items:[{label:`Solde sur devis ${d.number}${prior.length?` (acomptes déduits : ${prior.map(x=>x.number).join(", ")})`:""}`,qty:1,unit:rest}]});
+  logAct(`Facture de solde ${inv.number} sur ${d.number}`); save(); DOCS_KIND="facture"; VIEWS.docs(); toast("Facture de solde "+inv.number+" créée"); };
+window.duplicateQuote=id=>{ const d=DB.quotes.find(x=>x.id===id); if(!d)return; const k=d.kind||"devis";
+  const c={...structuredClone(d),id:uid(),number:nextQuoteNumber(k),date:Date.now(),status:k==="facture"?"Émise":"Brouillon",payments:[]};
+  if(k==="devis"){ delete c.sourceQuote; } else { c.due=Date.now()+30*864e5; }
+  DB.quotes.unshift(c); if(k==="facture") DB.settings.invoiceSeq=(DB.settings.invoiceSeq||1)+1; else DB.settings.quoteSeq=(DB.settings.quoteSeq||1)+1;
+  logAct(`${k==="facture"?"Facture":"Devis"} ${c.number} dupliqué depuis ${d.number}`); save(); DOCS_KIND=k; VIEWS.docs(); editQuote(c.id); toast("Copie "+c.number+" créée"); };
+window.delQuote=id=>{ const q=DB.quotes.find(x=>x.id===id); const lbl=q&&q.kind==="facture"?"la facture":"le devis"; confirmModal(`Supprimer ${lbl} ?`,`« ${q?.number} » sera supprimé.`,()=>{DB.quotes=DB.quotes.filter(x=>x.id!==id);save();VIEWS.docs();},true); };
+window.printQuote=id=>{ const q=DB.quotes.find(x=>x.id===id); if(q) printDocument((q.kind==="facture"?"Facture ":"Devis ")+q.number, quoteDocHTML(q)); };
 function editQuote(id,kind){
   const k = id? (DB.quotes.find(x=>x.id===id)?.kind||"devis") : (kind||"devis");
   const isInv=k==="facture";
@@ -3580,7 +3655,7 @@ function editQuote(id,kind){
     clientName:"",clientAddr:"",clientContact:"",clientEmail:"",object:"Organisation de séjour",
     items:[{label:"",qty:1,unit:0}], tvaRate:DB.settings.tvaDefault||0,
     conditions:isInv?"Règlement à réception, par virement (coordonnées bancaires en pied de page).":"Acompte de 30% à la commande, solde avant le départ.\nOffre valable pour la durée de validité indiquée." };
-  const statusOpts = isInv? ["Émise","Payée","En retard","Annulée"] : ["Brouillon","Envoyé","Accepté","Refusé"];
+  const statusOpts = isInv? ["Émise","Partiellement payée","Payée","En retard","Annulée"] : ["Brouillon","Envoyé","Accepté","Refusé"];
   const partnerOpts=`<option value="">— Choisir un partenaire (T1) —</option>`+DB.partners.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
   openModal({title:(id?"Modifier ":"Nouveau/nouvelle ")+(isInv?"facture":"devis"), wide:true,
     body:`<div class="row2">
@@ -3599,16 +3674,28 @@ function editQuote(id,kind){
     <div class="field"><label>Adresse client</label><textarea id="q_ca" style="min-height:52px">${esc(q.clientAddr)}</textarea></div>
     <div class="row3">
       <div class="field"><label>Date</label><input class="input" type="date" id="q_date" value="${new Date(q.date).toISOString().slice(0,10)}"></div>
-      <div class="field"><label>Validité (jours)</label><input class="input" id="q_val" value="${esc(q.validity)}"></div>
+      ${isInv?`<div class="field"><label>Échéance</label><input class="input" type="date" id="q_due" value="${q.due?new Date(q.due).toISOString().slice(0,10):""}"></div>`
+        :`<div class="field"><label>Validité (jours)</label><input class="input" id="q_val" value="${esc(q.validity)}"></div>`}
       <div class="field"><label>TVA (%)</label><input class="input" type="number" id="q_tva" value="${esc(q.tvaRate)}"></div>
     </div>
-    <div class="section-title" style="margin-top:6px">Lignes du devis</div>
+    <div class="row2">
+      <div class="field"><label>Remise (%) — optionnel</label><input class="input" type="number" min="0" max="100" id="q_disc" value="${q.discount?esc(q.discount):""}" placeholder="0"></div>
+      <div class="field"><label>Participants (affiche le prix / personne)</label><input class="input" type="number" min="0" id="q_pax" value="${q.pax?esc(q.pax):""}" placeholder="—"></div>
+    </div>
+    <div class="section-title" style="margin-top:6px">Lignes ${isInv?"de la facture":"du devis"}</div>
     <div id="q_items"></div>
     <button class="btn sm ghost" id="q_addline">+ Ajouter une ligne</button>
     <div id="q_total" style="text-align:right;font-weight:800;font-size:16px;margin-top:10px"></div>
+    ${isInv?`<div class="section-title" style="margin-top:14px">Encaissements</div>
+      <div id="q_pays"></div>
+      <div class="row3" style="grid-template-columns:150px 1fr 1fr auto;gap:8px;align-items:end">
+        <div class="field" style="margin:0"><label>Date</label><input class="input" type="date" id="q_pdate" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="field" style="margin:0"><label>Montant (€)</label><input class="input" type="number" id="q_pamt" placeholder="0"></div>
+        <div class="field" style="margin:0"><label>Mode</label><select id="q_pmode"><option>Virement</option><option>Carte</option><option>Chèque</option><option>Espèces</option><option>Autre</option></select></div>
+        <button class="btn sm" id="q_padd">+ Encaissement</button></div>`:""}
     <div class="field" style="margin-top:12px"><label>Conditions</label><textarea id="q_cond" style="min-height:70px">${esc(q.conditions)}</textarea></div>`,
     footer:[{label:"Annuler",cls:"ghost",act:closeModal},
-      {label:"Aperçu / Imprimer",cls:"",act:()=>{const nq=readQuoteForm(q);printDocument("Devis "+nq.number,quoteDocHTML(nq));}},
+      {label:"Aperçu / Imprimer",cls:"",act:()=>{const nq=readQuoteForm(q);printDocument((isInv?"Facture ":"Devis ")+nq.number,quoteDocHTML(nq));}},
       {label:"Enregistrer",cls:"primary",act:()=>saveQuote(id)}]});
   // items editor
   let items=structuredClone(q.items||[]);
@@ -3623,27 +3710,44 @@ function editQuote(id,kind){
     $$("#q_items .q_u").forEach(el=>el.oninput=e=>{items[+e.target.dataset.i].unit=e.target.value;upTot();});
     $$("#q_items .q_x").forEach(el=>el.onclick=()=>{items.splice(+el.dataset.i,1);drawItems();upTot();});
   };
-  const upTot=()=>{ const t=quoteTotals({items,tvaRate:+$("#q_tva").value||0});
-    $("#q_total").innerHTML=`Total ${(+$("#q_tva").value)?"TTC":"net"} : <span style="color:var(--brand-ink)">${eur(t.ttc)}</span>`; };
+  let payments=structuredClone(q.payments||[]);
+  const upTot=()=>{ const tq={items,tvaRate:+$("#q_tva").value||0,discount:+($("#q_disc").value||0),payments}; const t=quoteTotals(tq);
+    const pax=+($("#q_pax").value||0); const P=quotePaid(tq);
+    $("#q_total").innerHTML=`${t.remise?`<div class="muted" style="font-size:13px;font-weight:600">Brut ${eur(t.brut)} · remise − ${eur(t.remise)}</div>`:""}
+      Total ${(+$("#q_tva").value)?"TTC":"net"} : <span style="color:var(--brand-ink)">${eur(t.ttc)}</span>
+      ${pax>0?`<div class="muted" style="font-size:13px;font-weight:600">soit ${eur(t.ttc/pax)} / participant</div>`:""}
+      ${isInv&&P.paid?`<div style="font-size:13px;font-weight:700;color:${P.rest?'var(--accent)':'var(--ok)'}">Réglé ${eur(P.paid)} · reste ${eur(P.rest)}</div>`:""}`; };
+  const drawPays=()=>{ const host=$("#q_pays"); if(!host) return;
+    host.innerHTML= payments.length? payments.map((p,i)=>`<div class="result-row" style="padding:6px 10px"><div style="flex:1"><b>${eur(p.amount)}</b> <span class="muted">· ${esc(p.method||"")} · ${fmtDate(p.date)}</span></div>
+      <button class="btn sm ghost q_px" data-i="${i}">✕</button></div>`).join("") : `<div class="muted" style="font-size:12.5px;margin-bottom:8px">Aucun encaissement enregistré.</div>`;
+    $$("#q_pays .q_px").forEach(el=>el.onclick=()=>{ payments.splice(+el.dataset.i,1); drawPays(); upTot(); }); };
   $("#q_addline").onclick=()=>{items.push({label:"",qty:1,unit:0});drawItems();};
-  $("#q_tva").oninput=upTot;
+  $("#q_tva").oninput=upTot; $("#q_disc").oninput=upTot; $("#q_pax").oninput=upTot;
+  $("#q_padd")&&($("#q_padd").onclick=()=>{ const amt=Number($("#q_pamt").value); if(!(amt>0)){ toast("Montant d'encaissement requis","warn"); return; }
+    payments.push({id:uid(),date:$("#q_pdate").value?new Date($("#q_pdate").value).getTime():Date.now(),amount:r2(amt),method:$("#q_pmode").value});
+    $("#q_pamt").value=""; drawPays(); upTot(); });
   $("#q_partner").onchange=e=>{ const p=DB.partners.find(x=>x.id===e.target.value); if(p){ $("#q_cn").value=p.name||""; $("#q_cc").value=p.contactName||""; $("#q_ce").value=p.email||""; } };
-  drawItems(); upTot();
-  // expose current draft + items for read
+  drawItems(); drawPays(); upTot();
+  // expose current draft + items + encaissements for read
   editQuote._draft=q;
   editQuote._items=()=>items;
+  editQuote._payments=()=>payments;
 }
 function readQuoteForm(base){
   return { ...base,
     number:$("#q_num").value, status:$("#q_status").value, clientName:$("#q_cn").value, clientContact:$("#q_cc").value,
     clientEmail:$("#q_ce").value, object:$("#q_obj").value, clientAddr:$("#q_ca").value,
-    date:new Date($("#q_date").value||Date.now()).getTime(), validity:$("#q_val").value, tvaRate:+$("#q_tva").value||0,
+    date:new Date($("#q_date").value||Date.now()).getTime(), validity:$("#q_val")?$("#q_val").value:(base.validity||"30"),
+    due:$("#q_due")?($("#q_due").value?new Date($("#q_due").value).getTime():0):base.due,
+    tvaRate:+$("#q_tva").value||0, discount:Math.min(100,Math.max(0,+($("#q_disc").value||0))), pax:Math.max(0,+($("#q_pax").value||0)),
+    payments:editQuote._payments?editQuote._payments():(base.payments||[]),
     items:editQuote._items?editQuote._items():base.items, conditions:$("#q_cond").value };
 }
 function saveQuote(id){
   const base=id?DB.quotes.find(x=>x.id===id):(editQuote._draft||{kind:"devis"});
   const data=readQuoteForm(base);
   if(!data.clientName.trim()){ toast("Le nom du client est requis","warn"); return; }
+  if(data.kind==="facture") data.status=invoiceStatusFromPayments(data);
   const label=data.kind==="facture"?"Facture":"Devis";
   const prevStatus=id?(base.status||""):"";
   let acceptedNow=false;
@@ -3850,6 +3954,7 @@ function docsCompany(){
     ${f("iban","IBAN")}${f("bic","BIC")}
     ${f("atout","N° Atout France")}${f("rcp","Assurance RC Pro")}
     ${f("garantie","Garantie financière")}${f("tvaMention","Mention TVA",true)}
+    ${f("invoiceMentions","Mentions légales des factures (vide = texte par défaut : pénalités de retard, indemnité 40 €, pas d'escompte)",true)}
   </div>
   <button class="btn primary" id="dc_save" style="margin-top:8px">Enregistrer la fiche société</button></div>`;
   $("#dc_save").onclick=()=>{ const nc={...co()}; $$("#docsBody [data-c]").forEach(el=>nc[el.dataset.c]=el.value);
@@ -4435,7 +4540,7 @@ function checkOverdue(){
   const now=Date.now();
   DB.tasks.filter(t=>t.status!=="Fait" && t.due && t.due<now && t.kind!=="email-draft" && t.kind!=="doc-draft")
     .forEach(t=>Automations.run("task.overdue",{...t,_entity:"tasks",_id:t.id}));
-  DB.quotes.filter(q=>q.kind==="facture" && (q.status==="Émise"||q.status==="En retard") && q.due && q.due<now)
+  DB.quotes.filter(q=>q.kind==="facture" && ["Émise","En retard","Partiellement payée"].includes(q.status) && q.due && q.due<now)
     .forEach(q=>Automations.run("invoice.overdue",{...q,daysLate:Math.round((now-q.due)/DAY),_entity:"quotes",_id:q.id}));
   DB.projects.filter(p=>p.start && p.start>now && (p.start-now)<30*DAY)
     .forEach(p=>Automations.run("deadline.soon",{...p,daysLeft:Math.round((p.start-now)/DAY),_entity:"projects",_id:p.id}));

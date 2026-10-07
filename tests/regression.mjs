@@ -202,6 +202,63 @@ ok(gs.acc===true && gs.exp==="Expérience" && gs.short===0, "recherche globale (
 await page.keyboard.press("Control+k"); await page.waitForTimeout(80);
 ok(!!(await page.$("#gs_q")), "Ctrl+K ouvre la recherche"); await closeM();
 
+/* ---------- 10. Devis & factures : remise, acompte/solde, encaissements, mentions ---------- */
+section("factures");
+await fresh();
+const tot = await ev(()=>{ const a=quoteTotals({items:[{qty:10,unit:100}],tvaRate:0,discount:10}); const b=quoteTotals({items:[{qty:2,unit:50}],tvaRate:20});
+  return {brut:a.brut,remise:a.remise,ht:a.ht,ttc:a.ttc, compat:b.ht===100&&b.tva===20&&b.ttc===120}; });
+ok(tot.brut===1000 && tot.remise===100 && tot.ht===900 && tot.ttc===900, "remise % sur le HT brut");
+ok(tot.compat, "totaux sans remise inchangés (compat)");
+const flow = await ev(()=>{ DB.quotes=[]; DB.settings.quoteSeq=1; DB.settings.invoiceSeq=1;
+  DB.quotes=[{id:"d1",kind:"devis",number:"D-2026-001",date:Date.now(),status:"Accepté",clientName:"Lycée X",object:"Séjour",items:[{label:"Séjour",qty:10,unit:790}],tvaRate:0,pax:10}];
+  go("docs"); DOCS_TAB="quotes"; DOCS_KIND="devis"; VIEWS.docs();
+  invoiceDeposit("d1"); document.querySelector("#dep_pct").value="30"; const b=[...document.querySelectorAll(".mfoot .btn")]; b[b.length-1].click();
+  const dep=DB.quotes.find(x=>x.invType==="acompte");
+  let blocked=false; const _t=window.toast; window.toast=(m)=>{ if(/Solde|entièrement/.test(m)) blocked=true; };
+  convertToInvoice("d1"); const blockedConvert=blocked; blocked=false;
+  invoiceBalance("d1"); const sol=DB.quotes.find(x=>x.invType==="solde");
+  invoiceBalance("d1"); const blockedSecond=blocked; window.toast=_t;
+  return { depHT:quoteTotals(dep).ht, depSrc:dep.sourceQuote, solHT:quoteTotals(sol).ht, solLbl:sol.items[0].label, depNum:dep.number,
+    blockedConvert, blockedSecond, nInv:DB.quotes.filter(x=>x.kind==="facture").length }; });
+ok(flow.depHT===2370 && flow.depSrc==="D-2026-001", "facture d'acompte 30 % rattachée au devis");
+ok(flow.blockedConvert, "facture complète bloquée quand un acompte existe");
+ok(flow.solHT===5530 && flow.solLbl.includes(flow.depNum), "facture de solde = devis − acomptes (référencés)");
+ok(flow.blockedSecond && flow.nInv===2, "pas de double solde (déjà entièrement facturé)");
+const pay = await ev(()=>{ const inv=DB.quotes.find(x=>x.invType==="solde");
+  inv.payments=[{id:"p1",date:Date.now(),amount:2000,method:"Virement"}]; const s1=invoiceStatusFromPayments(inv); const P1=quotePaid(inv);
+  inv.payments.push({id:"p2",date:Date.now(),amount:3530,method:"Carte"}); const s2=invoiceStatusFromPayments(inv);
+  const manual=invoiceStatusFromPayments({kind:"facture",status:"Payée",items:[{qty:1,unit:10}]});
+  return {s1, rest:P1.rest, s2, manual}; });
+ok(pay.s1==="Partiellement payée" && pay.rest===3530, "encaissement partiel → reste dû + statut");
+ok(pay.s2==="Payée", "encaissement total → Payée");
+ok(pay.manual==="Payée", "compat : statut manuel conservé sans encaissement");
+const doc2 = await ev(()=>{ const inv=DB.quotes.find(x=>x.invType==="solde"); inv.payments=[{id:"p",date:Date.now(),amount:1000,method:"Virement"}]; inv.due=Date.now()+864e5;
+  const h=quoteDocHTML(inv); const dep=quoteDocHTML(DB.quotes.find(x=>x.invType==="acompte")); const dv=quoteDocHTML(DB.quotes.find(x=>x.id==="d1"));
+  return {mentions:/Mentions légales/.test(h)&&/40 €/.test(h), rest:/Reste à payer/.test(h), depTitle:/FACTURE D'ACOMPTE/.test(dep), pax:/par participant/.test(dv), noMentionsDevis:!/Mentions légales/.test(dv)}; });
+ok(doc2.mentions && doc2.rest, "facture : mentions légales + reste à payer");
+ok(doc2.depTitle, "titre « FACTURE D'ACOMPTE »");
+ok(doc2.pax && doc2.noMentionsDevis, "devis : prix par participant, sans mentions de facture");
+const st = await ev(()=>{ DB.quotes=[
+    {id:"a",kind:"devis",number:"D1",status:"Accepté",items:[{qty:1,unit:1000}]},{id:"b",kind:"devis",number:"D2",status:"Refusé",items:[{qty:1,unit:500}]},
+    {id:"c",kind:"devis",number:"D3",status:"Envoyé",items:[{qty:1,unit:300}]},
+    {id:"f1",kind:"facture",number:"F1",status:"Émise",due:Date.now()-864e5,items:[{qty:1,unit:400}],payments:[{amount:100}]},
+    {id:"f2",kind:"facture",number:"F2",status:"Payée",items:[{qty:1,unit:600}]},
+    {id:"f3",kind:"facture",number:"F3",status:"Annulée",items:[{qty:1,unit:999}]}];
+  const S=quoteStats(); const late=nextActions().some(a=>/F1 en retard/.test(a.title)&&/reste/.test(a.sub||a.desc||JSON.stringify(a)));
+  return {...S, late2:late}; });
+ok(st.pending===300 && st.accepted===1000 && st.conv===50, "synthèse devis : en cours, acceptés, transformation");
+ok(st.factured===1000 && st.collected===700 && st.toCollect===300 && st.late===1, "synthèse factures : facturé / encaissé / à encaisser / retard (annulée exclue)");
+ok(st.late2, "assistant : facture partiellement payée en retard signalée avec le reste");
+const dupe = await ev(()=>{ DB.settings.quoteSeq=5; duplicateQuote("a"); const c=DB.quotes[0]; try{ closeModal(); }catch(e){}
+  return {num:c.number, st:c.status, diff:c.id!=="a"&&c.number!=="D1"}; });
+ok(dupe.diff && dupe.st==="Brouillon" && /D-\d{4}-005/.test(dupe.num), "dupliquer un devis (nouveau numéro, brouillon)");
+await ev(()=>{ DB.quotes=[{id:"fx",kind:"facture",number:"F-2026-009",date:Date.now(),status:"Émise",due:Date.now()+864e5,clientName:"Client",items:[{label:"x",qty:1,unit:500}],tvaRate:0}]; go("docs"); DOCS_KIND="facture"; VIEWS.docs(); editQuote("fx"); });
+await page.fill("#q_pamt","200"); await page.click("#q_padd"); await page.waitForTimeout(60);
+await ev(()=>{ const b=[...document.querySelectorAll(".mfoot .btn")]; b[b.length-1].click(); });
+const ui = await ev(()=>{ const f=DB.quotes.find(x=>x.id==="fx"); return {st:f.status, n:(f.payments||[]).length, rest:/300/.test(document.querySelector("#docsBody").textContent)}; });
+ok(ui.n===1 && ui.st==="Partiellement payée", "éditeur : encaissement ajouté → statut auto");
+ok(ui.rest, "liste factures : colonne « Reste dû »");
+
 /* ---------- Bilan ---------- */
 section("global");
 for(const v of ["dash","settings","itinerary","experiences"]){ await ev(i=>go(i),v); await page.waitForTimeout(40); }
