@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="description" content="Formaskills Travel OS — CRM, prospection, devis et factures, séjours et conformité Erasmus. Outil privé, 100 % local.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="theme-color" content="#1d5fd6">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/16.png">
+<link rel="icon" type="image/png" sizes="48x48" href="icons/48.png">
+<link rel="apple-touch-icon" href="icons/128.png">
 <title>Formaskills Travel OS</title>
 <!--
   Formaskills Travel OS — outil de gestion 100% autonome
@@ -20,8 +28,8 @@
 :root{
   --bg:#f4f6fb; --panel:#ffffff; --panel-2:#f8fafc; --ink:#0f1e37; --muted:#607089;
   --line:#e3e9f2; --brand:#1d5fd6; --brand-ink:#0b3f9e; --brand-soft:#e8f0ff;
-  --ok:#12915b; --ok-soft:#e2f6ec; --warn:#c9820a; --warn-soft:#fdf1dc;
-  --bad:#d13c3c; --bad-soft:#fbe6e6; --accent:#7b4bd6; --accent-soft:#efe8fb;
+  --ok:#0b7a4b; --ok-soft:#e2f6ec; --warn:#8a5a00; --warn-soft:#fdf1dc;
+  --bad:#b42a2a; --bad-soft:#fbe6e6; --accent:#6a3fc4; --accent-soft:#efe8fb;
   --shadow:0 1px 2px rgba(16,32,64,.06),0 8px 28px rgba(16,32,64,.08);
   --shadow-sm:0 1px 2px rgba(16,32,64,.08);
   --r:14px; --r-sm:10px; --sp:16px; --ease:cubic-bezier(.22,.61,.36,1);
@@ -43,6 +51,10 @@ body{
 button,input,select,textarea{font:inherit;color:inherit}
 a{color:var(--brand);text-decoration:none}
 ::selection{background:var(--brand-soft)}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.skip{position:absolute;left:-9999px;top:8px;z-index:9999;background:var(--brand);color:#fff;padding:8px 14px;border-radius:8px;font-weight:700}
+.skip:focus{left:8px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 /* Layout */
 #app{display:grid;grid-template-columns:248px 1fr;height:100vh}
 aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
@@ -229,13 +241,14 @@ code.k{background:var(--panel-2);border:1px solid var(--line);padding:1px 6px;bo
 </style>
 </head>
 <body>
+<a href="#view" class="skip">Aller au contenu</a>
 <div id="app">
   <aside id="sidebar">
     <div class="brand">
       <div class="logo">FT</div>
       <div><b>Travel OS</b><small>Formaskills · autonome</small></div>
     </div>
-    <nav id="nav"></nav>
+    <nav id="nav" aria-label="Navigation principale"></nav>
     <div class="foot">
       <button class="btn ghost sm" id="themeBtn" title="Thème clair/sombre" style="flex:1">Thème sombre</button>
       <button class="btn ghost sm" id="backupBtn" title="Exporter une sauvegarde">Sauvegarde</button>
@@ -243,20 +256,20 @@ code.k{background:var(--panel-2);border:1px solid var(--line);padding:1px 6px;bo
   </aside>
   <main>
     <header class="top">
-      <button class="btn ghost icon" id="menuBtn" aria-label="Menu"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <button class="btn ghost icon" id="menuBtn" aria-label="Menu"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <div>
         <h1 id="viewTitle">Tableau de bord</h1>
         <div class="sub" id="viewSub">Vue d'ensemble de l'activité</div>
       </div>
       <div class="spacer"></div>
-      <button class="btn ghost" id="globalSearch" title="Rechercher partout (Ctrl+K)"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><span class="hide-sm">Rechercher</span></button>
+      <button class="btn ghost" id="globalSearch" title="Rechercher partout (Ctrl+K)" aria-label="Rechercher partout (Ctrl+K)"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><span class="hide-sm">Rechercher</span></button>
       <button class="btn primary" id="quickAdd">+ Ajouter</button>
     </header>
     <div id="syncBanner" style="padding:0 22px"></div>
-    <div class="view" id="view"></div>
+    <div class="view" id="view" tabindex="-1"></div>
   </main>
 </div>
-<div id="toasts"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
 <div id="modalRoot"></div>
 
 <script src="scrape-core.js"></script>

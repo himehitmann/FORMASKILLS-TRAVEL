@@ -4,12 +4,13 @@
    ============================================================ */
 const KEY = "FT_OS_DB_v1";
 const DEFAULT_DB = {
-  meta:{ created:Date.now(), version:1 },
+  meta:{ created:Date.now(), version:1, schema:2 },
   settings:{ theme:"light", caTarget:120000, panier:790, convDevis:0.30, convRdv:0.25, convContact:0.35,
     quoteSeq:1, invoiceSeq:1, tvaDefault:0, erasmusEnvelope:0, lastBackup:0, syncEnabled:false, lastSync:0, lastDailyRun:"",
     scrape:{ minDelay:900, maxDelay:2600, dailyLimit:200 }, scrapeCount:{ day:"", n:0 },
     senders:[], defaultSender:"", mailsSeeded:false,
     gmail:{ clientId:"", connected:false, email:"", token:"", expiry:0 }, maxRelances:3,
+    rgpd:{ footer:true, footerText:"", retentionYears:3 },
     company:{
       name:"FORMASKILLS TRAVEL",
       legal:"SAS au capital de 500 € — RCS Montpellier 990 746 430",
@@ -26,7 +27,7 @@ const DEFAULT_DB = {
   },
   partners:[], projects:[], participants:[], providers:[],
   budget:[], tasks:[], contacts:[], automations:[], campaigns:[], emailTemplates:[], quotes:[], docs:[], docRegistry:[],
-  experiences:[], itineraries:[], activity:[],
+  experiences:[], itineraries:[], activity:[], suppression:[],
   customFields:{ partners:[], projects:[], participants:[], providers:[], tasks:[] }
 };
 function loadDB(){
@@ -34,10 +35,19 @@ function loadDB(){
   catch(e){ console.warn("DB corrompue, réinit",e); }
   return structuredClone(DEFAULT_DB);
 }
+/* Versionnage du schéma : chaque migration est additive (jamais destructive)
+   et ne s'exécute qu'une fois. */
+const SCHEMA_VERSION=2;
+const MIGRATIONS={
+  2: db=>{ (db.contacts||[]).forEach(c=>{ if(c.optOut==null) c.optOut=false; }); },
+};
 function migrate(db){ // garantit la présence de toutes les clés (évite les casses futures)
   const d=structuredClone(DEFAULT_DB);
   for(const k in d){ if(!(k in db)) db[k]=d[k]; }
   for(const k in d.settings){ if(db.settings==null) db.settings={}; if(!(k in db.settings)) db.settings[k]=d.settings[k]; }
+  if(!db.meta||typeof db.meta!=="object") db.meta={created:Date.now(),version:1};
+  for(let v=(+db.meta.schema||1)+1; v<=SCHEMA_VERSION; v++){ try{ MIGRATIONS[v]&&MIGRATIONS[v](db); }catch(e){} }
+  db.meta.schema=Math.max(+db.meta.schema||1,SCHEMA_VERSION);
   return db;
 }
 const _hadLocal = !!localStorage.getItem(KEY);
@@ -46,9 +56,9 @@ let _saveT=null;
 function mirrorChrome(){ try{ if(typeof chrome!=="undefined" && chrome.storage && chrome.storage.local) chrome.storage.local.set({[KEY]:DB}); }catch(e){} }
 function save(){ // debounce léger pour ne pas écrire à chaque frappe
   clearTimeout(_saveT);
-  _saveT=setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } scheduleSync(); scheduleCsv(); }, 120);
+  _saveT=setTimeout(()=>{ applySuppression(); try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){ toast("Stockage plein — exportez une sauvegarde","bad"); } scheduleSync(); scheduleCsv(); }, 120);
 }
-function saveNow(){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){} }
+function saveNow(){ applySuppression(); try{ localStorage.setItem(KEY, JSON.stringify(DB)); mirrorChrome(); }catch(e){} }
 /* Résilience : si localStorage a été vidé mais que chrome.storage a survécu
    (recharge/mise à jour de l'extension), on récupère les données. */
 async function hydrateFromChrome(){
@@ -70,7 +80,7 @@ function logAct(msg){ DB.activity.unshift({t:Date.now(),m:msg}); DB.activity=DB.
    n'est jamais perdu quand on rapproche deux copies.
    ============================================================ */
 const FS_OK = (typeof window!=="undefined" && "showSaveFilePicker" in window);
-const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns","emailTemplates","quotes","docs","docRegistry","experiences","itineraries"];
+const COLLECTIONS=["partners","projects","participants","providers","budget","tasks","contacts","automations","campaigns","emailTemplates","quotes","docs","docRegistry","experiences","itineraries","suppression"];
 function mergeDB(local, remote){
   if(!remote) return local;
   const out=structuredClone(local);
@@ -88,7 +98,7 @@ function mergeDB(local, remote){
   if(remote.customFields){ out.customFields=out.customFields||{}; for(const e in remote.customFields){
     const seen=new Set((out.customFields[e]||[]).map(f=>f.k));
     out.customFields[e]=(out.customFields[e]||[]).concat((remote.customFields[e]||[]).filter(f=>!seen.has(f.k))); } }
-  return migrate(out);
+  const m=migrate(out); applySuppression(m); return m;
 }
 /* Mini-store IndexedDB pour conserver la référence au fichier de synchro */
 function idbReq(fn){ return new Promise((res,rej)=>{ const r=indexedDB.open("ft_sync",1);
@@ -117,10 +127,12 @@ async function listSnapshots(){ try{
 }catch(e){ return []; } }
 window.restoreSnapshot=key=>{ confirmModal("Restaurer cette sauvegarde ?","Vos données actuelles seront remplacées par l'instantané choisi. (Un nouvel instantané du jour est conservé.)",async()=>{
   try{ const v=await idbGet(key); if(!v||!v.json){ toast("Instantané introuvable","bad"); return; }
-    DB=migrate(JSON.parse(v.json)); saveNow(); renderNav(); go("dash"); toast("Sauvegarde restaurée."); }catch(e){ toast("Échec de la restauration","bad"); }
+    const snap=JSON.parse(v.json); if(validateBackup(snap)){ toast("Instantané illisible","bad"); return; }
+    await snapshotNow("avant-restauration"); const keepGmail=structuredClone(gmailCfg());
+    DB=migrate(snap); DB.settings.gmail=keepGmail; logAct("Instantané restauré : "+key.slice(5)); saveNow(); renderNav(); go("dash"); toast("Sauvegarde restaurée."); }catch(e){ toast("Échec de la restauration","bad"); }
 },true); };
 window.downloadSnapshot=async key=>{ try{ const v=await idbGet(key); if(!v||!v.json)return;
-  const blob=new Blob([v.json],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  const blob=new Blob([JSON.stringify(exportableDB(JSON.parse(v.json)),null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
   a.download=`formaskills-sauvegarde-${key.slice(5)}.json`; a.click(); URL.revokeObjectURL(a.href); toast("Sauvegarde téléchargée"); }catch(e){} };
 window.refreshSnapshots=async()=>{ const host=$("#snapList"); if(!host) return;
   const snaps=await listSnapshots();
@@ -136,7 +148,7 @@ async function writeSyncFile(){
   if(!SYNC_HANDLE) return false;
   try{
     if((await perm(SYNC_HANDLE,"readwrite"))!=="granted") return false;
-    const w=await SYNC_HANDLE.createWritable(); await w.write(JSON.stringify(DB,null,2)); await w.close();
+    const w=await SYNC_HANDLE.createWritable(); await w.write(JSON.stringify(exportableDB(),null,2)); await w.close();
     DB.settings.lastSync=Date.now(); try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){}
     return true;
   }catch(e){ return false; }
@@ -184,7 +196,10 @@ async function initSync(){
    ouvrir directement. Même mécanique que la synchro JSON (File System Access +
    IndexedDB pour retrouver le fichier). */
 let CSV_HANDLE=null, _csvT=null;
-function csvEsc(v){ v=(v==null?"":String(v)).replace(/"/g,'""'); return /[",\n]/.test(v)?`"${v}"`:v; }
+/* Anti « injection de formule » (CSV ouvert dans Sheets/Excel) : une cellule qui
+   commence par = @ + - (hors numéro/nombre) est préfixée d'une apostrophe. */
+function csvSafe(v){ v=(v==null?"":String(v)); return /^[=@\t\r]|^[+\-](?![\d\s().]*$)/.test(v)?"'"+v:v; }
+function csvEsc(v){ v=csvSafe(v).replace(/"/g,'""'); return /[",\n;]/.test(v)?`"${v}"`:v; }
 function contactsCsvText(){
   const cols=[["name","Nom"],["company","Société"],["email","Email"],["phone","Téléphone"],["city","Ville"],["country","Pays"],
     ["website","Site"],["category","Nature"],["stage","Étape"],["owner","Responsable"],["nextAction","Prochaine action"],
@@ -235,7 +250,11 @@ const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const esc = s => (s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const eur = n => (Number(n)||0).toLocaleString("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:0});
-const fmtDate = t => t? new Date(t).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"}):"—";
+/* Liens sûrs : seuls http(s), mailto et tel sont rendus cliquables (jamais javascript:/data:). Force HTTPS si pas de schéma. */
+const safeUrl = u => { u=String(u||"").trim(); if(!u) return ""; if(/^(https?:|mailto:|tel:)/i.test(u)) return u; if(/^[a-z][a-z0-9+.\-]*:/i.test(u)) return ""; return /^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(u)? "https://"+u : ""; };
+const safeLogo = u => /^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,[A-Za-z0-9+\/=\s]+$/.test(u||"")? u : "";
+const isoDay = t => { if(t==null||t==="") return ""; const d=new Date(t); return isNaN(d)? "" : d.toISOString().slice(0,10); };
+const fmtDate = t => { if(!t) return "—"; const d=new Date(t); return isNaN(d)? "—" : d.toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"}); };
 function toast(msg,kind="ok"){
   const el=document.createElement("div"); el.className="toast "+(kind==="ok"?"ok":kind==="bad"?"bad":kind==="warn"?"warn":"");
   el.textContent=msg;
@@ -829,12 +848,13 @@ const Automations = (()=>{
       if(c){ c.tags=c.tags||[]; if(!c.tags.includes(listName)) c.tags.push(listName); }
     } else if(A==="email"){
       const to=tpl(st.to||ctx?.email||ctx?.clientEmail||"", ctx).trim();
+      if(isOptedOut(to)) return; // opposition RGPD : on ne prépare jamais d'email
       const subject=tpl(st.subject||"", ctx);
       const body=tpl(st.body||"", ctx);
       const d=ftEmailDraft({to, subject, body, senderId:st.sender});
       const title="Email à "+(to||"—")+(subject?(" — "+subject):"");
       if(openAutoTaskExists(title)) return;
-      const fullBody=(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body;
+      const fullBody=d.body;
       DB.tasks.unshift({id:uid(), title, status:"À faire", priority:"Normale", contactId:(ctx&&ctx._entity==="contacts")?ctx._id:undefined,
         due:Date.now()+DAY, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"",
         to, subject, body:fullBody, cc:"", bcc:""});
@@ -878,11 +898,12 @@ function markContactSent(t){
 window.writeAutoEmail=async id=>{ const t=DB.tasks.find(x=>x.id===id); if(!t) return;
   // Gmail connecté → envoi RÉEL ; sinon → brouillon mailto (le client mail envoie).
   if(gmailConnected() && t.to){
+    if(isOptedOut(t.to)){ toast("Destinataire opposé à la prospection (RGPD) — envoi bloqué","warn"); return; }
     try{ await gmailSend({to:t.to,cc:t.cc,bcc:t.bcc,subject:t.subject,body:t.body}); markContactSent(t); toast("Envoyé via Gmail à "+t.to,"ok"); }
     catch(e){ toast("Envoi Gmail impossible : "+e.message+" — ouverture du brouillon","warn"); if(t.mailto) window.location.href=t.mailto; }
     return;
   }
-  if(t.mailto){ markContactSent(t); window.location.href=t.mailto; }
+  if(t.mailto){ if(isOptedOut(t.to)){ toast("Destinataire opposé à la prospection (RGPD) — envoi bloqué","warn"); return; } markContactSent(t); window.location.href=t.mailto; }
 };
 window.markDraftSent=id=>{ const t=DB.tasks.find(x=>x.id===id); if(!t) return;
   const c=t.contactId?DB.contacts.find(x=>x.id===t.contactId):null;
@@ -922,11 +943,12 @@ function ftEmailDraft({to,subject,body,senderId,cc,bcc}){
   const s=ftSender(senderId);
   let full=body||"";
   if(s && s.signature) full = full + (full?"\n\n":"") + s.signature;
+  const foot=optOutFooter(); if(foot && full.indexOf(foot)<0) full = full + (full?"\n\n":"") + foot;
   const toList=normRecipients(to);
   let mailto="mailto:"+encodeURIComponent(toList)+"?subject="+encodeURIComponent(subject||"")+"&body="+encodeURIComponent(full);
   const ccList=normRecipients(cc); if(ccList) mailto+="&cc="+encodeURIComponent(ccList);
   const bccList=normRecipients(bcc); if(bccList) mailto+="&bcc="+encodeURIComponent(bccList);
-  return { mailto, sender:s };
+  return { mailto, sender:s, body:full };
 }
 /* ============================================================
    4b-bis. ENVOI RÉEL via API GMAIL (optionnel, OAuth, sans serveur)
@@ -972,7 +994,7 @@ function gmailConnect(){
     const token=p.get("access_token"), exp=+p.get("expires_in")||3600;
     if(!token){ toast("Autorisation refusée","bad"); return; }
     g.token=token; g.expiry=Date.now()+exp*1000; g.connected=true;
-    try{ const r=await fetch("https://www.googleapis.com/oauth2/v2/userinfo",{headers:{Authorization:"Bearer "+token}});
+    try{ const r=await fetchT("https://www.googleapis.com/oauth2/v2/userinfo",{headers:{Authorization:"Bearer "+token}},{timeout:10000,retries:1});
       if(r.ok){ const j=await r.json(); g.email=j.email||""; } }catch(e){}
     save(); if(CURRENT==="settings") VIEWS.settings(); toast("Gmail connecté"+(g.email?" ("+g.email+")":""),"ok");
   });
@@ -981,10 +1003,11 @@ function gmailDisconnect(){ const g=gmailCfg(); g.connected=false; g.token=""; g
 async function gmailSend({to,cc,bcc,subject,body}){
   const g=gmailCfg();
   if(!gmailConnected()) throw new Error("Gmail non connecté");
+  if([to,cc,bcc].some(x=>normRecipients(x).split(/,\s*/).some(isOptedOut))) throw new Error("destinataire opposé à la prospection (RGPD)");
   const raw=buildRawEmail({from:g.email,to:normRecipients(to),cc:normRecipients(cc),bcc:normRecipients(bcc),subject,body});
-  const r=await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",{
+  const r=await fetchT("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",{
     method:"POST", headers:{Authorization:"Bearer "+g.token,"Content-Type":"application/json"},
-    body:JSON.stringify({raw}) });
+    body:JSON.stringify({raw}) },{timeout:30000, retries:2, retryOn:[429,503], retryNetwork:false});
   if(!r.ok){ if(r.status===401){ g.connected=false; save(); } throw new Error("Échec de l'envoi (HTTP "+r.status+")"); }
   return true;
 }
@@ -994,8 +1017,8 @@ async function gmailHasReplyFrom(email, sinceMs){
   const g=gmailCfg(); if(!gmailConnected()||!email) return false;
   const after=Math.floor((sinceMs||0)/1000);
   const q=`from:${email} in:anywhere${after?` after:${after}`:""}`;
-  const r=await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=1&q="+encodeURIComponent(q),
-    {headers:{Authorization:"Bearer "+g.token}});
+  const r=await fetchT("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=1&q="+encodeURIComponent(q),
+    {headers:{Authorization:"Bearer "+g.token}},{timeout:15000,retries:2});
   if(!r.ok){ if(r.status===401){ g.connected=false; save(); } return false; }
   const j=await r.json(); return !!(j.messages && j.messages.length);
 }
@@ -1022,7 +1045,7 @@ async function runMailing(sourceTag, tplId){
   if(newLevel>max){ toast(`Maximum de ${max} envois atteint (réglable dans Réglages)`,"warn"); return; }
   const dest=relanceListName(newLevel), tpl=ftMailTemplate(tplId);
   const inList=DB.contacts.filter(c=>(c.tags||[]).includes(sourceTag));
-  const targets=inList.filter(c=>c.email); const noMail=inList.length-targets.length;
+  const targets=inList.filter(c=>c.email && !c.optOut); const noMail=inList.length-targets.length;
   const gm=gmailConnected();
   if(!targets.length){ toast("Aucun contact avec email dans « "+sourceTag+" »","warn"); return; }
   let sent=0, fail=0;
@@ -1106,7 +1129,7 @@ function processCampaigns(){
   for(const cp of (DB.campaigns||[])){
     if(cp.on===false) continue;
     for(const en of (cp.enrolled||[])){
-      const c=DB.contacts.find(x=>x.id===en.contactId); if(!c) continue;
+      const c=DB.contacts.find(x=>x.id===en.contactId); if(!c || c.optOut) continue;
       const cctx=ctxOfContact(c);
       (cp.steps||[]).forEach((st,si)=>{
         const due=(en.startedAt||now)+((+st.offsetDays||0)*DAY);
@@ -1120,7 +1143,7 @@ function processCampaigns(){
         const doc=tpl&&tpl.docTpl?allTemplates().find(x=>x.id===tpl.docTpl):null;
         if(doc) body=body+(body?"\n\n":"")+"(Pièce jointe à joindre : "+doc.name+")";
         const d=ftEmailDraft({to:c.email,subject,body,senderId:cp.senderId,cc:tpl&&tpl.cc,bcc:tpl&&tpl.bcc});
-        const fullBody=(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body;
+        const fullBody=d.body;
         DB.tasks.unshift({id:uid(), campKey:key, contactId:c.id, title:`Relance « ${cp.name} » (étape ${si+1}) — ${c.email||c.name||""}`,
           status:"À faire", priority:"Normale", due, auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"",
           to:c.email, subject, body:fullBody, cc:tpl&&tpl.cc||"", bcc:tpl&&tpl.bcc||""});
@@ -1152,7 +1175,7 @@ const ICONS = {
   pin:'<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
   route:'<circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a3 3 0 0 0 3-3V8"/>'
 };
-const ic = k => `<svg class="ic" viewBox="0 0 24 24">${ICONS[k]||""}</svg>`;
+const ic = k => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]||""}</svg>`;
 
 const NAV = [
   {group:"Pilotage"},
@@ -1174,6 +1197,7 @@ const NAV = [
   {group:"Système"},
   {id:"automations", title:"Automatisations", sub:"Règles automatiques (remplace Make)", icon:"auto"},
   {id:"campaigns", title:"Campagnes de relance", sub:"Séquences d'emails espacées (J+3, J+7…)", icon:"finder"},
+  {id:"compliance", title:"Conformité & sécurité", sub:"RGPD, sécurité, accessibilité — check-list, registre, diagnostic", icon:"task"},
   {id:"guide", title:"Guide & aide", sub:"Comment utiliser chaque écran", icon:"guide"},
   {id:"settings", title:"Réglages & sauvegarde", sub:"Thème, objectifs, export/import", icon:"gear"},
 ];
@@ -1187,13 +1211,14 @@ function renderNav(){
     const c = n.entity!=null ? counts[n.entity]
       : n.id==="registry" ? (DB.docRegistry||[]).filter(d=>d.status==="Manquant"||d.status==="Expiré").length
       : null;
-    return `<button class="nav-item ${n.id===CURRENT?'active':''}" data-nav="${n.id}">
+    return `<button class="nav-item ${n.id===CURRENT?'active':''}" data-nav="${n.id}"${n.id===CURRENT?' aria-current="page"':''}>
       ${ic(n.icon)}<span>${esc(n.title.replace(/^T\d[\/\d]* · /,""))}</span>
       ${c? `<span class="badge">${c}</span>`:""}</button>`;
   }).join("");
   $$("#nav [data-nav]").forEach(b=>b.onclick=()=>{ go(b.dataset.nav); $("#sidebar").classList.remove("open"); });
 }
 function go(id){
+  if(!VIEWS[id] || !NAV.some(n=>n.id===id)) id="dash"; // « page 404 » : un écran inconnu renvoie au tableau de bord
   CURRENT=id; const n=NAV.find(x=>x.id===id);
   $("#viewTitle").textContent = n? n.title : "";
   $("#viewSub").textContent = n? n.sub : "";
@@ -1251,6 +1276,11 @@ function nextActions(){
   if(regBad.length) add(3,"",`${regBad.length} pièce(s) documentaire(s) à régulariser`,"Pièce expirée ou échéance dépassée dans le registre",{l:"Ouvrir le registre",fn:`go('registry')`});
   const regMiss=(DB.docRegistry||[]).filter(d=>d.status==="Manquant").length;
   if(regMiss) add(1,"",`${regMiss} pièce(s) manquante(s) au registre`,"Documents obligatoires à collecter (Qualiopi / Erasmus)",{l:"Ouvrir le registre",fn:`go('registry')`});
+  // 7g. RGPD : mineurs sans autorisation parentale + prospects au-delà de la durée de conservation
+  const minNo=minorsWithoutAuth().length;
+  if(minNo) add(3,"",`${minNo} participant(s) mineur(s) sans autorisation parentale`,"Obligatoire avant le départ (et pour traiter leurs données)",{l:"Voir les participants",fn:`go('participants')`});
+  const stl=staleContacts().length;
+  if(stl) add(1,"",`${stl} contact(s) inactif(s) au-delà de la durée de conservation`,"RGPD : à supprimer ou à recontacter",{l:"Examiner",fn:`reviewStaleContacts()`});
   // 8. Amorçage si vide
   if(!DB.partners.length) add(1,"","Ajoutez votre premier prospect","Le CRM T1 est vide — commencez la prospection",{l:"Ajouter",fn:`openRec('partners',null)`});
   // 9. Rappel de sauvegarde (protège vos données en cas de désinstallation / changement d'ordinateur)
@@ -1451,7 +1481,7 @@ function scrapeTable(rows){
     return `<tr><td class="cell-strong">${esc(r.company||r.domain||"—")}</td><td>${esc(r.name||"—")}</td>
     <td class="mono" style="font-size:12.5px">${r.email?esc(r.email):'<span class="muted">—</span>'}</td>
     <td>${esc(r.phone||"—")}</td>
-    <td class="muted">${site?`<a href="${esc(site)}" target="_blank" rel="noopener" class="mono" style="font-size:12px">${esc(host.slice(0,34))}</a>`:esc(r.domain||"—")}</td></tr>`;}).join("")}</tbody></table></div>`;
+    <td class="muted">${site?`<a href="${esc(safeUrl(site))}" target="_blank" rel="noopener" class="mono" style="font-size:12px">${esc(host.slice(0,34))}</a>`:esc(r.domain||"—")}</td></tr>`;}).join("")}</tbody></table></div>`;
 }
 function wireScrapeTable(container){
   const imp=$("#scr_import",container), csv=$("#scr_csv",container);
@@ -1685,7 +1715,7 @@ function finderExtract(){
       ${r.phones.length?`<div class="divider"></div><div class="section-title" style="margin-top:0">Téléphones</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">${r.phones.map(p=>`<span class="tag b copybtn" data-call="copy('${p.replace(/'/g,"")}')">${esc(p)}</span>`).join("")}</div>`:""}
       ${r.sites.length?`<div class="divider"></div><div class="section-title" style="margin-top:0">Sites</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">${r.sites.slice(0,40).map(u=>`<a class="tag n" href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//,'').slice(0,42))}</a>`).join("")}</div>`:""}
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${r.sites.slice(0,40).map(u=>`<a class="tag n" href="${esc(safeUrl(u))}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//,'').slice(0,42))}</a>`).join("")}</div>`:""}
     </div>`;
   };
 }
@@ -1773,11 +1803,12 @@ window.groupByCategory=()=>{
 };
 function ctxOfContact(c){ return { name:c.name||"", email:c.email||"", company:c.company||c.domain||"", domain:c.domain||"", phone:c.phone||"" }; }
 async function doEmailContact(c, tpl, to){
+  if(c.optOut || isOptedOut(to||c.email)){ toast("Ce contact s'est opposé à la prospection (RGPD) — aucun email","warn"); return; }
   const fill=s=>(s||"").replace(/\{(\w+)\}/g,(_,k)=>(ctxOfContact(c)[k]??"").toString());
   const subject=tpl?fill(tpl.subject):"";
   const body=tpl?fill(tpl.body):"";
   const d=ftEmailDraft({to:to||c.email, subject, body, cc:tpl&&tpl.cc, bcc:tpl&&tpl.bcc});
-  const fullBody=(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body;
+  const fullBody=d.body;
   const advance=()=>{ c.stage=(stageOf(c)==="À contacter")?"Contacté":stageOf(c); c.lastContacted=Date.now(); logAct(`Email envoyé/préparé pour ${c.email}`); save(); renderNav(); csDraw(); };
   if(tpl && tpl.docTpl){ const dtp=allTemplates().find(x=>x.id===tpl.docTpl); if(dtp){ ftPrintDoc(dtp, ctxOfContact(c)); toast("Pièce jointe ouverte — enregistrez le PDF puis glissez-le dans l'email","ok"); } }
   if(gmailConnected()){
@@ -1789,18 +1820,18 @@ async function doEmailContact(c, tpl, to){
 // Envoi groupé (prospection prête à l'emploi) : prépare un brouillon par contact
 // ayant un email ; l'envoi (« Écrire l'email ») fait passer le statut à Contacté.
 function createContactEmailDraft(c, tpl, opts){
-  if(!c || !c.email) return null; opts=opts||{};
+  if(!c || !c.email || c.optOut) return null; opts=opts||{};
   const fill=s=>(s||"").replace(/\{(\w+)\}/g,(_,k)=>(ctxOfContact(c)[k]??"").toString());
   const subject=tpl?fill(tpl.subject):"", body=tpl?fill(tpl.body):"";
   const d=ftEmailDraft({to:c.email, subject, body, cc:tpl&&tpl.cc, bcc:tpl&&tpl.bcc});
   const t={id:uid(), contactId:c.id, title:"Email à "+(c.name||c.email)+(tpl?(" — "+tpl.name):""),
     status:"À faire", priority:"Normale", due:Date.now(), auto:true, kind:"email-draft", mailto:d.mailto, senderName:d.sender?d.sender.name:"", batch:1,
-    to:c.email, subject, body:(d.sender&&d.sender.signature)?(body+(body?"\n\n":"")+d.sender.signature):body, cc:tpl&&tpl.cc||"", bcc:tpl&&tpl.bcc||"",
+    to:c.email, subject, body:d.body, cc:tpl&&tpl.cc||"", bcc:tpl&&tpl.bcc||"",
     fromTag:opts.fromTag||"", toTag:opts.toTag||"", level:opts.level||0};
   DB.tasks.unshift(t); return t;
 }
 window.openBulkEmail=ids=>{
-  const targets=DB.contacts.filter(c=>ids.includes(c.id) && c.email);
+  const targets=DB.contacts.filter(c=>ids.includes(c.id) && c.email && !c.optOut);
   const noMail=ids.length-targets.length;
   const tpls=ftMailTemplates();
   const gm=gmailConnected();
@@ -1907,14 +1938,14 @@ function csDraw(){
       <th style="width:34px"><span class="chk ${allSel?'on':''}" id="cs_all" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></th>
       <th>Nom</th><th>Entreprise / site</th><th>Nature</th><th>Email</th><th>Téléphone</th><th>Étape</th><th>Réponse</th><th></th></tr></thead>
     <tbody>${slice.map(c=>{const st=emailStatut(c.email);const fn=inferFunction(c.service);
-      const srcLab={linkedin:"LinkedIn",scraper:"Scraper",extract:"Extraction",import:"Import CSV",finder:"Recherche",web:"Web"}[c.source]||c.source||"";
-      const sub=[c.service?esc(c.service.slice(0,42)):"", fn?("Fonction : "+fn):"", [srcLab,c.added?fmtDate(c.added):""].filter(Boolean).join(" · ")].filter(Boolean);
+      const srcLab={linkedin:"LinkedIn",scraper:"Scraper",extract:"Extraction",import:"Import CSV",finder:"Recherche",web:"Web"}[c.source]||esc(c.source||"");
+      const sub=[c.optOut?'<span class="tag w">Ne plus contacter</span>':"", c.service?esc(c.service.slice(0,42)):"", fn?("Fonction : "+fn):"", [srcLab,c.added?fmtDate(c.added):""].filter(Boolean).join(" · ")].filter(Boolean);
       const site=(c.sourceUrl&&/^https?:/.test(c.sourceUrl))?c.sourceUrl:"";
       const siteHost=site?site.replace(/^https?:\/\/(www\.)?/,"").split("/")[0]:"";
       return `<tr class="${CS_SEL.has(c.id)?'selrow':''}">
       <td><span class="chk ${CS_SEL.has(c.id)?'on':''}" data-csel="${c.id}" style="width:18px;height:18px"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span></td>
       <td class="cell-strong"><a href="#" data-call="openContactCard('${c.id}')" style="color:inherit;text-decoration:none">${esc(c.name||c.company||"—")}</a>${sub.length?`<div class="muted" style="font-size:11px;font-weight:500">${sub.join(' · ')}</div>`:""}</td>
-      <td class="muted">${esc(c.company||c.domain||"—")}${site?`<div style="font-size:11px"><a href="${esc(site)}" target="_blank" rel="noopener" class="mono">${esc(siteHost.slice(0,32))}</a></div>`:""}</td>
+      <td class="muted">${esc(c.company||c.domain||"—")}${site?`<div style="font-size:11px"><a href="${esc(safeUrl(site))}" target="_blank" rel="noopener" class="mono">${esc(siteHost.slice(0,32))}</a></div>`:""}</td>
       <td><select class="input sm" data-cat="${c.id}" style="min-width:140px;padding:4px 8px;font-size:12px;font-weight:600">${CONTACT_CATEGORIES.map(s=>`<option value="${esc(s)}" ${catOf(c)===s?'selected':''}>${esc(s)}</option>`).join("")}</select></td>
       <td class="mono" style="font-size:12.5px">${c.email?esc(c.email):'<span class="muted">—</span>'}</td>
       <td class="muted">${esc(c.phone||"—")}</td>
@@ -2037,7 +2068,7 @@ function editContactCard(id){
   const c=id?DB.contacts.find(x=>x.id===id):{tags:[]}; if(id&&!c) return;
   const catSel=CONTACT_CATEGORIES.map(s=>`<option ${catOf(c)===s?'selected':''}>${esc(s)}</option>`).join("");
   const stgSel=STAGES.map(s=>`<option ${stageOf(c)===s?'selected':''}>${esc(s)}</option>`).join("");
-  const dstr=c.nextActionDate?new Date(c.nextActionDate).toISOString().slice(0,10):"";
+  const dstr=c.nextActionDate?isoDay(c.nextActionDate):"";
   openModal({title:id?"Fiche contact":"Nouveau contact", wide:true,
     body:`<div class="row2">
       <div class="field"><label>Nom / contact</label><input class="input" id="cc_name" value="${esc(c.name||"")}" placeholder="Prénom Nom"></div>
@@ -2060,13 +2091,18 @@ function editContactCard(id){
     <div class="field"><label>Fonction / poste</label><input class="input" id="cc_service" value="${esc(c.service||"")}"></div>
     <div class="row2">
       <div class="field"><label>Valeur estimée (€)</label><input class="input" type="number" id="cc_value" value="${c.value!=null&&c.value!==""?esc(c.value):""}" placeholder="Ex : 4500"></div>
-      <div class="field"><label>Échéance prévisionnelle (closing)</label><input class="input" type="date" id="cc_close" value="${c.closeDate?new Date(c.closeDate).toISOString().slice(0,10):""}"></div>
+      <div class="field"><label>Échéance prévisionnelle (closing)</label><input class="input" type="date" id="cc_close" value="${c.closeDate?isoDay(c.closeDate):""}"></div>
     </div>
     <div class="row2">
       <div class="field"><label>Prochaine action</label><input class="input" id="cc_next" value="${esc(c.nextAction||"")}" placeholder="Ex : rappeler, envoyer un devis…"></div>
       <div class="field"><label>Échéance de l'action</label><input class="input" type="date" id="cc_nextdate" value="${dstr}"></div>
     </div>
     <div class="field"><label>Notes</label><textarea id="cc_note" style="min-height:90px" placeholder="Historique des échanges, infos utiles…">${esc(c.note||"")}</textarea></div>
+    ${id?`<div class="field"><label>Données personnelles (RGPD)</label><div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm ${c.optOut?'':'ghost'}" data-call="setOptOut('${id}',${c.optOut?0:1})">${c.optOut?"Lever l'opposition":"Ne plus contacter"}</button>
+      <button class="btn sm ghost" data-call="exportContactData('${id}')">Exporter ses données</button>
+      <button class="btn sm ghost" style="color:var(--bad)" data-call="gdprErase('${id}')">Effacer (RGPD)</button></div>
+      ${c.optOut?`<div class="tag w" style="margin-top:6px">Opposé à la prospection depuis le ${esc(fmtDate(c.optOutAt))} — exclu de tous les envois</div>`:""}</div>`:""}
     ${id?`<div class="field"><label>Listes</label><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${(c.tags||[]).map(t=>`<span class="tag n">${esc(t)}</span>`).join(" ")||'<span class="muted" style="font-size:12.5px">Aucune liste</span>'}<button class="btn sm ghost" id="cc_lists">Modifier</button></div></div>`:""}`,
     footer:[{label:"Annuler",cls:"ghost",act:closeModal},
       id?{label:"Supprimer",cls:"ghost",act:()=>confirmModal("Supprimer ?","Ce contact sera supprimé.",()=>{DB.contacts=DB.contacts.filter(x=>x.id!==id);save();renderNav();closeModal();finderSaved();},true)}:null,
@@ -2328,6 +2364,7 @@ const SCHEMAS={
       {k:"name",l:"Nom Prénom",req:true},{k:"birth",l:"Date de naissance",type:"date"},
       {k:"nationality",l:"Nationalité"},{k:"email",l:"Email",type:"email"},{k:"phone",l:"Téléphone"},
       {k:"project",l:"Projet lié"},{k:"minor",l:"Mineur ?",type:"select",opts:["Non","Oui"]},
+      {k:"parental",l:"Autorisation parentale (si mineur)",type:"select",opts:["Non","Oui","Sans objet"]},
       {k:"insurance",l:"Assurances OK ?",type:"select",opts:["Non","En cours","Oui"]},
       {k:"ceam",l:"Carte CEAM ?",type:"select",opts:["Non","Oui"]},
       {k:"status",l:"Statut dossier",type:"select",opts:["Incomplet","En cours","Complet"]},
@@ -2518,7 +2555,7 @@ function wireKanban(entity,col){
 }
 function fieldHTML(entity,it,f){
   const s=SCHEMAS[entity]; const v=it[f.k]??"";
-  const val=f.type==="date"&&v? new Date(v).toISOString().slice(0,10):v;
+  const val=f.type==="date"&&v? isoDay(v):v;
   if(f.type==="textarea") return `<div class="field" style="grid-column:1/-1"><label>${esc(f.l)}</label><textarea data-f="${f.k}">${esc(v)}</textarea></div>`;
   if(f.type==="select"){ const opts=f.optsFrom?s[f.optsFrom]:f.opts;
     return `<div class="field"><label>${esc(f.l)}</label><select data-f="${f.k}"><option value="">—</option>${opts.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join("")}</select></div>`; }
@@ -2634,7 +2671,7 @@ window.delRegEntry=id=>{ const d=(DB.docRegistry||[]).find(x=>x.id===id); if(!d)
   confirmModal("Retirer cette pièce ?",`« ${d.title} » sera retirée du registre.`,()=>{ DB.docRegistry=DB.docRegistry.filter(x=>x.id!==id); save(); renderNav(); VIEWS.registry(); },true); };
 window.openRegEntry=id=>{
   const d=id?(DB.docRegistry||[]).find(x=>x.id===id):null; const doss=regDossiers();
-  const dstr=d&&d.due?new Date(d.due).toISOString().slice(0,10):"";
+  const dstr=d&&d.due?isoDay(d.due):"";
   const defDoss=d?d.dossier:(REG_DOSSIER||"Général");
   openModal({title:d?"Modifier la pièce":"Nouvelle pièce", wide:true,
     body:`<div class="row2">
@@ -2678,7 +2715,7 @@ window.seedRegistry=()=>{
 };
 window.exportRegistry=()=>{
   const rows=regRows().map(d=>({dossier:d.dossier,piece:d.title,categorie:d.category,statut:d.status||"Manquant",
-    echeance:d.due?new Date(d.due).toISOString().slice(0,10):"",responsable:d.owner||"",note:d.note||""}));
+    echeance:d.due?isoDay(d.due):"",responsable:d.owner||"",note:d.note||""}));
   if(!rows.length){ toast("Rien à exporter","warn"); return; }
   exportCSV("registre-documentaire",["dossier","piece","categorie","statut","echeance","responsable","note"],rows);
 };
@@ -2876,7 +2913,7 @@ function wirePipeline(){
 }
 window.exportPipeline=()=>{
   const rows=pipelineOpps().map(c=>({nom:c.name||"",societe:c.company||"",email:c.email||"",etape:stageOf(c),
-    valeur:oppValue(c),closing:c.closeDate?new Date(c.closeDate).toISOString().slice(0,10):"",responsable:c.owner||"",
+    valeur:oppValue(c),closing:c.closeDate?isoDay(c.closeDate):"",responsable:c.owner||"",
     prochaine_action:c.nextAction||""}));
   if(!rows.length){ toast("Aucune opportunité à exporter","warn"); return; }
   exportCSV("pipeline-commercial",["nom","societe","email","etape","valeur","closing","responsable","prochaine_action"],rows);
@@ -2904,13 +2941,13 @@ const Geo=(()=>{
   async function polite(){ const w=1100-(Date.now()-last); if(w>0) await sleep(w); last=Date.now(); }
   async function geocode(q){ if(!q) return null; try{ await polite();
     const url="https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=fr&q="+encodeURIComponent(q);
-    const r=await fetch(url,{headers:{Accept:"application/json"}}); if(!r.ok) return null; const j=await r.json();
+    const r=await fetchT(url,{headers:{Accept:"application/json"}},{timeout:12000,retries:2}); if(!r.ok) return null; const j=await r.json();
     if(j&&j[0]&&j[0].lat) return {lat:+(+j[0].lat).toFixed(6), lng:+(+j[0].lon).toFixed(6)}; return null; }catch(e){ return null; } }
   // Distance/temps routiers réels (profil voiture, seul garanti sur le serveur
   // public OSRM). On en dérive le temps des autres modes via les vitesses.
   async function roadDistance(a,b){ try{ await polite();
     const url=`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`;
-    const r=await fetch(url); if(!r.ok) return null; const j=await r.json();
+    const r=await fetchT(url,{},{timeout:12000,retries:2}); if(!r.ok) return null; const j=await r.json();
     if(j&&j.routes&&j.routes[0]) return {km:Math.round(j.routes[0].distance/100)/10, carMin:Math.round(j.routes[0].duration/60)}; return null; }catch(e){ return null; } }
   return {geocode, roadDistance};
 })();
@@ -2976,7 +3013,7 @@ function expCardHTML(e){ const col=expColor(e.category); const ev=expEventLabel(
     ${(e.partner||(e.tags||[]).length)?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px">${e.partner?'<span class="tag g">Partenaire</span>':''}${(e.tags||[]).map(t=>`<span class="tag n">${esc(t)}</span>`).join("")}</div>`:""}
     <div class="expacts">
       <button class="btn sm ghost" data-call="openExpEntry('${e.id}')">Modifier</button>
-      ${e.url?`<a class="btn sm ghost" href="${esc(e.url)}" target="_blank" rel="noopener">Site</a>`:""}
+      ${safeUrl(e.url)?`<a class="btn sm ghost" href="${esc(safeUrl(e.url))}" target="_blank" rel="noopener">Site</a>`:""}
       <button class="btn sm ghost" data-call="delExp('${e.id}')">×</button></div></div>`;
 }
 function expDrawGrid(){ const rows=expRows();
@@ -3002,8 +3039,8 @@ window.openExpEntry=id=>{
       <div class="field"><label>Jours d'ouverture</label><input class="input" id="xe_open" value="${esc(e?.openDays||"")}" placeholder="Mar–Dim 10h–18h"></div>
     </div>
     <div class="row3">
-      <div class="field"><label>Date (événement) — optionnel</label><input class="input" type="date" id="xe_date" value="${e&&e.date?new Date(e.date).toISOString().slice(0,10):""}"></div>
-      <div class="field"><label>Date de fin (si plusieurs jours)</label><input class="input" type="date" id="xe_dateend" value="${e&&e.dateEnd?new Date(e.dateEnd).toISOString().slice(0,10):""}"></div>
+      <div class="field"><label>Date (événement) — optionnel</label><input class="input" type="date" id="xe_date" value="${e&&e.date?isoDay(e.date):""}"></div>
+      <div class="field"><label>Date de fin (si plusieurs jours)</label><input class="input" type="date" id="xe_dateend" value="${e&&e.dateEnd?isoDay(e.dateEnd):""}"></div>
       <div class="field"><label>Horaire (texte)</label><input class="input" id="xe_time" value="${esc(e?.time||"")}" placeholder="20h30"></div>
     </div>
     <div class="row3">
@@ -3047,7 +3084,7 @@ window.geocodeMissing=async()=>{
 window.exportExperiences=()=>{
   const rows=expRows().map(e=>({nom:e.name,categorie:e.category||"",ville:e.city||"",adresse:e.address||"",
     prix:Number(e.price)>0?e.price:"0",duree_min:e.duration||"",ouverture:e.openDays||"",
-    date:e.date?new Date(e.date).toISOString().slice(0,10):"",date_fin:e.dateEnd?new Date(e.dateEnd).toISOString().slice(0,10):"",
+    date:e.date?isoDay(e.date):"",date_fin:e.dateEnd?isoDay(e.dateEnd):"",
     lat:e.lat||"",lng:e.lng||"",site:e.url||"",partenaire:e.partner?"oui":"",listes:(e.tags||[]).join(" | ")}));
   if(!rows.length){ toast("Rien à exporter","warn"); return; }
   exportCSV("experiences",["nom","categorie","ville","adresse","prix","duree_min","ouverture","date","date_fin","lat","lng","site","partenaire","listes"],rows);
@@ -3496,7 +3533,7 @@ function printDocument(title, inner){
   try{ w.document.getElementById("ftPrint").onclick=()=>w.print(); w.document.getElementById("ftClose").onclick=()=>w.close(); }catch(e){}
 }
 function coHeaderHTML(){ const c=co(), s=ds();
-  return `<div class="co">${s.logo?`<img src="${s.logo}" alt="logo">`:""}<b>${esc(c.name||"")}</b>
+  return `<div class="co">${safeLogo(s.logo)?`<img src="${esc(safeLogo(s.logo))}" alt="Logo ${esc(c.name||"")}">`:""}<b>${esc(c.name||"")}</b>
     <div>${esc(c.legal||"")}</div><div>${esc(c.addr1||"")}</div><div>${esc(c.addr2||"")}</div>
     <div>${esc(c.phone||"")} · ${esc(c.email||"")} · ${esc(c.web||"")}</div>
     ${s.headerExtra?`<div>${esc(s.headerExtra)}</div>`:""}</div>`;
@@ -3522,6 +3559,7 @@ function invoiceStatusFromPayments(q){ if(q.status==="Annulée") return q.status
   if(!(q.payments||[]).length) return q.status||"Émise";
   const {paid,ttc}=quotePaid(q); if(ttc>0 && paid>=ttc) return "Payée"; if(paid>0) return "Partiellement payée";
   return q.status||"Émise"; }
+const CGV_DEFAULT="Conditions de vente : acompte de 30 % à la commande, solde 30 jours avant le départ. Annulation par le client (frais calculés sur le prix total) : plus de 60 jours avant le départ 10 % ; de 60 à 31 jours 30 % ; de 30 à 15 jours 50 % ; moins de 15 jours ou non-présentation 100 %. Toute modification après confirmation peut entraîner des frais. Devis valable 30 jours. Assurance annulation facultative recommandée. Séjours soumis aux dispositions du Code du tourisme relatives aux forfaits touristiques.";
 const INVOICE_MENTIONS_DEFAULT="En cas de retard de paiement : pénalités au taux de 3 fois le taux d'intérêt légal, et, pour les clients professionnels, indemnité forfaitaire pour frais de recouvrement de 40 € (art. L441-10 et D441-5 du Code de commerce). Pas d'escompte pour paiement anticipé.";
 function quoteDocHTML(q){ const t=quoteTotals(q); const c=co(); const isInv=q.kind==="facture";
   const f=n=>(Number(n)||0).toLocaleString("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -3548,6 +3586,7 @@ function quoteDocHTML(q){ const t=quoteTotals(q); const c=co(); const isInv=q.ki
     ${isInv&&P.paid?`<div><span>Déjà réglé</span><b>− ${f(P.paid)} €</b></div><div class="grand"><span>Reste à payer</span><span>${f(P.rest)} €</span></div>`:""}
   </div>
   ${q.conditions?`<div class="conditions"><b>Conditions</b>\n${esc(q.conditions)}</div>`:""}
+  ${!isInv && c.showCgv!=="non"?`<div class="conditions" style="font-size:10.5px;color:#667"><b>Conditions de vente et d'annulation</b>\n${esc(c.cgv||CGV_DEFAULT)}</div>`:""}
   ${isInv?`<div class="conditions" style="font-size:11px;color:#667"><b>Mentions légales</b>\n${q.due?`Date d'échéance : ${fmtDate(q.due)}. `:""}${esc(c.invoiceMentions||INVOICE_MENTIONS_DEFAULT)}</div>`:""}
   <div class="sign"><div>Pour ${esc(c.name||"")}<div class="line"></div></div>
     <div>Bon pour accord (date, signature, cachet)<div class="line"></div></div></div>
@@ -3673,8 +3712,8 @@ function editQuote(id,kind){
     </div>
     <div class="field"><label>Adresse client</label><textarea id="q_ca" style="min-height:52px">${esc(q.clientAddr)}</textarea></div>
     <div class="row3">
-      <div class="field"><label>Date</label><input class="input" type="date" id="q_date" value="${new Date(q.date).toISOString().slice(0,10)}"></div>
-      ${isInv?`<div class="field"><label>Échéance</label><input class="input" type="date" id="q_due" value="${q.due?new Date(q.due).toISOString().slice(0,10):""}"></div>`
+      <div class="field"><label>Date</label><input class="input" type="date" id="q_date" value="${isoDay(q.date)}"></div>
+      ${isInv?`<div class="field"><label>Échéance</label><input class="input" type="date" id="q_due" value="${q.due?isoDay(q.due):""}"></div>`
         :`<div class="field"><label>Validité (jours)</label><input class="input" id="q_val" value="${esc(q.validity)}"></div>`}
       <div class="field"><label>TVA (%)</label><input class="input" type="number" id="q_tva" value="${esc(q.tvaRate)}"></div>
     </div>
@@ -3818,7 +3857,7 @@ function docsStyle(){
       <div class="section-title" style="margin-top:0">Logo & couleur</div>
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
         <div style="width:120px;height:60px;border:1px dashed var(--line);border-radius:10px;display:grid;place-items:center;overflow:hidden;background:var(--panel-2)">
-          ${s.logo?`<img src="${s.logo}" style="max-width:100%;max-height:100%">`:'<span class="muted" style="font-size:11px">Aucun logo</span>'}</div>
+          ${safeLogo(s.logo)?`<img src="${esc(safeLogo(s.logo))}" alt="Logo actuel" style="max-width:100%;max-height:100%">`:'<span class="muted" style="font-size:11px">Aucun logo</span>'}</div>
         <div><button class="btn sm" id="st_logo">Choisir un logo</button>
         ${s.logo?'<button class="btn sm ghost" id="st_logo_x">Retirer</button>':''}
         <input type="file" id="st_logofile" accept="image/*" style="display:none"></div>
@@ -3844,6 +3883,7 @@ function docsStyle(){
   $("#st_logo_x")&&($("#st_logo_x").onclick=()=>{ DB.settings.docStyle.logo=""; save(); VIEWS.docs(); });
   $("#st_logofile").onchange=e=>{ const f=e.target.files[0]; if(!f)return;
     if(f.size>600000){ toast("Logo trop lourd (max ~500 Ko)","warn"); return; }
+    if(!/^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(f.type)){ toast("Format d'image non pris en charge (PNG, JPG, GIF, WebP, SVG)","warn"); return; }
     const rd=new FileReader(); rd.onload=()=>{ DB.settings.docStyle.logo=rd.result; save(); VIEWS.docs(); toast("Logo enregistré"); }; rd.readAsDataURL(f); };
   $("#st_accent").oninput=e=>$("#st_accent2").value=e.target.value;
   $("#st_accent2").oninput=e=>{ if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)) $("#st_accent").value=e.target.value; };
@@ -3954,6 +3994,8 @@ function docsCompany(){
     ${f("iban","IBAN")}${f("bic","BIC")}
     ${f("atout","N° Atout France")}${f("rcp","Assurance RC Pro")}
     ${f("garantie","Garantie financière")}${f("tvaMention","Mention TVA",true)}
+    ${f("cgv","Conditions de vente / d'annulation imprimées sur les devis (vide = texte par défaut — à faire valider par votre conseil ; écrire « non » dans le champ ci-dessous pour les masquer)",true)}
+    ${f("showCgv","Afficher les conditions sur les devis (oui / non)")}
     ${f("invoiceMentions","Mentions légales des factures (vide = texte par défaut : pénalités de retard, indemnité 40 €, pas d'escompte)",true)}
   </div>
   <button class="btn primary" id="dc_save" style="margin-top:8px">Enregistrer la fiche société</button></div>`;
@@ -4231,6 +4273,16 @@ function editCampaign(id){
 }
 
 /* ---------- Guide ---------- */
+const FAQ=[
+  ["Où sont stockées mes données ?","Dans votre navigateur (et l'extension), sur votre ordinateur. Rien n'est envoyé sur un serveur. Activez la synchronisation (Réglages) pour une copie dans votre dossier Google Drive."],
+  ["Comment ne rien perdre si je change d'ordinateur ?","Activez la synchronisation fichier dans Réglages, ou exportez régulièrement une sauvegarde (de préférence chiffrée). L'outil garde aussi un instantané par jour, restaurable en un clic."],
+  ["J'ai supprimé quelque chose par erreur.","Réglages → Sauvegardes automatiques → « Restaurer » l'instantané de la veille. L'état actuel est conservé avant restauration."],
+  ["Un prospect me demande de ne plus le contacter.","Ouvrez sa fiche → « Ne plus contacter » : il est exclu de tous les envois. S'il demande la suppression de ses données : « Effacer (RGPD) » — il ne sera jamais ré-importé."],
+  ["Les emails partent-ils tout seuls ?","Non, sauf si vous connectez Gmail et cliquez « Envoyer ». Sinon, l'outil prépare des brouillons que vous envoyez depuis « À faire maintenant »."],
+  ["Pourquoi l'email d'un profil LinkedIn n'apparaît pas ?","LinkedIn ne publie pas les emails. L'outil récupère nom, poste et société, puis devine l'email si le site de la société est connu."],
+  ["Mes données sont-elles sécurisées ?","Aucun serveur, aucun traceur, aucun cookie. Les sauvegardes peuvent être chiffrées (AES-256). Activez aussi le chiffrement du disque de votre ordinateur (BitLocker / FileVault)."],
+  ["Puis-je l'utiliser au clavier ?","Oui : Tab pour naviguer, Entrée pour activer, Échap pour fermer une fenêtre, Ctrl+K pour rechercher partout."],
+];
 VIEWS.guide=()=>{
   const cards=[
     ["Scraper LinkedIn / Web","Récupérez emails et téléphones directement depuis un profil LinkedIn ou en lançant une recherche web multi-pages (nécessite d'installer l'extension — voir ci-dessous)."],
@@ -4262,7 +4314,9 @@ VIEWS.guide=()=>{
     <tr><td class="cell-strong">Vers l'OPCO</td><td>(Apprenti) convention de mise à disposition + avenant + factures.</td></tr>
     <tr><td class="cell-strong">Vers CPAM/MSA</td><td>(Apprenti) déclaration de maintien de sécurité sociale.</td></tr>
     <tr><td class="cell-strong">Vous recevez de l'Agence</td><td>Accréditation + convention de subvention → à classer.</td></tr>
-  </tbody></table></div>`;
+  </tbody></table></div>
+  <div class="section-title">FAQ</div>
+  <div class="card">${FAQ.map(([q,a])=>`<details style="padding:8px 0;border-bottom:1px solid var(--line)"><summary class="cell-strong" style="cursor:pointer">${esc(q)}</summary><div class="muted" style="font-weight:600;margin-top:6px">${esc(a)}</div></details>`).join("")}</div>`;
 };
 
 /* ---------- Settings ---------- */
@@ -4287,8 +4341,10 @@ VIEWS.settings=()=>{
       <p class="muted" style="font-weight:600">Deux façons de ne rien perdre : (1) la <b>synchronisation automatique</b> ci-dessous (recommandée, multi-PC) ; (2) l'<b>export/import manuel</b> ci-dessous.</p>
       <div style="font-size:12.5px;font-weight:600;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px">Dernière sauvegarde : <b>${DB.settings.lastBackup?fmtDate(DB.settings.lastBackup):"jamais — à faire dès maintenant"}</b></div>
       <button class="btn primary" id="s_exp" style="width:100%;margin-bottom:10px">Exporter toutes les données (fichier de sauvegarde)</button>
-      <button class="btn" id="s_imp" style="width:100%;margin-bottom:10px">Importer une sauvegarde</button>
-      <input type="file" id="s_file" accept="application/json" style="display:none">
+      <button class="btn" data-call="exportEncrypted()" style="width:100%;margin-bottom:10px">Exporter une sauvegarde chiffrée (mot de passe)</button>
+      <button class="btn" id="s_imp" style="width:100%;margin-bottom:10px">Importer une sauvegarde (normale ou chiffrée)</button>
+      <input type="file" id="s_file" accept=".json,application/json" style="display:none" aria-label="Fichier de sauvegarde">
+      <p class="muted" style="font-size:12px;font-weight:600;margin:0 0 6px">Le jeton Gmail n'est jamais inclus dans les sauvegardes ni dans le fichier Drive. Avant tout import, l'état actuel est conservé (« avant-import ») dans les sauvegardes automatiques.</p>
       <div class="divider"></div>
       <div class="stat-mini muted" style="font-weight:600">Contenu actuel :</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
@@ -4452,25 +4508,371 @@ function editSender(id){
       save(); closeModal(); drawSenders(); toast("Expéditeur enregistré"); }}]});
 }
 
+/* ============================================================
+   5z. SÉCURITÉ, RGPD & QUALITÉ (check-list de lancement appliquée)
+   Tout est local et gratuit : chiffrement WebCrypto (AES-256-GCM),
+   liste d'opposition RGPD, droit d'accès / d'effacement, rétention,
+   journal d'erreurs, diagnostic de santé, appels réseau robustes.
+   ============================================================ */
+/* Hachage léger (cyrb53) : la liste d'opposition ne garde PAS l'email en clair. */
+function cyrb53(str,seed=0){ let h1=0xdeadbeef^seed,h2=0x41c6ce57^seed;
+  for(let i=0;i<str.length;i++){ const ch=str.charCodeAt(i); h1=Math.imul(h1^ch,2654435761); h2=Math.imul(h2^ch,1597334677); }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return 4294967296*(2097151&h2)+(h1>>>0); }
+function emailKey(e){ return String(e||"").trim().toLowerCase(); }
+function suppHash(e){ return "s"+cyrb53(emailKey(e)).toString(36); }
+function isOptedOut(email){ const e=emailKey(email); if(!e||!/@/.test(e)) return false;
+  if((DB.contacts||[]).some(c=>c.optOut && emailKey(c.email)===e)) return true;
+  const h=suppHash(e); return (DB.suppression||[]).some(x=>x.id===h); }
+/* Retire automatiquement tout contact dont l'email figure dans la liste
+   d'opposition (ré-import, scraping, bulle, fichier synchronisé…). */
+function applySuppression(db){ db=db||DB;
+  if(!(db.suppression||[]).length || !(db.contacts||[]).length) return 0;
+  const set=new Set(db.suppression.map(x=>x.id)); const before=db.contacts.length;
+  db.contacts=db.contacts.filter(c=>!(c.email && set.has(suppHash(c.email))));
+  return before-db.contacts.length;
+}
+const OPTOUT_FOOTER_DEFAULT="Vous recevez ce message car votre structure correspond à notre activité de séjours éducatifs. Pour ne plus recevoir nos emails, répondez simplement « STOP » : vos coordonnées seront supprimées.";
+function rgpdCfg(){ if(!DB.settings.rgpd) DB.settings.rgpd={footer:true, footerText:"", retentionYears:3}; return DB.settings.rgpd; }
+function optOutFooter(){ const r=rgpdCfg(); return r.footer===false?"":(r.footerText||OPTOUT_FOOTER_DEFAULT); }
+function contactLastActivity(c){ return Math.max(c.added||0,c.lastContacted||0,c.lastSentAt||0,c.replyAt||0,c.updated||0,c.nextActionDate||0); }
+function staleContacts(){ const yrs=+rgpdCfg().retentionYears||3, lim=Date.now()-yrs*365*DAY;
+  return (DB.contacts||[]).filter(c=>stageOf(c)!=="Gagné" && contactLastActivity(c) && contactLastActivity(c)<lim); }
+function dropContactTraces(id){
+  DB.tasks=(DB.tasks||[]).filter(t=>!(t.contactId===id && t.status!=="Fait"));
+  (DB.campaigns||[]).forEach(cp=>{ cp.enrolled=(cp.enrolled||[]).filter(e=>e.contactId!==id); });
+}
+window.setOptOut=(id,on)=>{ const c=DB.contacts.find(x=>x.id===id); if(!c) return; closeModal();
+  c.optOut=!!on; c.optOutAt=on?Date.now():0; if(on) dropContactTraces(id);
+  logAct(on?"Opposition RGPD enregistrée pour un contact":"Opposition RGPD levée pour un contact"); save(); renderNav();
+  toast(on?"Contact marqué « Ne plus contacter » : exclu de tous les envois":"Opposition levée");
+  if(CURRENT==="finder"&&FINDER_TAB==="saved") finderSaved(); else if(VIEWS[CURRENT]) VIEWS[CURRENT](); };
+window.gdprErase=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c) return;
+  confirmModal("Effacer ce contact (droit à l'effacement) ?","Le contact, ses brouillons et ses inscriptions aux campagnes sont supprimés définitivement. Son email est ajouté (sous forme chiffrée irréversible) à la liste d'opposition pour qu'il ne soit jamais ré-importé.",()=>{
+    if(c.email){ const h=suppHash(c.email); DB.suppression=DB.suppression||[]; if(!DB.suppression.some(x=>x.id===h)) DB.suppression.push({id:h,t:Date.now(),reason:"effacement"}); }
+    dropContactTraces(id); DB.contacts=DB.contacts.filter(x=>x.id!==id); if(typeof CS_SEL!=="undefined") CS_SEL.delete(id);
+    logAct("Effacement RGPD d'un contact (droit à l'effacement)"); save(); closeModal(); renderNav();
+    if(VIEWS[CURRENT]) VIEWS[CURRENT](); toast("Contact effacé + ajouté à la liste d'opposition"); },true); };
+window.exportContactData=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c) return;
+  const data={exportéLe:new Date().toISOString(), responsableDuTraitement:co().name||"", contact:c,
+    emails:(DB.tasks||[]).filter(t=>t.contactId===id).map(t=>({objet:t.subject||t.title,statut:t.status,envoyéLe:t.sentAt?new Date(t.sentAt).toISOString():""})),
+    campagnes:(DB.campaigns||[]).filter(cp=>(cp.enrolled||[]).some(e=>e.contactId===id)).map(cp=>cp.name)};
+  downloadText(`donnees-contact-${(c.name||c.email||"contact").replace(/[^\w-]+/g,"_")}.json`, JSON.stringify(data,null,2), "application/json");
+  logAct("Export des données d'un contact (droit d'accès)"); toast("Données du contact exportées (droit d'accès)"); };
+window.reviewStaleContacts=()=>{ const L=staleContacts(), yrs=+rgpdCfg().retentionYears||3;
+  openModal({title:`Contacts inactifs depuis plus de ${yrs} ans`, wide:true,
+    body:`<p class="muted" style="font-weight:600;margin-top:0">La CNIL recommande de ne pas conserver un prospect sans contact au-delà de ${yrs} ans. ${L.length} contact(s) concerné(s) (hors clients « Gagné »).</p>
+    <div style="max-height:300px;overflow:auto">${L.slice(0,200).map(c=>`<div class="result-row"><div style="flex:1"><b>${esc(c.name||c.company||c.email||"—")}</b> <span class="muted" style="font-size:12px">· dernière activité ${esc(fmtDate(contactLastActivity(c)))}</span></div></div>`).join("")}</div>`,
+    footer:[{label:"Garder",cls:"ghost",act:closeModal},{label:`Supprimer ces ${L.length} contact(s)`,cls:"",act:()=>{
+      const ids=new Set(L.map(c=>c.id)); ids.forEach(dropContactTraces); DB.contacts=DB.contacts.filter(c=>!ids.has(c.id));
+      logAct(`Purge RGPD : ${ids.size} contact(s) inactif(s) supprimé(s)`); save(); closeModal(); renderNav(); if(VIEWS[CURRENT]) VIEWS[CURRENT](); toast(`${ids.size} contact(s) supprimé(s)`); }}]}); };
+
+/* Données exportables : le jeton Gmail (secret de session) n'est JAMAIS écrit
+   dans un fichier de sauvegarde, de synchro Drive ou un instantané téléchargé. */
+function exportableDB(src){ const d=structuredClone(src||DB);
+  if(d.settings && d.settings.gmail) d.settings.gmail={...d.settings.gmail, token:"", expiry:0, connected:false};
+  return d; }
+function downloadText(name,text,type){ const blob=new Blob([text],{type:type||"text/plain"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
+
+/* Validation d'une sauvegarde importée (taille, structure, types). */
+const IMPORT_MAX=50*1024*1024;
+function validateBackup(d){
+  if(!d || typeof d!=="object" || Array.isArray(d)) return "le fichier n'est pas une sauvegarde Travel OS";
+  const known=COLLECTIONS.concat(["settings","meta"]).filter(k=>k in d);
+  if(!known.length) return "aucune donnée Travel OS reconnue";
+  if(d.settings!=null && (typeof d.settings!=="object"||Array.isArray(d.settings))) return "réglages invalides";
+  for(const k of COLLECTIONS){ if(k in d){ if(!Array.isArray(d[k])) return `« ${k} » devrait être une liste`;
+    if(d[k].some(x=>!x||typeof x!=="object"||Array.isArray(x))) return `« ${k} » contient des éléments invalides`; } }
+  return "";
+}
+
+/* Chiffrement des sauvegardes (AES-256-GCM, clé dérivée PBKDF2-SHA256 250 000 tours). */
+const b64FromBuf=buf=>{ const b=new Uint8Array(buf); let s=""; for(let i=0;i<b.length;i+=0x8000) s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000)); return btoa(s); };
+const bufFromB64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function ftDeriveKey(pw,salt){ const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:250000,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]); }
+async function encryptText(text,pw){ const salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},await ftDeriveKey(pw,salt),new TextEncoder().encode(text));
+  return {ftEncrypted:1, v:1, alg:"AES-256-GCM / PBKDF2-SHA256 250k", salt:b64FromBuf(salt), iv:b64FromBuf(iv), data:b64FromBuf(ct)}; }
+async function decryptText(o,pw){ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:bufFromB64(o.iv)},await ftDeriveKey(pw,bufFromB64(o.salt)),bufFromB64(o.data));
+  return new TextDecoder().decode(pt); }
+window.exportEncrypted=()=>{
+  if(!(window.crypto&&crypto.subtle)){ toast("Chiffrement indisponible dans ce navigateur","warn"); return; }
+  openModal({title:"Exporter une sauvegarde chiffrée",
+    body:`<p class="muted" style="font-weight:600;margin-top:0">Le fichier est chiffré (AES-256). Sans le mot de passe, personne ne peut le lire — <b>ni nous, ni Google Drive</b>. Conservez le mot de passe : <b>il est impossible de le récupérer</b>.</p>
+    <div class="field"><label for="enc_pw">Mot de passe (8 caractères minimum)</label><input class="input" type="password" id="enc_pw" autocomplete="new-password"></div>
+    <div class="field"><label for="enc_pw2">Confirmer le mot de passe</label><input class="input" type="password" id="enc_pw2" autocomplete="new-password"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Chiffrer et télécharger",cls:"primary",act:async()=>{
+      const a=$("#enc_pw").value, b=$("#enc_pw2").value;
+      if(a.length<8){ toast("8 caractères minimum","warn"); return; } if(a!==b){ toast("Les mots de passe diffèrent","warn"); return; }
+      const o=await encryptText(JSON.stringify(exportableDB()),a);
+      downloadText(`formaskills-travel-os_${new Date().toISOString().slice(0,10)}.chiffre.json`, JSON.stringify(o), "application/json");
+      DB.settings.lastBackup=Date.now(); logAct("Sauvegarde chiffrée exportée"); save(); closeModal(); toast("Sauvegarde chiffrée téléchargée"); }}]});
+};
+function askPassword(onOk){
+  openModal({title:"Sauvegarde chiffrée",
+    body:`<div class="field"><label for="dec_pw">Mot de passe de la sauvegarde</label><input class="input" type="password" id="dec_pw" autocomplete="current-password"></div>`,
+    footer:[{label:"Annuler",cls:"ghost",act:closeModal},{label:"Déchiffrer",cls:"primary",act:()=>{ const v=$("#dec_pw").value; closeModal(); onOk(v); }}]});
+}
+async function snapshotNow(tag){ try{ const d=new Date().toISOString().slice(0,10);
+  await idbSet(`snap:${d}-${tag}`,{t:Date.now(),json:JSON.stringify(DB)}); }catch(e){} }
+async function applyImport(d){
+  const err=validateBackup(d); if(err){ toast("Sauvegarde refusée : "+err,"bad"); return false; }
+  await snapshotNow("avant-import"); // retour arrière possible (Réglages → Sauvegardes automatiques)
+  const keepGmail=structuredClone(gmailCfg());
+  DB=migrate(d); DB.settings.gmail=keepGmail; applySuppression();
+  logAct("Sauvegarde importée (instantané « avant-import » conservé)"); saveNow(); renderNav(); go("dash");
+  toast("Sauvegarde importée — l'état précédent est conservé dans les sauvegardes automatiques"); return true;
+}
+
+/* Appels réseau robustes : délai maximum + nouvelles tentatives avec
+   recul exponentiel (uniquement quand c'est sans risque de doublon). */
+async function fetchT(url, opts={}, {timeout=15000, retries=0, retryOn=[429,500,502,503,504], retryNetwork=true}={}){
+  for(let i=0;;i++){
+    const ctl=new AbortController(); const tm=setTimeout(()=>ctl.abort(),timeout);
+    try{ const r=await fetch(url,{...opts, signal:ctl.signal}); clearTimeout(tm);
+      if(i<retries && retryOn.includes(r.status)){ await new Promise(res=>setTimeout(res,500*2**i)); continue; }
+      return r; }
+    catch(e){ clearTimeout(tm); if(i>=retries||!retryNetwork) throw (e&&e.name==="AbortError")?new Error("délai dépassé"):e; await new Promise(res=>setTimeout(res,500*2**i)); }
+  }
+}
+
+/* Journal d'erreurs local (monitoring sans service tiers). */
+const ERR_KEY="FT_OS_ERRORS";
+function errLog(){ try{ return JSON.parse(localStorage.getItem(ERR_KEY)||"[]"); }catch(e){ return []; } }
+function recordError(m){ try{ const L=errLog(); L.unshift({t:Date.now(),m:String(m).slice(0,300)}); localStorage.setItem(ERR_KEY,JSON.stringify(L.slice(0,30))); }catch(e){} }
+window.addEventListener("error",e=>recordError((e.message||"Erreur")+(e.filename?` (${String(e.filename).split("/").pop()}:${e.lineno})`:"")));
+window.addEventListener("unhandledrejection",e=>recordError("Promesse rejetée : "+((e.reason&&e.reason.message)||e.reason)));
+window.clearErrors=()=>{ try{ localStorage.removeItem(ERR_KEY); }catch(e){} if(CURRENT==="compliance") VIEWS.compliance(); toast("Journal d'erreurs vidé"); };
+
+/* Accessibilité clavier : tout élément cliquable non natif devient
+   atteignable (Tab) et activable (Entrée / Espace). Focus piégé dans les
+   fenêtres et rendu à l'élément d'origine à la fermeture. */
+const A11Y_SEL="[data-call]:not(button):not(a):not(input):not(select):not(textarea),[data-act]:not(button):not(a),[data-csel],[data-oppid],.copybtn";
+function a11yPass(root){ (root||document).querySelectorAll(A11Y_SEL).forEach(el=>{ if(!el.hasAttribute("tabindex")) el.setAttribute("tabindex","0"); if(!el.getAttribute("role")) el.setAttribute("role","button"); });
+  (root||document).querySelectorAll(".field > label:not([for])").forEach((l,i)=>{ const f=l.parentElement.querySelector("input:not([type=checkbox]):not([type=hidden]),select,textarea"); if(f){ if(!f.id) f.id="fld_"+Date.now().toString(36)+i; l.setAttribute("for",f.id); } });
+  (root||document).querySelectorAll("button.icon:not([aria-label]),button.btn:not([aria-label])").forEach(b=>{ if(!b.textContent.trim()) b.setAttribute("aria-label",b.title||"Action"); }); }
+document.addEventListener("keydown",e=>{
+  if((e.key==="Enter"||e.key===" ") && e.target && e.target.matches && e.target.matches(A11Y_SEL)){ e.preventDefault(); e.target.click(); }
+  if(e.key==="Tab"){ const m=document.querySelector("#modalRoot .modal"); if(!m) return;
+    const f=[...m.querySelectorAll("button,a[href],input,select,textarea,[tabindex='0']")].filter(x=>!x.disabled&&x.offsetParent!==null);
+    if(!f.length) return; const first=f[0], last=f[f.length-1];
+    if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+    else if(!m.contains(document.activeElement)){ e.preventDefault(); first.focus(); } }
+});
+let _a11yT=null, _lastFocus=null;
+new MutationObserver(muts=>{ clearTimeout(_a11yT); _a11yT=setTimeout(()=>a11yPass(),30);
+  const mr=document.getElementById("modalRoot");
+  if(mr && muts.some(m=>m.target===mr)){ if(mr.firstElementChild){ if(!_lastFocus) _lastFocus=document.activeElement;
+      const md=mr.querySelector(".modal"); if(md){ md.setAttribute("aria-modal","true"); const h=md.querySelector("h3"); if(h){ h.id=h.id||"mTitle"; md.setAttribute("aria-labelledby",h.id); } }
+      const fi=mr.querySelector(".mbody input:not([type=hidden]),.mbody select,.mbody textarea,.mfoot .btn"); if(fi) setTimeout(()=>{ try{ fi.focus(); }catch(e){} },0); }
+    else if(_lastFocus){ try{ _lastFocus.focus(); }catch(e){} _lastFocus=null; } }
+}).observe(document.body,{childList:true,subtree:true});
+
+/* ---------- Écran « Conformité & sécurité » ---------- */
+let COMP_TAB="check";
+const EXTERNAL_HOSTS=[
+  ["Pages que vous ouvrez (Google, Maps, LinkedIn, sites)","Lecture via l'extension, à votre demande, pour récupérer des contacts publics."],
+  ["nominatim.openstreetmap.org","Géocodage des adresses d'expériences (bouton « Compléter les coordonnées »). Adresse uniquement."],
+  ["router.project-osrm.org","Distances routières entre deux coordonnées (bouton « Vraies distances »)."],
+  ["accounts.google.com · gmail.googleapis.com · www.googleapis.com","Uniquement si vous connectez Gmail : envoi de vos emails et détection des réponses."],
+];
+function companyComplete(){ const c=co(); return ["name","legal","addr1","email","phone"].every(k=>(c[k]||"").trim()); }
+function minorsWithoutAuth(){ return (DB.participants||[]).filter(p=>p.minor==="Oui" && p.parental!=="Oui"); }
+function complianceItems(){
+  const stale=staleContacts().length, minors=minorsWithoutAuth().length, lb=DB.settings.lastBackup||0;
+  const tokenSafe=!JSON.stringify(exportableDB().settings.gmail||{}).includes((gmailCfg().token||"\u0000")) || !gmailCfg().token;
+  const S=(label,state,note,pass)=>({label,state,note,pass});
+  return [
+   {g:"Sécurité", items:[
+    S("Clés API cachées / aucun secret dans le code","ok","Aucune clé dans le code. L'ID client OAuth Gmail n'est pas un secret. Le jeton Gmail n'est jamais écrit dans les sauvegardes ni dans le fichier Drive."+(tokenSafe?"":" (ANOMALIE)")),
+    S("Secrets purgés de l'historique Git","ok","Historique du dépôt analysé : aucun jeton ni mot de passe."),
+    S("Échappement du contenu (XSS)","ok","Tout texte affiché est échappé ; testé automatiquement avec du contenu piégé sur tous les écrans. Liens javascript: / data: bloqués."),
+    S("En-têtes de sécurité (CSP)","ok","Politique stricte : aucun script inline, aucun eval, aucun objet, aucune base externe (extension + page)."),
+    S("Validation de toutes les entrées","ok","Imports contrôlés (structure, types, taille), dates invalides neutralisées, emails/téléphones normalisés."),
+    S("Restriction des fichiers importés","ok","Sauvegardes : .json uniquement, 50 Mo max, structure vérifiée. Logo : image ≤ 500 Ko."),
+    S("Injection de formules (CSV / Sheets)","ok","Les cellules commençant par = + - @ sont neutralisées dans tous les exports CSV."),
+    S("Chiffrement des données sensibles","ok","Sauvegarde chiffrée AES-256 (mot de passe) disponible dans Réglages."),
+    S("Chiffrement du disque de l'ordinateur","user","À activer par vous : BitLocker (Windows) ou FileVault (Mac) protège les données locales si l'ordinateur est perdu."),
+    S("HTTPS forcé","ok","Tous les appels externes sont en HTTPS ; un site saisi sans « https:// » est ouvert en HTTPS."),
+    S("Dépendances scannées","ok","Zéro dépendance : aucune librairie tierce, aucun CDN, rien à mettre à jour ni à pirater."),
+    S("Limitation de débit · délais · nouvelles tentatives","ok","Scraper à cadence polie + quota/jour, OpenStreetMap 1 requête/s, délais maximum et recul exponentiel sur le réseau, pas de double envoi Gmail."),
+    S("Authentification, sessions, mots de passe, RLS, anti-bot, CORS/CSRF","na","Sans objet : aucun serveur ni compte utilisateur — les données ne quittent pas votre ordinateur (sauf le fichier de synchro que vous choisissez)."),
+   ]},
+   {g:"RGPD & légal", items:[
+    S("Politique de confidentialité","ok","Générée dans l'onglet « RGPD » (imprimable), à publier sur votre site."),
+    S("Registre des traitements (art. 30 RGPD)","ok","Généré automatiquement dans l'onglet « RGPD »."),
+    S("Conditions de vente / annulation (remboursement)","ok","Imprimées sur chaque devis — modifiables dans Devis & documents → Fiche société. À faire valider par votre conseil."),
+    S("Mentions légales des factures","ok","Pénalités, indemnité 40 €, escompte — sur chaque facture."),
+    S("Coordonnées de l'entreprise","auto",companyComplete()?"Fiche société complète.":"Fiche société incomplète (nom, forme juridique, adresse, email, téléphone).",companyComplete()),
+    S("Lien de désinscription dans les emails","auto",optOutFooter()?"Mention « répondez STOP » ajoutée à chaque email.":"Désactivé — à réactiver dans l'onglet RGPD.",!!optOutFooter()),
+    S("Opposition respectée (« Ne plus contacter »)","ok","Les contacts opposés sont exclus des envois, campagnes, mailings et automatisations ; envoi bloqué même manuellement."),
+    S("Demande de suppression des données","ok","Bouton « Effacer (RGPD) » sur la fiche contact + liste d'opposition anti-réimport."),
+    S("Droit d'accès / portabilité","ok","Bouton « Exporter ses données » sur la fiche contact."),
+    S("Durée de conservation des prospects","auto",stale?`${stale} contact(s) inactif(s) depuis plus de ${rgpdCfg().retentionYears||3} ans à examiner.`:"Aucun contact au-delà de la durée de conservation.",!stale),
+    S("Consentement parental pour les mineurs","auto",minors?`${minors} participant(s) mineur(s) sans autorisation parentale.`:"Tous les mineurs ont une autorisation parentale.",!minors),
+    S("Consentements des formulaires","user","Ajoutez le texte d'information RGPD (onglet RGPD, « Mention formulaire ») à votre Google Form d'inscription."),
+    S("Pas de données inutiles","ok","Champs facultatifs, aucune donnée sensible exigée, rien n'est collecté en arrière-plan."),
+    S("Audit des services tiers / SDK","ok","Aucun SDK, aucun traceur. Services contactés listés dans l'onglet « Diagnostic »."),
+    S("Cookies (politique + bannière)","na","Sans objet : l'outil ne dépose aucun cookie et n'utilise aucun traceur."),
+    S("Dark patterns, frais cachés, faux avis, allégations","ok","Devis détaillés (HT, remise, TVA, prix par participant), aucun avis affiché, aucune case pré-cochée d'engagement."),
+    S("Licences polices et images","ok","Polices système et icônes dessinées pour l'outil : aucune licence tierce."),
+   ]},
+   {g:"Qualité, accessibilité & exploitation", items:[
+    S("Appel à l'action clair","ok","L'Assistant « À faire maintenant » dit quoi faire, en un clic."),
+    S("FAQ","ok","Section FAQ dans « Guide & aide »."),
+    S("Navigation clavier","ok","Tab / Entrée / Espace sur tous les éléments cliquables, Échap ferme, focus gardé dans les fenêtres, Ctrl+K pour rechercher."),
+    S("Contraste des couleurs · texte alternatif · libellés","ok","Contrastes vérifiés (WCAG AA), images avec alt, boutons-icônes libellés, lien d'évitement."),
+    S("Version mobile","ok","Interface adaptative (menu repliable)."),
+    S("Titre, description, favicon","ok","Renseignés ; page marquée « noindex » (outil privé)."),
+    S("Page 404 personnalisée","ok","Un écran inconnu renvoie au tableau de bord."),
+    S("Formulaires testés · liens cassés · performance","ok","Suite automatique : tous les écrans, toutes les actions câblées, rendu de milliers de contacts chronométré."),
+    S("Sauvegardes · reprise · retour arrière","auto",lb&&Date.now()-lb<8*DAY?"Sauvegarde récente.":"Aucune sauvegarde exportée depuis plus de 7 jours.",!!(lb&&Date.now()-lb<8*DAY)),
+    S("Migrations & versionnage du schéma","ok",`Schéma v${(DB.meta&&DB.meta.schema)||SCHEMA_VERSION} ; migrations automatiques non destructives.`),
+    S("Journalisation & surveillance","ok","Journal d'activité + journal d'erreurs (onglet Diagnostic)."),
+    S("SEO public (robots.txt, sitemap, canonical, partage social), analytics","na","Sans objet : outil privé, non publié sur le web ; aucune mesure d'audience volontairement (RGPD)."),
+    S("Infrastructure serveur (load balancing, Docker, Kubernetes, CDN, JWT, files de messages…)","na","Sans objet : application locale sans serveur — rien à héberger, rien à faire tomber."),
+   ]},
+  ];
+}
+function privacyPolicyText(){ const c=co(), y=rgpdCfg().retentionYears||3;
+  return `POLITIQUE DE CONFIDENTIALITÉ — ${c.name||""}
+
+Responsable du traitement : ${c.name||""}, ${c.legal||""}. ${c.addr1||""}. Contact : ${c.email||""}${c.phone?` — ${c.phone}`:""}.
+
+1. Données traitées
+- Prospects et partenaires (établissements, entreprises, prestataires) : nom, fonction, coordonnées professionnelles, historique des échanges.
+- Participants aux séjours : identité, date de naissance, nationalité, coordonnées, informations de dossier (assurance, autorisations, documents de mobilité).
+- Clients : informations nécessaires aux devis, factures et paiements.
+
+2. Finalités et bases légales
+- Prospection commerciale B2B et suivi de la relation : intérêt légitime (art. 6.1.f RGPD).
+- Organisation des séjours et des mobilités : exécution du contrat (art. 6.1.b) et obligations légales (programme Erasmus+, assurances).
+- Facturation et comptabilité : obligation légale (art. 6.1.c).
+
+3. Durées de conservation
+- Prospects sans échange : ${y} ans après le dernier contact.
+- Participants : durée du séjour puis archivage légal (5 ans pour les justificatifs Erasmus+).
+- Factures : 10 ans (Code de commerce).
+
+4. Destinataires
+Personnel habilité de ${c.name||"la société"} ; prestataires du séjour (hébergement, transport, activités) pour les seules données nécessaires ; autorités et Agence Erasmus+ lorsque la loi l'impose. Aucune donnée n'est vendue.
+
+5. Mineurs
+Les données des participants mineurs sont traitées avec l'autorisation de leurs représentants légaux.
+
+6. Vos droits
+Accès, rectification, effacement, opposition (notamment à la prospection), limitation et portabilité : écrivez à ${c.email||"notre adresse de contact"}. Vous pouvez introduire une réclamation auprès de la CNIL (www.cnil.fr).
+
+7. Sécurité
+Données hébergées sur les postes de l'entreprise et son espace de stockage, sans revente ni traceur publicitaire ; sauvegardes chiffrées.`; }
+function formMentionText(){ const c=co();
+  return `Les informations recueillies sont traitées par ${c.name||"notre société"} pour organiser votre séjour (exécution du contrat). Elles sont destinées à notre équipe et aux prestataires du séjour, et conservées pendant la durée nécessaire puis archivées selon nos obligations légales. Vous disposez d'un droit d'accès, de rectification, d'effacement et d'opposition : ${c.email||"contactez-nous"}. Pour un participant mineur, l'inscription est faite par son représentant légal.`; }
+const TREATMENTS=()=>[
+  ["Prospection commerciale B2B","Établissements, entreprises, prestataires (coordonnées pro, échanges)","Intérêt légitime",`${rgpdCfg().retentionYears||3} ans après le dernier contact`,"Équipe commerciale"],
+  ["Gestion des séjours et mobilités","Participants (identité, naissance, nationalité, coordonnées, dossier) — dont mineurs","Contrat + obligations Erasmus+","Durée du séjour + 5 ans (justificatifs)","Équipe, prestataires du séjour, Agence Erasmus+"],
+  ["Devis, facturation, encaissements","Clients (raison sociale, contact, montants)","Obligation légale","10 ans","Équipe, expert-comptable"],
+  ["Gestion des prestataires","Prestataires locaux (contacts pro, tarifs)","Intérêt légitime / contrat","Durée de la relation + 3 ans","Équipe"],
+];
+window.printPrivacy=()=>printDocument("Politique de confidentialité",`<div class="dhead">${coHeaderHTML()}</div><div class="doc-body">${esc(privacyPolicyText())}</div>${coFooterHTML()}`);
+window.printTreatments=()=>printDocument("Registre des traitements",`<div class="dhead">${coHeaderHTML()}<div class="dtitle"><h1 style="font-size:18px">REGISTRE DES ACTIVITÉS DE TRAITEMENT</h1></div></div>
+  <table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>${["Traitement","Données","Base légale","Conservation","Destinataires"].map(h=>`<th style="border:1px solid #ccd;padding:6px;text-align:left">${h}</th>`).join("")}</tr></thead>
+  <tbody>${TREATMENTS().map(r=>`<tr>${r.map(v=>`<td style="border:1px solid #ccd;padding:6px">${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>${coFooterHTML()}`);
+window.copyText=id=>{ const el=document.getElementById(id); if(el) copy(el.value||el.textContent); };
+VIEWS.compliance=()=>{
+  $("#view").innerHTML=`<div class="pill-tabs" style="margin-bottom:16px" role="tablist">
+    ${[["check","Check-list de conformité"],["rgpd","RGPD"],["diag","Diagnostic"]].map(([k,l])=>`<button role="tab" aria-selected="${COMP_TAB===k}" data-ct="${k}" class="${COMP_TAB===k?'active':''}">${l}</button>`).join("")}
+  </div><div id="compBody"></div>`;
+  $$("#view [data-ct]").forEach(b=>b.onclick=()=>{ COMP_TAB=b.dataset.ct; VIEWS.compliance(); });
+  ({check:compCheck, rgpd:compRgpd, diag:compDiag}[COMP_TAB]||compCheck)();
+};
+function compCheck(){
+  const G=complianceItems(); const all=G.flatMap(g=>g.items);
+  const lab={ok:["Fait","g"],auto:["",""],user:["À faire par vous","w"],na:["Sans objet","n"]};
+  const nOk=all.filter(i=>i.state==="ok"||(i.state==="auto"&&i.pass)).length, nTodo=all.filter(i=>i.state==="user"||(i.state==="auto"&&!i.pass)).length, nNa=all.filter(i=>i.state==="na").length;
+  $("#compBody").innerHTML=`<div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+    <div class="card"><div class="muted" style="font-weight:700;font-size:12px">EN PLACE</div><div style="font-size:26px;font-weight:800;color:var(--ok)">${nOk}</div></div>
+    <div class="card"><div class="muted" style="font-weight:700;font-size:12px">À FAIRE / À SURVEILLER</div><div style="font-size:26px;font-weight:800;color:var(--warn)">${nTodo}</div></div>
+    <div class="card"><div class="muted" style="font-weight:700;font-size:12px">SANS OBJET (OUTIL LOCAL)</div><div style="font-size:26px;font-weight:800;color:var(--muted)">${nNa}</div></div></div>
+  ${G.map(g=>`<div class="card" style="margin-bottom:14px"><div class="section-title" style="margin-top:0">${esc(g.g)}</div>
+    ${g.items.map(i=>{ const [l,c]= i.state==="auto"?(i.pass?["Vérifié","g"]:["À traiter","w"]):lab[i.state];
+      return `<div class="result-row" style="align-items:flex-start"><span class="tag ${c}" style="min-width:110px;text-align:center">${l}</span><div style="flex:1"><b>${esc(i.label)}</b><div class="muted" style="font-size:12.5px;font-weight:600">${esc(i.note)}</div></div></div>`; }).join("")}</div>`).join("")}`;
+}
+function compRgpd(){
+  const r=rgpdCfg(), opp=(DB.contacts||[]).filter(c=>c.optOut).length, stale=staleContacts().length;
+  $("#compBody").innerHTML=`<div class="grid" style="grid-template-columns:1fr 1fr">
+   <div class="card"><div class="section-title" style="margin-top:0">Emails de prospection</div>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:700;margin-bottom:8px"><input type="checkbox" id="rg_foot" ${r.footer!==false?"checked":""}> Ajouter la mention de désinscription à chaque email</label>
+    <div class="field"><label for="rg_text">Texte de la mention (vide = texte par défaut)</label><textarea id="rg_text" style="min-height:80px" placeholder="${esc(OPTOUT_FOOTER_DEFAULT)}">${esc(r.footerText||"")}</textarea></div>
+    <div class="field"><label for="rg_ret">Durée de conservation des prospects inactifs (années)</label><input class="input" type="number" min="1" max="10" id="rg_ret" value="${esc(r.retentionYears||3)}"></div>
+    <button class="btn primary" id="rg_save">Enregistrer</button>
+    <div class="divider"></div>
+    <div style="font-weight:600;font-size:13px">Contacts « Ne plus contacter » : <b>${opp}</b> · Liste d'opposition (effacés) : <b>${(DB.suppression||[]).length}</b> · Inactifs au-delà de la durée : <b>${stale}</b></div>
+    ${stale?`<button class="btn" style="margin-top:10px" data-call="reviewStaleContacts()">Examiner les contacts inactifs</button>`:""}
+    <p class="muted" style="font-size:12px;font-weight:600">Sur chaque fiche contact : « Ne plus contacter », « Exporter ses données » (droit d'accès), « Effacer (RGPD) ».</p></div>
+   <div class="card"><div class="section-title" style="margin-top:0">Registre des traitements (art. 30)</div>
+    <div class="tbl-wrap"><table><thead><tr><th>Traitement</th><th>Base légale</th><th>Conservation</th></tr></thead><tbody>${TREATMENTS().map(t=>`<tr><td class="cell-strong">${esc(t[0])}</td><td>${esc(t[2])}</td><td>${esc(t[3])}</td></tr>`).join("")}</tbody></table></div>
+    <button class="btn" style="margin-top:10px" data-call="printTreatments()">Imprimer / PDF le registre</button></div>
+   <div class="card" style="grid-column:1/-1"><div class="section-title" style="margin-top:0">Politique de confidentialité (pré-remplie depuis la fiche société)</div>
+    <textarea id="rg_pp" readonly style="min-height:220px;font-size:12.5px">${esc(privacyPolicyText())}</textarea>
+    <div class="row2" style="margin-top:10px"><button class="btn" data-call="copyText('rg_pp')">Copier le texte</button><button class="btn primary" data-call="printPrivacy()">Imprimer / PDF</button></div></div>
+   <div class="card" style="grid-column:1/-1"><div class="section-title" style="margin-top:0">Mention RGPD pour votre formulaire d'inscription (Google Form)</div>
+    <textarea id="rg_form" readonly style="min-height:90px;font-size:12.5px">${esc(formMentionText())}</textarea>
+    <button class="btn" style="margin-top:10px" data-call="copyText('rg_form')">Copier la mention</button></div></div>`;
+  $("#rg_save").onclick=()=>{ r.footer=$("#rg_foot").checked; r.footerText=$("#rg_text").value.trim(); r.retentionYears=Math.min(10,Math.max(1,+$("#rg_ret").value||3)); save(); toast("Réglages RGPD enregistrés"); compRgpd(); };
+}
+async function compDiag(){
+  const json=JSON.stringify(DB), kb=(json.length/1024).toFixed(0), errs=errLog(), g=gmailCfg();
+  let est=null; try{ est=navigator.storage&&navigator.storage.estimate?await navigator.storage.estimate():null; }catch(e){}
+  const snaps=await listSnapshots();
+  const row=(k,v,okk)=>`<tr><td class="cell-strong">${esc(k)}</td><td>${okk===false?`<span class="tag w">${esc(v)}</span>`:esc(v)}</td></tr>`;
+  if(CURRENT!=="compliance"||COMP_TAB!=="diag") return;
+  $("#compBody").innerHTML=`<div class="grid" style="grid-template-columns:1fr 1fr">
+   <div class="card"><div class="section-title" style="margin-top:0">État de santé</div><div class="tbl-wrap"><table><tbody>
+    ${row("Version du schéma de données","v"+((DB.meta&&DB.meta.schema)||SCHEMA_VERSION))}
+    ${row("Taille des données",kb+" Ko",json.length<4.5e6)}
+    ${est?row("Espace navigateur utilisé",`${(est.usage/1048576).toFixed(1)} Mo / ${(est.quota/1048576).toFixed(0)} Mo`):""}
+    ${row("Synchronisation Drive",DB.settings.syncEnabled?`activée${DB.settings.lastSync?" · "+fmtDate(DB.settings.lastSync):""}`:"non activée",!!DB.settings.syncEnabled)}
+    ${row("Export CSV auto",DB.settings.csvSync?"activé":"non activé")}
+    ${row("Dernière sauvegarde exportée",DB.settings.lastBackup?fmtDate(DB.settings.lastBackup):"jamais",!!DB.settings.lastBackup)}
+    ${row("Instantanés automatiques",snaps.length+" conservé(s)",snaps.length>0)}
+    ${row("Gmail",gmailConnected()?`connecté${g.email?" ("+g.email+")":""}`:"non connecté")}
+    ${row("Erreurs récentes",String(errs.length),errs.length===0)}
+    ${COLLECTIONS.map(k=>row("· "+k,String((DB[k]||[]).length))).join("")}
+   </tbody></table></div></div>
+   <div class="card"><div class="section-title" style="margin-top:0">Services externes contactés (audit tiers)</div>
+    ${EXTERNAL_HOSTS.map(([h,d])=>`<div class="result-row" style="align-items:flex-start"><div><b class="mono" style="font-size:12.5px">${esc(h)}</b><div class="muted" style="font-size:12px;font-weight:600">${esc(d)}</div></div></div>`).join("")}
+    <p class="muted" style="font-size:12px;font-weight:600">Aucun traceur, aucune mesure d'audience, aucun cookie, aucune librairie tierce.</p>
+    <div class="divider"></div>
+    <div class="section-title" style="margin-top:0">Journal d'erreurs</div>
+    ${errs.length?errs.slice(0,15).map(e=>`<div class="mono" style="font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--line)">${esc(fmtDate(e.t))} — ${esc(e.m)}</div>`).join("")+`<button class="btn sm ghost" style="margin-top:8px" data-call="clearErrors()">Vider le journal</button>`:`<div class="muted" style="font-weight:600;font-size:12.5px">Aucune erreur enregistrée.</div>`}
+    <div class="divider"></div>
+    <div class="section-title" style="margin-top:0">Journal d'activité</div>
+    ${(DB.activity||[]).slice(0,12).map(a=>`<div style="font-size:12px;padding:3px 0"><span class="muted">${esc(fmtDate(a.t))}</span> · ${esc(a.m)}</div>`).join("")||`<div class="muted" style="font-size:12.5px">—</div>`}
+   </div></div>`;
+}
+
 /* ---------- Export / Import ---------- */
 function exportDB(){
   DB.settings.lastBackup=Date.now(); saveNow();
-  const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-  a.download=`formaskills-travel-os_${new Date().toISOString().slice(0,10)}.json`; a.click();
-  URL.revokeObjectURL(a.href); toast("Sauvegarde exportée — conservez ce fichier en lieu sûr");
+  downloadText(`formaskills-travel-os_${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(exportableDB(),null,2), "application/json");
+  toast("Sauvegarde exportée — conservez ce fichier en lieu sûr");
   renderNav(); if(CURRENT==="dash"||CURRENT==="settings") VIEWS[CURRENT]();
 }
 function importDB(e){
-  const f=e.target.files[0]; if(!f) return; const rd=new FileReader();
-  rd.onload=()=>{ try{ const d=migrate(JSON.parse(rd.result)); DB=d; saveNow(); renderNav(); go("dash"); toast("Sauvegarde importée"); }
-    catch(err){ toast("Fichier invalide","bad"); } };
-  rd.readAsText(f);
+  const f=e.target.files[0]; if(!f) return; e.target.value="";
+  if(f.size>IMPORT_MAX){ toast("Fichier trop volumineux (50 Mo maximum)","bad"); return; }
+  if(!/\.json$/i.test(f.name||"")){ toast("Format attendu : un fichier de sauvegarde .json","bad"); return; }
+  f.text().then(txt=>{ let d; try{ d=JSON.parse(txt); }catch(_){ toast("Fichier invalide (JSON illisible)","bad"); return; }
+    if(d && d.ftEncrypted){ askPassword(async pw=>{ try{ await applyImport(JSON.parse(await decryptText(d,pw))); }catch(_){ toast("Mot de passe incorrect ou fichier altéré","bad"); } }); return; }
+    applyImport(d); });
 }
 function exportCSV(name,cols,rows){
   const head=cols.join(",");
-  const esc=v=>{ v=(v==null?"":String(v)).replace(/"/g,'""'); return /[",\n]/.test(v)?`"${v}"`:v; };
-  const body=rows.map(r=>cols.map(c=>esc(r[c])).join(",")).join("\n");
+  const body=rows.map(r=>cols.map(c=>csvEsc(r[c])).join(",")).join("\n");
   const blob=new Blob(["﻿"+head+"\n"+body],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`${name}.csv`; a.click();
   URL.revokeObjectURL(a.href); toast("CSV exporté");
@@ -4576,7 +4978,7 @@ window.addEventListener("beforeunload",saveNow);
 function onExtensionStorageChange(nv){
   if(!nv || JSON.stringify(nv.contacts||[])===JSON.stringify(DB.contacts||[])) return 0;
   const before=new Set((DB.contacts||[]).map(c=>c.id));
-  DB=migrate(nv);
+  DB=migrate(nv); applySuppression();
   const added=(DB.contacts||[]).filter(c=>c && !before.has(c.id));
   added.forEach(c=>{ if(!c.category){ const cat=inferCategory([c.name,c.service,c.domain,c.company].filter(Boolean).join(" ")); if(cat) c.category=cat; } });
   try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){}

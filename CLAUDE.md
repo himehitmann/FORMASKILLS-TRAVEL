@@ -25,7 +25,7 @@ sans abonnement, hors-ligne, pour toujours**. Priorités de l'utilisatrice :
   - `scrape-core.js` — fonction `ftPageScrape()` injectée dans les pages (partagée app + popup)
   - `popup.html` / `popup.js` — la **bulle** de l'extension (façon Skrapp)
   - `manifest.json` (MV3, `default_popup: popup.html`), `background.js`, `icons/`
-  - `README.md`, `CLAUDE.md`
+  - `README.md`, `CLAUDE.md`, `PRIVACY.md` (politique de confidentialité de l'extension)
 - Fonctionne aussi en **double-clic sur index.html** (mode fichier), et comme
   **extension Chrome** (`chrome://extensions` → mode développeur → charger le dossier).
 
@@ -554,6 +554,51 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
       (rouge si échue). **Dupliquer** un devis/une facture. L'Assistant signale
       toute facture échue non soldée (y compris partiellement payée) avec le reste.
 
+14. **Conformité, sécurité, accessibilité (check-lists de lancement fournies par
+    l'utilisatrice)** — **FAIT & TESTÉ** (sections « securite », « rgpd »,
+    « accessibilite », « performance » ; suite à 91 PASS / 0 FAIL). Nouvelle nav
+    **« Conformité & sécurité »** (`VIEWS.compliance`, onglets Check-list / RGPD /
+    Diagnostic) : chaque point des listes (≈100) est classé Fait / Vérifié en direct /
+    À faire par vous / Sans objet (outil local sans serveur), honnêtement.
+    - **Sécurité** : XSS corrigé (source de contact non échappée) + test à contenu
+      piégé sur toutes les vues ; `safeUrl` (bloque javascript:/data:, force https) ;
+      `safeLogo` ; `isoDay`/`fmtDate` robustes aux dates invalides ; **injection de
+      formule CSV** neutralisée (`csvSafe`) ; **jeton Gmail jamais exporté**
+      (`exportableDB` : sauvegarde, fichier Drive, instantané téléchargé) ;
+      **sauvegarde chiffrée AES-256-GCM/PBKDF2** (`encryptText`/`decryptText`,
+      `exportEncrypted`, import auto-détecté) ; import validé (`validateBackup`,
+      50 Mo, .json) + instantané « avant-import »/« avant-restauration »
+      (`snapshotNow`, `applyImport`) ; `fetchT` (délai + recul exponentiel, jamais de
+      ré-essai réseau sur l'envoi Gmail = pas de doublon) ; CSP meta dans index.html
+      + CSP explicite dans le manifest (v1.1.0) ; schéma versionné (`SCHEMA_VERSION`,
+      `MIGRATIONS`) ; journal d'erreurs local (`FT_OS_ERRORS`, `recordError`).
+      Historique Git scanné : aucun secret.
+    - **RGPD** : contact **« Ne plus contacter »** (`setOptOut`, `isOptedOut`) exclu
+      de tous les envois (brouillons, mailing, campagnes, automatisations, envoi
+      Gmail bloqué en dernier recours) ; **mention de désinscription « STOP »**
+      ajoutée par `ftEmailDraft` (réglable, `settings.rgpd`) ; **droit d'accès**
+      (`exportContactData`) ; **droit à l'effacement** (`gdprErase`) + **liste
+      d'opposition hachée** `DB.suppression` (cyrb53, pas d'email en clair, dans
+      `COLLECTIONS`) appliquée à chaque `save`/`mergeDB`/bulle → jamais ré-importé ;
+      **rétention** (prospects inactifs > N ans, `staleContacts`,
+      `reviewStaleContacts`, nudge) ; **mineurs sans autorisation parentale**
+      (champ participant `parental`, nudge) ; **politique de confidentialité** et
+      **registre des traitements (art. 30)** générés depuis la fiche société
+      (imprimables) ; mention RGPD pour le Google Form ; **CGV / conditions
+      d'annulation** imprimées sur les devis (`CGV_DEFAULT`, champs `cgv`/`showCgv`
+      de la fiche société — à faire valider par un conseil) ; `PRIVACY.md`
+      (politique de l'extension, utile pour le Chrome Web Store).
+    - **Accessibilité / qualité** : clavier (Tab/Entrée/Espace sur tout élément
+      `data-call`, focus piégé et restauré dans les fenêtres, `aria-modal`), libellés
+      associés aux champs, `aria-current`, lien d'évitement, `:focus-visible`,
+      `prefers-reduced-motion`, couleurs d'état assombries (contrastes WCAG AA
+      vérifiés en test), favicon, meta description, `noindex`, écran inconnu →
+      tableau de bord, FAQ dans le Guide, test « aucune action cassée » (toutes les
+      `data-call` rendues pointent vers une fonction), test de performance
+      (3000 contacts / 800 partenaires).
+    - Sans objet (expliqué dans l'écran) : auth/sessions/RLS/CORS/CSRF/SEO
+      public/cookies/infra serveur — pas de serveur ni de site public.
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
@@ -627,11 +672,12 @@ l'extension au lieu d'un serveur de scraping payant. Toujours documenter la
 solution gratuite retenue et son repli hors-ligne.
 
 ## Prochaine action suggérée
-Tous les points 1 → 13 sont **livrés et testés** (`node tests/regression.mjs` :
-60 PASS / 0 FAIL), y compris devis/factures (acompte, solde, encaissements,
+Tous les points 1 → 14 sont **livrés et testés** (`node tests/regression.mjs` :
+91 PASS / 0 FAIL), y compris devis/factures (acompte, solde, encaissements,
 mentions légales) et le déclenchement des automatisations pour les contacts venus
 de la bulle. Reste **à valider par l'utilisatrice** dans l'extension installée :
 bulle LinkedIn / Google / Maps sur le vrai DOM, envoi Gmail réel, détection des
-réponses. Avant de coder une nouvelle UI : relire cette liste, vérifier qu'aucun
+réponses ; faire valider CGV + politique de confidentialité par un conseil ;
+activer le chiffrement disque (BitLocker/FileVault). Avant de coder une nouvelle UI : relire cette liste, vérifier qu'aucun
 handler inline n'est introduit, tester sous CSP avec `node tests/regression.mjs`
 (suite versionnée, 0 FAIL attendu).

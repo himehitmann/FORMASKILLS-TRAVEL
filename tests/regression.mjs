@@ -271,6 +271,158 @@ const ui = await ev(()=>{ const f=DB.quotes.find(x=>x.id==="fx"); return {st:f.s
 ok(ui.n===1 && ui.st==="Partiellement payée", "éditeur : encaissement ajouté → statut auto");
 ok(ui.rest, "liste factures : colonne « Reste dû »");
 
+/* ---------- 11. Conformité, sécurité, accessibilité (check-lists de lancement) ---------- */
+section("securite");
+await fresh();
+const xss = await ev(async()=>{
+  const P=`X<img src=x data-xss=1>"'><b data-xss=2>`, now=Date.now(), day=864e5, tick=()=>new Promise(r=>setTimeout(r,25));
+  DB.partners=[{id:"pt1",name:"Lycée"+P,type:"École",status:"En discussion",notes:P}];
+  DB.projects=[{id:"pr1",name:"Immersion"+P,city:"Sète"+P,country:"France",start:now+15*day,end:now+19*day}];
+  DB.participants=[{id:"pa1",name:"Marco"+P,project:"Immersion"+P,status:"Incomplet",minor:"Oui"}];
+  DB.providers=[{id:"pv1",name:"Hôtel"+P,type:"Hébergement"}]; DB.tasks=[{id:"tk1",title:"Conv"+P,status:"À faire",due:now-day}];
+  DB.contacts=[{id:"c1",name:"Alice"+P,company:"École"+P,email:"alice@x.fr",source:"src"+P,service:P,note:P,tags:["Ecoles"+P],website:"javascript:alert(1)",nextAction:P,nextActionDate:now-day}];
+  DB.quotes=[{id:"q1",kind:"devis",number:"D-1",date:now,status:"Envoyé",clientName:"Ecole"+P,items:[{label:"Séjour"+P,qty:1,unit:790}],tvaRate:0}];
+  DB.experiences=[{id:"e1",name:"Musée"+P,category:"Musée",city:"Montpellier"+P,address:P,price:8,url:"javascript:alert(2)",date:"pas-une-date"+P,tags:["L"+P]}];
+  DB.itineraries=[{id:"it1",name:"Séjour"+P,participants:10,days:[{id:"d1",label:"Jour"+P,items:[{expId:"e1",mode:"walk"}]}]}];
+  DB.docRegistry=[{id:"dr1",dossier:"Général"+P,title:"RC"+P,status:"Manquant"}]; DB.activity=[{t:now,m:"act"+P}];
+  DB.settings.docStyle.logo=`x" onerror="window.__x=1`; save();
+  const found=[], calls=new Set();
+  const check=w=>{ if(document.querySelector("[data-xss]")) found.push(w);
+    document.querySelectorAll("a[href^='javascript:' i]").forEach(a=>{ if(!/_bm$/.test(a.id)) found.push(w+" js-href"); });
+    document.querySelectorAll("[data-call]").forEach(e=>calls.add(e.dataset.call)); };
+  for(const n of NAV.filter(n=>n.id)){ go(n.id); await tick(); check(n.id); }
+  for(const t of ["saved","scraper"]){ FINDER_TAB=t; go("finder"); await tick(); check("finder "+t); }
+  for(const t of ["check","rgpd","diag"]){ COMP_TAB=t; go("compliance"); await tick(); await tick(); check("compliance "+t); }
+  const M=[()=>editEntity("partners","pt1"),()=>editEntity("participants","pa1"),()=>{go("docs");editQuote("q1")},()=>openContactCard("c1"),()=>openExpEntry("e1"),()=>openGlobalSearch()];
+  for(const [i,m] of M.entries()){ m(); await tick(); check("modal"+i); closeModal(); }
+  go("docs"); await tick(); check("docs-logo");
+  const broken=[...calls].map(c=>parseCall(c)).filter(c=>!c||typeof window[c.fn]!=="function").map(c=>c&&c.fn);
+  return {found, broken, ncalls:calls.size, x:window.__x||0};
+});
+ok(xss.found.length===0 && !xss.x, "XSS : contenu piégé neutralisé sur tous les écrans "+JSON.stringify(xss.found));
+ok(xss.broken.length===0 && xss.ncalls>30, `aucune action cassée (${xss.ncalls} actions câblées) `+JSON.stringify(xss.broken));
+const sec = await ev(async()=>{
+  const r={};
+  r.url = safeUrl("javascript:alert(1)")==="" && safeUrl("data:text/html,x")==="" && safeUrl("ecole.fr")==="https://ecole.fr" && safeUrl("https://a.fr/x")==="https://a.fr/x";
+  r.csv = csvEsc("=HYPERLINK(\"x\")").startsWith("\"'=") && csvEsc("@SUM(A1)")==="'@SUM(A1)" && csvEsc("+33 4 67 00 11 22")==="+33 4 67 00 11 22" && csvEsc("-5")==="-5" && csvEsc("-cmd")==="'-cmd";
+  DB.settings.gmail={clientId:"cid",connected:true,token:"SECRET-TOKEN-123",email:"me@x.fr",expiry:Date.now()+6e4};
+  const ex=JSON.stringify(exportableDB()); r.token = !ex.includes("SECRET-TOKEN-123") && ex.includes("cid") && DB.settings.gmail.token==="SECRET-TOKEN-123";
+  const enc=await encryptText('{"contacts":[{"id":"z","name":"Confidentiel"}]}',"motdepasse1");
+  let wrong=false; try{ await decryptText(enc,"mauvais-mdp"); }catch(e){ wrong=true; }
+  r.crypto = enc.ftEncrypted===1 && !JSON.stringify(enc).includes("Confidentiel") && JSON.parse(await decryptText(enc,"motdepasse1")).contacts[0].name==="Confidentiel" && wrong;
+  r.valid = !!validateBackup([]) && !!validateBackup({contacts:"x"}) && !!validateBackup({foo:1}) && !!validateBackup({contacts:[1]}) && validateBackup({contacts:[],settings:{}})==="";
+  const before=(await idbKeys()).filter(k=>/avant-import/.test(k)).length;
+  await applyImport({contacts:[{id:"imp",name:"Importé"}],settings:{gmail:{clientId:"",token:""}}});
+  r.import = DB.contacts.some(c=>c.id==="imp") && DB.settings.gmail.token==="SECRET-TOKEN-123" && (await idbKeys()).filter(k=>/avant-import/.test(k)).length>=Math.max(1,before);
+  r.badImport = (await applyImport({contacts:"pirate"}))===false && DB.contacts.some(c=>c.id==="imp");
+  r.schema = migrate({}).meta.schema===SCHEMA_VERSION && SCHEMA_VERSION>=2;
+  let n=0; const of=window.fetch;
+  window.fetch=async()=>{ n++; return n<3?new Response("",{status:503}):new Response("{}",{status:200}); };
+  const rr=await fetchT("https://x.test/",{},{retries:3}); window.fetch=(u,o)=>new Promise((res,rej)=>{ o.signal.addEventListener("abort",()=>rej(Object.assign(new Error("a"),{name:"AbortError"}))); });
+  let to=""; try{ await fetchT("https://x.test/",{},{timeout:50}); }catch(e){ to=e.message; } window.fetch=of;
+  r.net = rr.status===200 && n===3 && /délai/.test(to);
+  window.dispatchEvent(new ErrorEvent("error",{message:"Erreur de test"})); r.errlog = errLog().some(e=>/Erreur de test/.test(e.m));
+  go("inconnu-xyz"); r.notfound = CURRENT==="dash";
+  return r;
+});
+ok(sec.url, "liens : javascript:/data: bloqués, https forcé");
+ok(sec.csv, "CSV : injection de formule neutralisée (téléphones/nombres intacts)");
+ok(sec.token, "jeton Gmail jamais exporté (sauvegarde / Drive)");
+ok(sec.crypto, "sauvegarde chiffrée AES-256 : illisible sans mot de passe, mauvais mot de passe refusé");
+ok(sec.valid && sec.badImport, "import : structure validée, fichier piégé refusé sans perte");
+ok(sec.import, "import : instantané « avant-import » + Gmail local conservé");
+ok(sec.schema, "versionnage du schéma");
+ok(sec.net, "réseau : nouvelles tentatives (recul exponentiel) + délai maximum");
+ok(sec.errlog, "journal d'erreurs local");
+ok(sec.notfound, "écran inconnu → tableau de bord (404)");
+
+section("rgpd");
+const rg = await ev(async()=>{
+  const r={}, now=Date.now(); let sent=0, dl=null;
+  window.downloadText=(n,t)=>{ dl={n,t}; };
+  DB.settings.gmail={clientId:"x",connected:true,token:"t",email:"me@x.fr",expiry:now+6e4};
+  DB.contacts=[{id:"a",name:"Anne",email:"anne@lycee.fr",tags:["L"]},{id:"b",name:"Bob",email:"bob@lycee.fr",tags:["L"]},
+    {id:"old",name:"Vieux",email:"v@x.fr",added:now-4*365*864e5,tags:[]},{id:"won",name:"Client",email:"w@x.fr",stage:"Gagné",added:now-5*365*864e5,tags:[]}];
+  DB.participants=[{id:"m1",name:"Mineur",minor:"Oui"},{id:"m2",name:"Ok",minor:"Oui",parental:"Oui"}];
+  DB.emailTemplates=[{id:"tp",name:"1er",subject:"Bonjour {name}",body:"Corps",cc:"",bcc:""}]; DB.tasks=[]; DB.suppression=[];
+  r.footer = /STOP/.test(ftEmailDraft({to:"x@y.fr",subject:"s",body:"b"}).body);
+  setOptOut("a",1);
+  r.optout = isOptedOut("ANNE@lycee.fr") && createContactEmailDraft(DB.contacts.find(c=>c.id==="a"),null)===null;
+  let blocked=false; try{ await gmailSend({to:"anne@lycee.fr",subject:"s",body:"b"}); }catch(e){ blocked=/RGPD/.test(e.message); }
+  r.block = blocked;
+  const of=window.fetch; window.fetch=async()=>{ sent++; return new Response("{}",{status:200}); };
+  await runMailing("L","tp"); window.fetch=of;
+  r.mailing = sent===1 && DB.contacts.find(c=>c.id==="a").tags.includes("L");
+  exportContactData("b"); r.access = dl && /bob@lycee\.fr/.test(dl.t);
+  gdprErase("b"); document.querySelector(".mfoot .btn:last-child").click();
+  r.erase = !DB.contacts.some(c=>c.id==="b") && DB.suppression.length===1 && !JSON.stringify(DB.suppression).includes("bob");
+  DB.contacts.push({id:"b2",name:"Bob",email:"Bob@Lycee.fr",tags:[]}); saveNow();
+  const merged=mergeDB(DB,{contacts:[{id:"b3",email:"bob@lycee.fr"}]});
+  r.noReimport = !DB.contacts.some(c=>c.id==="b2") && !merged.contacts.some(c=>c.id==="b3");
+  const titles=nextActions().map(a=>a.title).join(" | ");
+  r.stale = staleContacts().map(c=>c.id).join()==="old" && /durée de conservation/.test(titles);
+  r.minors = minorsWithoutAuth().length===1 && /mineur/.test(titles);
+  DB.quotes=[{id:"dq",kind:"devis",number:"D-9",date:now,status:"Envoyé",items:[{label:"x",qty:1,unit:1}]},{id:"fq",kind:"facture",number:"F-9",date:now,status:"Émise",items:[{label:"x",qty:1,unit:1}]}];
+  r.cgv = /Conditions de vente et d'annulation/.test(quoteDocHTML(DB.quotes[0])) && !/Conditions de vente et d'annulation/.test(quoteDocHTML(DB.quotes[1]));
+  COMP_TAB="check"; go("compliance"); r.check = document.querySelectorAll("#compBody .result-row").length>=35 && /RGPD/.test(document.body.textContent);
+  COMP_TAB="rgpd"; go("compliance"); r.policy = /POLITIQUE DE CONFIDENTIALITÉ/.test(document.querySelector("#rg_pp").value) && /FORMASKILLS/.test(document.querySelector("#rg_pp").value);
+  return r;
+});
+ok(rg.footer, "emails : mention de désinscription (STOP) ajoutée");
+ok(rg.optout && rg.block, "« Ne plus contacter » : aucun brouillon, envoi Gmail bloqué");
+ok(rg.mailing, "mailing : contact opposé exclu (reste dans sa liste)");
+ok(rg.access, "droit d'accès : export des données d'un contact");
+ok(rg.erase, "droit à l'effacement : suppression + liste d'opposition hachée (pas d'email en clair)");
+ok(rg.noReimport, "contact effacé jamais ré-importé (saisie, fichier synchronisé)");
+ok(rg.stale, "rétention : prospects inactifs > 3 ans signalés (clients exclus)");
+ok(rg.minors, "mineurs sans autorisation parentale signalés");
+ok(rg.cgv, "conditions de vente / annulation sur les devis (pas sur les factures)");
+ok(rg.check && rg.policy, "écran Conformité : check-list + politique de confidentialité pré-remplie");
+
+section("accessibilite");
+await fresh();
+const a11y = await ev(async()=>{
+  const r={}, tick=()=>new Promise(res=>setTimeout(res,60));
+  DB.contacts=[{id:"k1",name:"Clavier",email:"k@x.fr",tags:["T"]}]; save();
+  FINDER_TAB="saved"; go("finder"); await tick();
+  const nonNative=[...document.querySelectorAll("[data-call]")].filter(e=>!/^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(e.tagName));
+  r.focusable = nonNative.every(e=>e.getAttribute("tabindex")==="0" && e.getAttribute("role")==="button");
+  openContactCard("k1"); await tick();
+  const md=document.querySelector("#modalRoot .modal");
+  r.modal = md.getAttribute("aria-modal")==="true" && !!md.getAttribute("aria-labelledby") && md.contains(document.activeElement);
+  r.labels = [...md.querySelectorAll(".field > label")].filter(l=>l.parentElement.querySelector("input:not([type=checkbox]),select,textarea")).every(l=>l.htmlFor && document.getElementById(l.htmlFor));
+  document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"})); await tick();
+  r.esc = !document.querySelector("#modalRoot .modal");
+  r.navCurrent = !!document.querySelector('#nav [aria-current="page"]');
+  const lum=h=>{ const c=getComputedStyle(document.documentElement).getPropertyValue(h).trim().replace("#",""); const v=[0,2,4].map(i=>parseInt(c.slice(i,i+2),16)/255).map(x=>x<=0.03928?x/12.92:((x+0.055)/1.055)**2.4); return 0.2126*v[0]+0.7152*v[1]+0.0722*v[2]; };
+  const cr=(a,b)=>{ const x=lum(a),y=lum(b); return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05); };
+  r.contrast = [["--muted","--bg"],["--ink","--panel"],["--ok","--ok-soft"],["--warn","--warn-soft"],["--bad","--bad-soft"],["--brand","--brand-soft"],["--accent","--accent-soft"]].map(([a,b])=>[a,+cr(a,b).toFixed(2)]).filter(([,v])=>v<4.5);
+  r.head = !!document.querySelector('link[rel="icon"]') && !!document.querySelector('meta[name="description"]') && /script-src 'self'/.test((document.querySelector('meta[http-equiv="Content-Security-Policy"]')||{}).content||"") && !!document.querySelector(".skip") && document.documentElement.lang==="fr";
+  r.alt = [...document.querySelectorAll("img")].every(i=>i.hasAttribute("alt"));
+  return r;
+});
+ok(a11y.focusable, "clavier : éléments cliquables atteignables (Tab) et activables");
+ok(a11y.modal && a11y.esc, "fenêtres : aria-modal, titre lié, focus à l'intérieur, Échap ferme");
+ok(a11y.labels, "formulaires : chaque champ a un libellé associé");
+ok(a11y.navCurrent && a11y.alt, "navigation : page courante annoncée, images avec alt");
+ok(a11y.contrast.length===0, "contrastes WCAG AA (≥ 4.5:1) "+JSON.stringify(a11y.contrast));
+ok(a11y.head, "en-tête : favicon, description, CSP, lien d'évitement, langue");
+const mf=JSON.parse(fs.readFileSync(path.join(ROOT,"manifest.json"),"utf8"));
+ok(/object-src 'none'/.test((mf.content_security_policy||{}).extension_pages||""), "manifest : CSP stricte explicite");
+const kb = await ev(async()=>{ window.__k=0; window.__kfn=()=>{ window.__k++; }; const d=document.createElement("div"); d.setAttribute("data-call","__kfn()"); document.querySelector("#view").appendChild(d);
+  await new Promise(r=>setTimeout(r,80)); d.focus(); d.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true})); return window.__k; });
+ok(kb===1, "clavier : Entrée active un élément data-call");
+
+section("performance");
+const perf = await ev(async()=>{
+  DB.contacts=Array.from({length:3000},(_,i)=>({id:"p"+i,name:"Contact "+i,company:"Société "+(i%300),email:`c${i}@ecole${i%300}.fr`,tags:["Liste "+(i%10)],stage:"À contacter",added:Date.now()-i*1e6}));
+  DB.partners=Array.from({length:800},(_,i)=>({id:"pp"+i,name:"Partenaire "+i,status:"Prospect"})); saveNow();
+  const t0=performance.now(); FINDER_TAB="saved"; go("finder"); const t1=performance.now(); go("dash"); const t2=performance.now(); go("partners"); const t3=performance.now();
+  const s0=performance.now(); for(let i=0;i<20;i++) applySuppression(); const s1=performance.now();
+  return {contacts:Math.round(t1-t0), dash:Math.round(t2-t1), partners:Math.round(t3-t2), supp:Math.round(s1-s0)};
+});
+ok(perf.contacts<1500 && perf.dash<1500 && perf.partners<2000, "performance : 3000 contacts / 800 partenaires rendus vite "+JSON.stringify(perf));
+
 /* ---------- Bilan ---------- */
 section("global");
 for(const v of ["dash","settings","itinerary","experiences"]){ await ev(i=>go(i),v); await page.waitForTimeout(40); }
