@@ -565,9 +565,18 @@ une fonctionnalité **en ligne** assumée et centrale.
   `Content-Security-Policy: script-src 'self'; object-src 'self'` puis, avec
   Playwright, vérifier : nav peuplée, toutes les vues, actions déléguées,
   **zéro `pageerror`, zéro violation CSP** (le 404 favicon est normal).
-- Scripts de test de référence dans le scratchpad de session : `e2e.mjs` (23 checks),
-  `e2e2.mjs`, `lists.mjs`, `popup.mjs` (stub chrome), tests unitaires `ftPhones`
-  et `ftPageScrape`.
+- **Suite de non-régression VERSIONNÉE : `node tests/regression.mjs`** (à lancer
+  avant chaque commit ; doit afficher `0 FAIL`). Elle couvre TOUS les modules :
+  scraping (fixtures Google/Maps sous le vrai hostname via interception réseau),
+  les 18 vues + modaux clés sous CSP, import CRM Drive, intake participants,
+  documents pré-remplis, registre, planning, pipeline, expériences/itinéraire/
+  géo gratuite/devis, Gmail + mailing séquencé, anti-perte (mergeDB, migrate,
+  CSV Drive, instantanés), recherche globale ; + 0 pageerror, 0 CSP, 0 ID dupliqué.
+  Réseau entièrement simulé (hors-ligne). Variables optionnelles `CHROMIUM=…`,
+  `PLAYWRIGHT=…`. **Leçon** : les anciennes suites (csptest*.mjs, 530 checks)
+  vivaient dans le scratchpad éphémère et ont été **perdues** à la réinitialisation
+  du conteneur — d'où cette suite consolidée dans le dépôt. Ajouter les nouveaux
+  tests ICI, jamais seulement dans le scratchpad.
 
 ## Règles de collaboration attendues
 - Travailler UNIQUEMENT sur la branche `claude/email-finder-extensions-4954rr`,
@@ -596,4 +605,4 @@ routage/géocodage gratuit OSM) sont **livrés et testés**. Reste le point **3
 Améliorations possibles sur T10 : événements datés, **génération d'un devis
 directement depuis un itinéraire** (reprendre le total calculé). Avant de coder
 une nouvelle UI : relire cette liste, vérifier qu'aucun handler inline n'est
-introduit, tester sous CSP (530 checks de référence : csptest.mjs → csptest28.mjs).
+introduit, tester sous CSP avec `node tests/regression.mjs` (suite versionnée, 0 FAIL attendu).
