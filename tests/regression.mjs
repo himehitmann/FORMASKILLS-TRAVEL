@@ -482,6 +482,31 @@ const stop = await ev(async()=>{
 });
 ok(stop.a==="En discussion" && stop.b && stop.drafts===0, "réponse « STOP » détectée → « Ne plus contacter » + brouillons retirés");
 
+section("crm-t1");
+await fresh();
+const t1 = await ev(async()=>{ const r={}, now=Date.now();
+  DB.partners=[{id:"px",name:"Lycée Import",type:"Lycées",status:"Statut maison",city:"Sète"}]; save();
+  go("partners"); editEntity("partners","px"); await new Promise(res=>setTimeout(res,50));
+  const sel=document.querySelector('#modalRoot select[data-f="type"]');
+  r.keep = sel && sel.value==="Lycées" && document.querySelector('#modalRoot select[data-f="status"]').value==="Statut maison";
+  r.fields = ["city","address","postcode","website","contactRole","owner","offer","nextAction","nextActionDate"].every(k=>document.querySelector(`#modalRoot [data-f="${k}"]`));
+  const b=[...document.querySelectorAll(".mfoot .btn")]; b[b.length-1].click(); await new Promise(res=>setTimeout(res,50));
+  const px=DB.partners.find(p=>p.id==="px"); r.saved = px.type==="Lycées" && px.status==="Statut maison" && px.city==="Sète";
+  DB.partners.push({id:"py",name:"CFA Sud",nextAction:"Rappeler la direction",nextActionDate:now-864e5,owner:"Laurence"});
+  r.nudge = nextActions().some(a=>/Rappeler la direction/.test(a.title));
+  DB.contacts=[{id:"cc",name:"Mme Durand",company:"École Lumière",email:"durand@lumiere.fr",city:"Montpellier",service:"Directrice",stage:"En discussion",value:5000,tags:[]}];
+  const n0=DB.partners.length; contactToPartner("cc"); contactToPartner("cc"); try{ closeModal(); }catch(e){}
+  const p=DB.partners.find(x=>x.name==="École Lumière");
+  DB.partners.push({id:"pz",name:"Flag",flag:'<b data-xss="9">x</b>',nextAction:"Relancer",nextActionDate:now-864e5,owner:"Laurence",status:"À contacter"}); go("partners");
+  r.card = /Relancer/.test(document.querySelector("#view").textContent) && /Suivi : Laurence/.test(document.querySelector("#view").textContent) && !document.querySelector("[data-xss]");
+  r.bridge = DB.partners.length===n0+2 && p && p.contactName==="Mme Durand" && p.contactRole==="Directrice" && p.city==="Montpellier" && p.status==="En discussion" && +p.potential===5000;
+  return r; });
+ok(t1.keep && t1.saved, "fiche : valeur importée hors liste conservée à l'enregistrement (plus d'effacement)");
+ok(t1.fields, "T1 : champs CRM complets (ville, adresse, CP, site, fonction, responsable, offre, prochaine action)");
+ok(t1.nudge, "assistant : prochaine action échue d'un partenaire signalée");
+ok(t1.bridge, "contact → fiche partenaire T1 pré-remplie, sans doublon");
+ok(t1.card, "kanban T1 : prochaine action + responsable affichés, drapeau échappé");
+
 /* ---------- Bilan ---------- */
 section("global");
 for(const v of ["dash","settings","itinerary","experiences"]){ await ev(i=>go(i),v); await page.waitForTimeout(40); }

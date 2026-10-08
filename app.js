@@ -1275,6 +1275,9 @@ function nextActions(){
   // 7e. Prochaines actions planifiées sur des contacts (échéance atteinte)
   DB.contacts.filter(c=>c.nextAction && c.nextActionDate && c.nextActionDate<=now+DAY).slice(0,6).forEach(c=>
     add(3,"",`${c.nextAction} — ${c.name||c.company||c.email||""}`,`Prochaine action prévue le ${fmtDate(c.nextActionDate)}`,{l:"Ouvrir la fiche",fn:`openContactCard('${c.id}')`}));
+  // 7e-bis. Prochaines actions planifiées sur des partenaires (T1)
+  DB.partners.filter(p=>p.nextAction && p.nextActionDate && p.nextActionDate<=now+DAY).slice(0,6).forEach(p=>
+    add(3,"",`${p.nextAction} — ${p.name||""}`,`Partenaire · prévu le ${fmtDate(p.nextActionDate)}${p.owner?` · ${p.owner}`:""}`,{l:"Ouvrir la fiche",fn:`openRec('partners','${p.id}')`}));
   // 7f. Registre documentaire : pièces expirées ou échéance dépassée
   const regBad=(DB.docRegistry||[]).filter(d=>d.status==="Expiré" || (d.due&&d.due<now&&d.status!=="Validé"&&d.status!=="N/A"));
   if(regBad.length) add(3,"",`${regBad.length} pièce(s) documentaire(s) à régulariser`,"Pièce expirée ou échéance dépassée dans le registre",{l:"Ouvrir le registre",fn:`go('registry')`});
@@ -2102,6 +2105,7 @@ function editContactCard(id){
       <div class="field"><label>Échéance de l'action</label><input class="input" type="date" id="cc_nextdate" value="${dstr}"></div>
     </div>
     <div class="field"><label>Notes</label><textarea id="cc_note" style="min-height:90px" placeholder="Historique des échanges, infos utiles…">${esc(c.note||"")}</textarea></div>
+    ${id?`<div class="field"><label>Partenariat</label><div><button class="btn sm" data-call="contactToPartner('${id}')">${partnerOfContact(c)?"Ouvrir la fiche partenaire (T1)":"Créer la fiche partenaire (T1)"}</button></div></div>`:""}
     ${id?`<div class="field"><label>Données personnelles (RGPD)</label><div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn sm ${c.optOut?'':'ghost'}" data-call="setOptOut('${id}',${c.optOut?0:1})">${c.optOut?"Lever l'opposition":"Ne plus contacter"}</button>
       <button class="btn sm ghost" data-call="exportContactData('${id}')">Exporter ses données</button>
@@ -2416,14 +2420,21 @@ const SCHEMAS={
   partners:{ label:"Partenaire", statuses:["Non catégorisée","À contacter","Contacté","En discussion","Devis envoyé","Partenaire actif"],
     fields:[
       {k:"name",l:"Nom du partenaire",req:true},
-      {k:"type",l:"Type",type:"select",opts:["CFA","École","Entreprise","OPCO","ONG","Organisme d'accueil","Autre"]},
-      {k:"country",l:"Pays"},{k:"oid",l:"Identifiant Erasmus (OID)"},
-      {k:"contactName",l:"Contact (Nom Prénom)"},{k:"email",l:"Email",type:"email"},{k:"phone",l:"Téléphone"},
+      {k:"type",l:"Type de relation",type:"select",opts:["Lycée / École","CFA","Université / École de langues","Crèche / Petite enfance","Agence de voyage","Agence au pair","Organisme intermédiaire / Erasmus","Entreprise","OPCO","ONG","Organisme d'accueil","Office de tourisme / Institution","Prestataire","Autre"]},
+      {k:"country",l:"Pays"},{k:"city",l:"Ville"},
+      {k:"address",l:"Adresse"},{k:"postcode",l:"Code postal"},
+      {k:"website",l:"Site web"},{k:"oid",l:"Identifiant Erasmus (OID)"},
+      {k:"contactName",l:"Contact principal (Nom Prénom)"},{k:"contactRole",l:"Fonction du contact"},
+      {k:"email",l:"Email",type:"email"},{k:"phone",l:"Téléphone"},
       {k:"status",l:"Statut relation",type:"select",optsFrom:"statuses"},
+      {k:"owner",l:"Responsable (qui suit ce partenaire)"},
+      {k:"offer",l:"Offre / intérêt"},
       {k:"potential",l:"Valeur potentielle (€)",type:"number"},
-      {k:"lastContact",l:"Dernier contact",type:"date"},{k:"notes",l:"Notes",type:"textarea"},
+      {k:"lastContact",l:"Dernière interaction",type:"date"},
+      {k:"nextAction",l:"Prochaine action"},{k:"nextActionDate",l:"Échéance de la prochaine action",type:"date"},
+      {k:"notes",l:"Notes",type:"textarea"},
     ],
-    cols:["name","type","status","contactName","email","potential"], kanbanBy:"status" },
+    cols:["name","type","city","status","contactName","owner","nextAction","potential"], kanbanBy:"status" },
   projects:{ label:"Projet",
     fields:[
       {k:"name",l:"Nom du projet",req:true},
@@ -2604,12 +2615,14 @@ function manageColumns(entity){
 }
 function kanbanCard(entity,it){
   const s=SCHEMAS[entity]; const title=it.name||it.title||"(sans nom)";
-  const sub=entity==="partners"? (it.contactName||it.type||"") : entity==="tasks"? (it.due?fmtDate(it.due):"") : (it.country||it.project||"");
+  const sub=entity==="partners"? [it.contactName||it.type||"", it.city||""].filter(Boolean).join(" · ") : entity==="tasks"? (it.due?fmtDate(it.due):"") : (it.country||it.project||"");
   const extra=entity==="partners"&&it.potential? `<span class="tag g" style="margin-top:8px">${eur(it.potential)}</span>`:
     entity==="tasks"&&it.priority? statusTag(entity,it.priority):"";
   return `<div class="kcard" draggable="true" data-id="${it.id}">
-    <div class="cell-strong">${it.flag?it.flag+" ":""}${esc(title)}</div>
+    <div class="cell-strong">${it.flag?esc(it.flag)+" ":""}${esc(title)}</div>
     ${sub?`<div class="muted" style="font-size:12.5px;margin-top:3px">${esc(sub)}</div>`:""}
+    ${entity==="partners"&&it.nextAction?`<div style="font-size:12px;font-weight:700;margin-top:6px;color:${it.nextActionDate&&it.nextActionDate<Date.now()?"var(--bad)":"var(--ink)"}">› ${esc(it.nextAction)}${it.nextActionDate?` · ${esc(fmtDate(it.nextActionDate))}`:""}</div>`:""}
+    ${entity==="partners"&&it.owner?`<div class="muted" style="font-size:11.5px;margin-top:3px">Suivi : ${esc(it.owner)}</div>`:""}
     ${extra?`<div style="margin-top:6px">${extra}</div>`:""}</div>`;
 }
 function wireKanban(entity,col){
@@ -2633,7 +2646,8 @@ function fieldHTML(entity,it,f){
   const s=SCHEMAS[entity]; const v=it[f.k]??"";
   const val=f.type==="date"&&v? isoDay(v):v;
   if(f.type==="textarea") return `<div class="field" style="grid-column:1/-1"><label>${esc(f.l)}</label><textarea data-f="${f.k}">${esc(v)}</textarea></div>`;
-  if(f.type==="select"){ const opts=f.optsFrom?s[f.optsFrom]:f.opts;
+  if(f.type==="select"){ let opts=f.optsFrom?s[f.optsFrom]:f.opts;
+    if(v!=null && v!=="" && !opts.includes(v)) opts=[v,...opts]; // valeur importée hors liste : conservée (jamais effacée à l'enregistrement)
     return `<div class="field"><label>${esc(f.l)}</label><select data-f="${f.k}"><option value="">—</option>${opts.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join("")}</select></div>`; }
   const t=f.type==="number"?"number":f.type==="date"?"date":f.type==="email"?"email":"text";
   return `<div class="field"><label>${esc(f.l)}${f.req?' *':''}</label><input class="input" type="${t}" data-f="${f.k}" value="${esc(val)}"></div>`;
@@ -4616,6 +4630,18 @@ function dropContactTraces(id){
   DB.tasks=(DB.tasks||[]).filter(t=>!(t.contactId===id && t.status!=="Fait"));
   (DB.campaigns||[]).forEach(cp=>{ cp.enrolled=(cp.enrolled||[]).filter(e=>e.contactId!==id); });
 }
+/* Pont Contacts (prospection) → T1 Partenaires : une fiche par établissement, pré-remplie. */
+function partnerOfContact(c){ const k=deburrLower(c.company||c.domain||"").trim(); if(!k) return null;
+  return DB.partners.find(p=>deburrLower(p.name||"").trim()===k || (c.email && (p.email||"").toLowerCase()===c.email.toLowerCase()))||null; }
+window.contactToPartner=id=>{ const c=DB.contacts.find(x=>x.id===id); if(!c) return;
+  let p=partnerOfContact(c);
+  if(!p){ const map={"En discussion":"En discussion","Gagné":"Partenaire actif","Contacté":"Contacté","Relancé":"Contacté"};
+    p={id:uid(), name:c.company||c.domain||c.name||"Partenaire", type:catOf(c)||"", country:c.country||"", city:c.city||"", website:c.website||"",
+      contactName:c.name||"", contactRole:c.service||"", email:c.email||"", phone:c.phone||"", status:map[stageOf(c)]||"À contacter",
+      owner:c.owner||"", potential:c.value||"", nextAction:c.nextAction||"", nextActionDate:c.nextActionDate||"",
+      lastContact:c.lastContacted||c.lastSentAt||"", notes:c.note||"", added:Date.now()};
+    DB.partners.unshift(p); logAct(`Fiche partenaire créée depuis un contact : ${p.name}`); save(); toast("Fiche partenaire créée dans T1"); }
+  closeModal(); openRec("partners",p.id); };
 window.setOptOut=(id,on)=>{ const c=DB.contacts.find(x=>x.id===id); if(!c) return; closeModal();
   c.optOut=!!on; c.optOutAt=on?Date.now():0; if(on) dropContactTraces(id);
   logAct(on?"Opposition RGPD enregistrée pour un contact":"Opposition RGPD levée pour un contact"); save(); renderNav();

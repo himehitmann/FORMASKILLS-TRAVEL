@@ -291,8 +291,7 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
   **mails types** ont Langue + Public et sont **seedés** au 1er lancement
   (`seedMailTemplates` : 1er contact lycée + relance 1/2 + 1er contact prestataire).
 - **Roadmap pour couvrir TOUTE l'activité** (à prioriser avec l'utilisatrice) :
-  R.a Champs CRM complets sur T1 (Pays/Ville/Adresse/CP/Site/Fonction/Responsable/
-  Dernière interaction/Prochaine action/Offre) ; R.b Pipeline « Opportunités »
+  ~~R.a Champs CRM complets sur T1~~ (fait, point 16) ; R.b Pipeline « Opportunités »
   (statut commercial + valeur + échéance) ; R.c Module **Plannings/Calendrier des
   séjours** (FLE à Sète) — absent ; R.d **Registre documentaire + KPI** (T8) ;
   R.e Import en masse de la BDD/CRM Drive (CSV/XLSX) ; R.f Intake participants
@@ -616,6 +615,23 @@ Le connecteur Drive fonctionne. Contenu clé du dossier « FORMASKILLS TRAVEL / 
       désinscription (`STOP_QUERY`) → contact « Ne plus contacter » + brouillons
       retirés automatiquement.
 
+16. **R.a — Champs CRM complets sur T1 Partenaires** — **FAIT & TESTÉ** (section
+    « crm-t1 » ; suite à 104 PASS / 0 FAIL). `SCHEMAS.partners` : Type de relation
+    aligné sur la taxonomie réelle du Drive (Lycée/École, CFA, Université/École de
+    langues, Crèche, Agence de voyage, Agence au pair, Organisme intermédiaire…),
+    + Ville, Adresse, Code postal, Site web, Fonction du contact, **Responsable**,
+    **Offre / intérêt**, **Dernière interaction**, **Prochaine action + échéance**.
+    Colonnes tableau : nom, type, ville, statut, contact, responsable, prochaine
+    action, valeur. Cartes kanban : contact · ville, prochaine action (rouge si
+    échue), responsable. Assistant : prochaines actions échues des partenaires.
+    **Pont Contacts → T1** : bouton « Créer / Ouvrir la fiche partenaire (T1) » sur
+    la fiche contact (`contactToPartner`, `partnerOfContact` — dédoublonné par nom
+    d'établissement ou email, étape → statut, valeur → potentiel).
+    **Bug corrigé** : un champ liste dont la valeur n'était pas dans les options
+    (ex. type importé « Lycées ») s'affichait « — » et était **effacé à
+    l'enregistrement** — la valeur est désormais conservée (toutes les entités).
+    `it.flag` échappé dans les cartes kanban.
+
 ## « Hors-ligne » — précision importante
 L'outil N'EST PAS que hors-ligne. Il **navigue en ligne** : il ouvre et lit de
 vraies pages (Google, Google Maps, LinkedIn, sites) via l'extension pour en
@@ -689,8 +705,8 @@ l'extension au lieu d'un serveur de scraping payant. Toujours documenter la
 solution gratuite retenue et son repli hors-ligne.
 
 ## Prochaine action suggérée
-Tous les points 1 → 15 sont **livrés et testés** (`node tests/regression.mjs` :
-99 PASS / 0 FAIL), y compris devis/factures (acompte, solde, encaissements,
+Tous les points 1 → 16 sont **livrés et testés** (`node tests/regression.mjs` :
+104 PASS / 0 FAIL), y compris devis/factures (acompte, solde, encaissements,
 mentions légales) et le déclenchement des automatisations pour les contacts venus
 de la bulle. Reste **à valider par l'utilisatrice** dans l'extension installée :
 bulle LinkedIn / Google / Maps sur le vrai DOM, envoi Gmail réel, détection des
