@@ -574,3 +574,21 @@ h1 { line-height: 1.08; }
 
 /* reduce hero art shadow on very small just in case */
 @media (max-width: 480px){ .hero h1 { font-size: clamp(2rem,1.3rem+5vw,2.8rem); } }
+
+/* ---------- 19. Prose (guides & legal) ---------- */
+.prose { max-width: 760px; }
+.prose > h2 { margin: 2.2rem 0 .8rem; font-size: clamp(1.3rem,1.1rem+.8vw,1.7rem); }
+.prose > h3 { margin: 1.4rem 0 .5rem; font-size: 1.12rem; }
+.prose p { margin-bottom: 1rem; }
+.prose ul { margin: 0 0 1.1rem 1.1rem; display: grid; gap: .45rem; list-style: disc; }
+.prose ul li { max-width: 70ch; }
+.prose a { color: var(--sea-700); text-decoration: underline; text-underline-offset: 2px; }
+.prose .lead { margin-bottom: 1.4rem; }
+.guide-card { scroll-margin-top: 100px; }
+.table-cefr { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: .96rem; }
+.table-cefr th, .table-cefr td { text-align: left; padding: .75rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.table-cefr th { background: var(--mist); color: var(--ink); font-weight: 600; }
+.table-cefr td:first-child { font-weight: 700; color: var(--sea-700); white-space: nowrap; }
+.toc { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.5rem 0 0; }
+.toc a { display: inline-flex; align-items: center; gap: .4rem; background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: .5rem 1rem; font-size: .9rem; font-weight: 500; color: var(--ink); text-decoration: none; }
+.toc a:hover { border-color: var(--sea); color: var(--sea-700); }
