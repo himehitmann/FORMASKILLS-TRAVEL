@@ -551,3 +551,26 @@ h1 { line-height: 1.08; }
 @media (min-width: 1100px){ section { padding-block: clamp(4.5rem, 3rem + 5vw, 7.5rem); } }
 /* keep body copy to a comfortable measure */
 .split p, .section-head p, .feature p, .step p { max-width: 60ch; }
+
+/* ---------- 18. Anchors under sticky header + fine polish ---------- */
+[id] { scroll-margin-top: 96px; }
+@media (max-width: 860px){ [id] { scroll-margin-top: 80px; } }
+
+/* cards feel a touch more premium */
+.card { box-shadow: 0 1px 2px rgba(18,59,69,.04); }
+.card:hover { box-shadow: 0 22px 48px -26px rgba(11,107,116,.4); }
+.feature.card { box-shadow: 0 1px 2px rgba(18,59,69,.05); }
+
+/* offer rows: a small leading accent */
+.offer { position: relative; padding-left: 1.4rem; }
+.offer::before { content:""; position:absolute; left:0; top:12px; bottom:12px; width:4px; border-radius:4px; background: linear-gradient(var(--sea), var(--lagoon)); }
+
+/* section intros breathe a little more and stay readable */
+.section-head { max-width: 64ch; }
+.section-head.center { max-width: 70ch; }
+
+/* nicer focus ring on interactive chips/choices */
+.choice:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* reduce hero art shadow on very small just in case */
+@media (max-width: 480px){ .hero h1 { font-size: clamp(2rem,1.3rem+5vw,2.8rem); } }
