@@ -189,8 +189,8 @@
      no external dependency. Real photos still load where the network allows. */
   (function () {
     var PAL = [
-      ["#0b4258", "#0e86b4"], ["#0e86b4", "#1cb3c9"], ["#0a6c93", "#2bbfd4"],
-      ["#0e86b4", "#1cb3c9"], ["#ef7a3f", "#f6b23e"], ["#0b4258", "#1cb3c9"]
+      ["#222e28", "#3f5a4e"], ["#2c3a33", "#4f6f5e"], ["#33493f", "#6f8c7b"],
+      ["#263430", "#54685c"], ["#2a332d", "#46604f"], ["#1f2a24", "#5a7366"]
     ];
     function hash(s) { var h = 0; for (var i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0; } return h; }
     function esc(s) { return (s || "").replace(/[<>&"]/g, "").slice(0, 32); }
