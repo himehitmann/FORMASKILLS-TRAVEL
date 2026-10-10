@@ -168,13 +168,13 @@
       const data = new FormData(form);
       const summary = form.querySelector("[data-summary]");
       if (summary) {
-        const pick = (k) => (data.getAll(k).filter(Boolean).join(", ") || "—");
+        const pick = (k) => (data.getAll(k).filter(Boolean).join(", ") || "Non précisé");
         summary.innerHTML =
           "<li><strong>Programme :</strong> " + pick("program") + "</li>" +
           "<li><strong>Destination :</strong> " + pick("destination") + "</li>" +
-          "<li><strong>Participants :</strong> " + (data.get("travelers") || "—") + "</li>" +
-          "<li><strong>Période :</strong> " + (data.get("period") || "—") + "</li>" +
-          "<li><strong>Contact :</strong> " + (data.get("name") || "—") + " — " + (data.get("email") || "—") + "</li>";
+          "<li><strong>Participants :</strong> " + (data.get("travelers") || "Non précisé") + "</li>" +
+          "<li><strong>Période :</strong> " + (data.get("period") || "Non précisé") + "</li>" +
+          "<li><strong>Contact :</strong> " + (data.get("name") || "Non précisé") + ", " + (data.get("email") || "Non précisé") + "</li>";
       }
       steps.forEach((s) => s.classList.remove("active"));
       form.querySelector(".stepper").style.display = "none";
@@ -189,8 +189,8 @@
      no external dependency. Real photos still load where the network allows. */
   (function () {
     var PAL = [
-      ["#0a1915", "#2c5349"], ["#15322c", "#3f6f62"], ["#0f251f", "#507a68"],
-      ["#122b24", "#8a6a3c"], ["#0e2a2f", "#3f6f62"], ["#1a2e2a", "#9a6c39"]
+      ["#0b4258", "#0e86b4"], ["#0e86b4", "#1cb3c9"], ["#0a6c93", "#2bbfd4"],
+      ["#0e86b4", "#1cb3c9"], ["#ef7a3f", "#f6b23e"], ["#0b4258", "#1cb3c9"]
     ];
     function hash(s) { var h = 0; for (var i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0; } return h; }
     function esc(s) { return (s || "").replace(/[<>&"]/g, "").slice(0, 32); }
