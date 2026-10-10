@@ -80,3 +80,19 @@ context.
 - Blog / resources hub for SEO (mobility guides, destination articles)
 - Real photography and brand assets (replace Unsplash placeholders)
 - Analytics + consent management (RGPD-compliant cookie banner)
+
+## 5. UX enhancement pass (iteration)
+
+Competitive patterns adopted to lift the experience toward best-in-class travel sites:
+
+| Pattern | Seen on | How we applied it |
+|---|---|---|
+| Utility top bar (contact + rating) | Audley, WorldStrides, many tour operators | Slim top bar with email, location and the live 4.9/5 Google rating for instant trust |
+| Illustrated/edutainment hero | EF, Intrepid, Evaneos | Hand-built inline-SVG Mediterranean scene (Sète) — always renders, never a broken photo, reinforces the sunny promise |
+| Floating proof badges on hero | GetYourGuide, Viator | "4.9/5 Google" + "Consultation gratuite" badges overlapping the hero art |
+| Reviews wall with source badge | GetYourGuide, Viator, Evaneos | Google-style review cards + a Google rating badge (placeholders for real reviews only) |
+| Persistent conversion | GetYourGuide, Viator (mobile) | Sticky mobile action bar (free consultation + contact) always within thumb reach |
+| Newsletter capture | EF, Intrepid, Responsible Travel | Light newsletter band before the footer |
+| Friction reducers | Industry standard | Back-to-top button, RGPD cookie banner, 404 page, reduced-motion & keyboard support |
+
+All additions keep the agreed direction: **white background, summery turquoise/coral/sun accents, high readability, no dark "sad" blocks**. Still no invented reviews, prices, certifications or partnerships — every such spot is a flagged ⚑ placeholder.

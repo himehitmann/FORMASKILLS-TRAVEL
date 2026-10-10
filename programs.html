@@ -15,6 +15,15 @@
 <body>
   <a class="skip" href="#main" data-en="Skip to content">Aller au contenu</a>
 
+  <div class="topbar">
+    <div class="container">
+      <div class="tb-left">
+        <a href="mailto:contact@formaskills-travel.fr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M4 7l8 6 8-6"/></svg>contact@formaskills-travel.fr</a>
+        <span class="tb-hide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Sète, Occitanie</span>
+      </div>
+      <div class="tb-right"><span class="stars">★★★★★</span><span>4.9/5 · <span data-en="Google reviews">avis Google</span></span></div>
+    </div>
+  </div>
   <header class="site-header">
     <div class="container nav">
       <a href="index.html" class="brand" aria-label="Formaskills Travel, accueil"><span class="mark">F</span><span>Formaskills<small>Travel</small></span></a>
@@ -205,7 +214,22 @@
     </section>
   </main>
 
-  <footer class="site-footer">
+    <section class="newsletter">
+    <div class="container">
+      <div>
+        <span class="eyebrow" data-en="Newsletter">Newsletter</span>
+        <h3 data-en="Get our French & mobility offers">Recevez nos offres FLE & mobilité</h3>
+        <p data-en="New sessions, stay deals and tips. No spam, promised.">Nouvelles sessions, bons plans séjours et conseils. Pas de spam, promis.</p>
+      </div>
+      <form class="nl-form" data-newsletter novalidate>
+        <input type="email" required placeholder="Votre e-mail" aria-label="E-mail" data-fr="Votre e-mail" data-en="Your email" data-attr="placeholder" />
+        <button class="btn" type="submit" data-en="Subscribe">S'inscrire</button>
+        <div class="nl-ok" hidden data-en="Thank you! (front-end demo, connect your email tool)">Merci ! (démo front-end, à connecter à votre outil d'emailing)</div>
+      </form>
+    </div>
+  </section>
+
+<footer class="site-footer">
     <div class="container">
       <div class="footer-grid">
         <div class="footer-about">
@@ -228,6 +252,15 @@
       <div class="footer-bottom"><span>© <span data-year>2026</span> Formaskills Travel, <span data-en="part of Formaskills, Sète">groupe Formaskills, Sète</span></span><div class="fb-links"><a href="#" data-en="Legal notice">Mentions légales</a><a href="#" data-en="Privacy">Confidentialité</a><a href="#" data-en="Terms">CGV</a></div></div>
     </div>
   </footer>
+    <div class="mobile-cta">
+    <a class="btn" href="inquiry.html" data-en="Free consultation">Consultation gratuite</a>
+    <a class="btn btn--ghost btn--call" href="contact.html" aria-label="Contact"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M4 7l8 6 8-6"/></svg></a>
+  </div>
+  <button class="to-top" aria-label="Revenir en haut"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+  <div class="cookie" hidden data-cookie>
+    <p data-en="We use cookies to improve your experience.">Nous utilisons des cookies pour améliorer votre expérience sur le site.</p>
+    <div class="c-actions"><button class="btn btn--ghost" data-cookie-no data-en="Decline">Refuser</button><button class="btn" data-cookie-ok data-en="Accept">Accepter</button></div>
+  </div>
   <script src="assets/js/main.js"></script>
 </body>
 </html>
