@@ -200,9 +200,9 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 /* ---------- 7. Hero (light & sunny) ---------- */
 .hero { position: relative; min-height: min(88vh, 820px); display: flex; align-items: center; color: var(--ink); overflow: hidden; }
 .hero-media { position: absolute; inset: 0; z-index: -2; background:
-   radial-gradient(1000px 680px at 82% -8%, rgba(255,182,74,.28), transparent 58%),
-   radial-gradient(900px 640px at 8% 108%, rgba(15,181,196,.26), transparent 60%),
-   radial-gradient(760px 520px at 60% 120%, rgba(255,111,94,.16), transparent 62%),
+   radial-gradient(1000px 680px at 86% -10%, rgba(15,181,196,.14), transparent 60%),
+   radial-gradient(820px 560px at 6% 110%, rgba(79,209,217,.18), transparent 60%),
+   radial-gradient(640px 440px at 64% 120%, rgba(255,182,74,.10), transparent 62%),
    #ffffff; }
 .hero-media::before { content:""; position:absolute; inset:0;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='560' height='560'%3E%3Cg fill='none' stroke='%230fb5c4' stroke-opacity='0.5' stroke-width='1'%3E%3Cpath d='M-20 120 C120 70 240 170 380 120 S620 70 760 130'/%3E%3Cpath d='M-20 230 C120 180 240 280 380 230 S620 180 760 240'/%3E%3Cpath d='M-20 340 C120 290 240 390 380 340 S620 290 760 350'/%3E%3Cpath d='M-20 450 C120 400 240 500 380 450 S620 400 760 460'/%3E%3C/g%3E%3C/svg%3E");

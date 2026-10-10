@@ -190,7 +190,7 @@
   (function () {
     var PAL = [
       ["#0b7c87", "#17b6c2"], ["#0a95a2", "#4fd1d9"], ["#0fb5c4", "#5bd6cf"],
-      ["#e8623f", "#ff9a6c"], ["#d98a12", "#ffb64a"], ["#0b6b74", "#2bbfca"]
+      ["#0b6b74", "#2bbfca"], ["#13a2ad", "#58cfd4"], ["#e8623f", "#ff9a6c"]
     ];
     function hash(s) { var h = 0; for (var i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0; } return h; }
     function esc(s) { return (s || "").replace(/[<>&"]/g, "").slice(0, 32); }
@@ -218,14 +218,15 @@
     function replace(img, i) {
       if (img.dataset.arted) return;
       img.dataset.arted = "1";
+      // The hero stays a clean light wash: just remove the (blocked) photo.
+      if (img.closest(".hero-media")) { img.remove(); return; }
       var cs = window.getComputedStyle(img);
       var fig = document.createElement("span");
       fig.className = "imgart";
       fig.setAttribute("role", "img");
       if (img.alt) fig.setAttribute("aria-label", img.alt);
-      var inHero = !!img.closest(".hero-media");
-      fig.innerHTML = buildSVG(img.alt, (img.alt || "") + "#" + i, inHero);
-      if (cs.position === "absolute" || inHero) { fig.style.position = "absolute"; fig.style.inset = "0"; fig.style.height = "100%"; }
+      fig.innerHTML = buildSVG(img.alt, (img.alt || "") + "#" + i, false);
+      if (cs.position === "absolute") { fig.style.position = "absolute"; fig.style.inset = "0"; fig.style.height = "100%"; }
       else {
         var ar = cs.aspectRatio && cs.aspectRatio !== "auto" ? cs.aspectRatio : "4 / 3";
         fig.style.aspectRatio = ar;
