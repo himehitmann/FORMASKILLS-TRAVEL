@@ -79,7 +79,7 @@
         <div data-reveal>
           <h2 data-en="Send a message">Envoyer un message</h2>
           <p class="lead" style="margin:.6rem 0 1.5rem" data-en="For a full itinerary, the free consultation form is faster.">Pour un itinéraire complet, le formulaire de consultation gratuite est plus rapide.</p>
-          <form onsubmit="event.preventDefault(); this.querySelector('.form-ok').hidden=false; this.querySelectorAll('.field,button[type=submit]').forEach(function(e){e.style.display='none';});">
+          <form data-contactform novalidate>
             <div class="grid g-2" style="gap:1rem">
               <div class="field"><label for="c-name" data-en="Full name">Nom complet</label><input id="c-name" name="name" required /></div>
               <div class="field"><label for="c-email" data-en="Email">E-mail</label><input id="c-email" type="email" name="email" required /></div>
@@ -101,11 +101,12 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
             <div class="form-ok" hidden>
               <div class="big-check">✓</div>
-              <h3 data-en="Message ready to send">Message prêt à être envoyé</h3>
-              <p data-en="This is a front-end demo without a mail backend yet. Connect a form handler (e.g. your email service) to receive messages.">Ceci est une démo front-end sans backend d'envoi pour l'instant. Connectez un gestionnaire de formulaire (ex. votre service e-mail) pour recevoir les messages.</p>
+              <h3 data-en="Your message is ready">Votre message est prêt</h3>
+              <p style="margin:.4rem 0 1.2rem" data-en="Click below to send it from your email app. We reply quickly.">Cliquez ci-dessous pour l'envoyer depuis votre messagerie. Nous répondons rapidement.</p>
+              <a class="btn" data-mailto href="mailto:contact@formaskills-travel.fr" data-en="Send by email">Envoyer par e-mail <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></a>
             </div>
           </form>
-          <p class="placeholder-note" style="margin-top:1.2rem" data-en="⚑ Developer note: wire this form to a backend / form service (Formspree, your SMTP, CRM…) before go-live.">⚑ Note développeur : connectez ce formulaire à un backend / service (Formspree, votre SMTP, CRM…) avant la mise en ligne.</p>
+          <p class="placeholder-note" style="margin-top:1.2rem" data-en="⚑ Developer note: this opens the visitor's email app, pre-filled. For automatic capture, connect a form service (Formspree, your SMTP, CRM…).">⚑ Note développeur : ceci ouvre la messagerie du visiteur, pré-remplie. Pour une réception automatique, connectez un service (Formspree, votre SMTP, CRM…).</p>
         </div>
 
         <div data-reveal data-delay="1">

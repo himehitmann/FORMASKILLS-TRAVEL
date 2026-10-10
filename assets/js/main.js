@@ -181,6 +181,24 @@
         html += row("Contact", one("name") + ", " + one("email"));
         summary.innerHTML = html;
       }
+      // Build a prefilled email (works with no backend)
+      const mailBtn = form.querySelector("[data-mailto]");
+      if (mailBtn) {
+        const L = {
+          program: "Offres", level: "Niveau FLE", fle_format: "Rythme", goals: "Objectifs",
+          audience: "Pour qui", travelers: "Participants", period: "Période", duration: "Durée",
+          accommodation: "Hébergement", budget: "Budget", hear: "Connu via", notes: "Message",
+          name: "Nom", email: "E-mail", phone: "Téléphone", country: "Pays", org: "Organisation",
+        };
+        const lines = [];
+        Object.keys(L).forEach((k) => {
+          const vals = data.getAll(k).filter(Boolean);
+          if (vals.length) lines.push(L[k] + " : " + vals.join(", "));
+        });
+        const subject = "Demande de consultation" + (data.get("name") ? " — " + data.get("name") : "");
+        const body = "Bonjour,\n\nVoici ma demande via le site Formaskills Travel :\n\n" + lines.join("\n") + "\n\nMerci !";
+        mailBtn.setAttribute("href", "mailto:contact@formaskills-travel.fr?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body));
+      }
       steps.forEach((s) => s.classList.remove("active"));
       form.querySelector(".stepper").style.display = "none";
       if (okPanel) okPanel.hidden = false;
@@ -268,6 +286,32 @@
     const no = cookie.querySelector("[data-cookie-no]");
     if (ok) ok.addEventListener("click", () => close("accepted"));
     if (no) no.addEventListener("click", () => close("declined"));
+  }
+
+  /* ---- Contact form (prefilled email, no backend) ---- */
+  const cform = document.querySelector("[data-contactform]");
+  if (cform) {
+    cform.addEventListener("submit", (e) => {
+      e.preventDefault();
+      let ok = true;
+      cform.querySelectorAll("[required]").forEach((i) => {
+        if (!i.value.trim()) { ok = false; i.style.borderColor = "var(--coral)"; }
+        else i.style.borderColor = "";
+      });
+      if (!ok) return;
+      const d = new FormData(cform);
+      const subject = "Contact site — " + (d.get("subject") || "") + (d.get("name") ? " — " + d.get("name") : "");
+      const body = "Bonjour,\n\n" + (d.get("message") || "") +
+        "\n\n---\nNom : " + (d.get("name") || "") +
+        "\nE-mail : " + (d.get("email") || "") +
+        "\nOrganisation : " + (d.get("org") || "") +
+        "\nObjet : " + (d.get("subject") || "");
+      const mb = cform.querySelector("[data-mailto]");
+      if (mb) mb.setAttribute("href", "mailto:contact@formaskills-travel.fr?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body));
+      cform.querySelectorAll(".field, button[type=submit]").forEach((el) => (el.style.display = "none"));
+      const okp = cform.querySelector(".form-ok");
+      if (okp) okp.hidden = false;
+    });
   }
 
   /* ---- Newsletter (front-end demo) ---- */
