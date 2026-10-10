@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Consultation gratuite, Concevons votre voyage sur mesure | Formaskills Travel</title>
-  <meta name="description" content="Démarrez votre consultation gratuite. Décrivez votre groupe, votre destination et vos objectifs en 4 étapes simples ; nous concevons une proposition sur mesure, sans engagement." />
+  <meta name="description" content="Démarrez votre consultation gratuite. Décrivez vos envies, votre profil et vos objectifs en quelques étapes simples ; nous concevons une proposition sur mesure, sans engagement." />
   <link rel="canonical" href="https://formaskills-travel.fr/inquiry.html" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230c3d49'/%3E%3Ctext x='50%25' y='56%25' font-family='Georgia' font-size='22' fill='white' text-anchor='middle' dominant-baseline='middle'%3EF%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400\&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500\&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/styles.css" />
 </head>
 <body>
@@ -56,118 +56,159 @@
     <section class="page-hero">
       <div class="container">
         <nav class="breadcrumb" aria-label="Fil d'Ariane"><a href="index.html" data-en="Home">Accueil</a><span>›</span><span data-en="Free consultation">Consultation gratuite</span></nav>
-        <span class="eyebrow" style="color:var(--gold)" data-en="Free consultation · No obligation">Consultation gratuite · Sans engagement</span>
-        <h1 data-en="Design your journey in 4 simple steps">Concevez votre voyage en 4 étapes simples</h1>
-        <p class="lead" data-en="Tell us what you have in mind, even if it's still vague. The more we know, the more precise and personal our proposal. It takes about 3 minutes.">Dites-nous ce que vous avez en tête, même si c'est encore flou. Plus nous en savons, plus notre proposition sera précise et personnalisée. Comptez environ 3 minutes.</p>
+        <span class="eyebrow" data-en="Free consultation · No obligation">Consultation gratuite · Sans engagement</span>
+        <h1 data-en="Build your project in a few simple steps">Construisez votre projet en quelques étapes simples</h1>
+        <p class="lead" data-en="Tell us what you have in mind, even if it's still vague. You can choose several offers at once. The clearer the picture, the more personal our proposal.">Dites-nous ce que vous avez en tête, même si c'est encore flou. Vous pouvez choisir plusieurs offres à la fois. Plus c'est clair, plus notre proposition sera personnalisée.</p>
       </div>
     </section>
 
     <section>
       <div class="container" style="max-width:860px">
         <form id="form" data-multistep novalidate>
-          <!-- Stepper -->
           <div class="stepper" aria-hidden="true">
-            <div class="dot active"><div class="bar"></div><span data-en="Program">Programme</span></div>
-            <div class="dot"><div class="bar"></div><span data-en="Group & dates">Groupe & dates</span></div>
-            <div class="dot"><div class="bar"></div><span data-en="Preferences">Préférences</span></div>
+            <div class="dot active"><div class="bar"></div><span data-en="Offers">Offres</span></div>
+            <div class="dot"><div class="bar"></div><span data-en="French">Français</span></div>
+            <div class="dot"><div class="bar"></div><span data-en="Profile">Profil</span></div>
+            <div class="dot"><div class="bar"></div><span data-en="Context">Contexte</span></div>
             <div class="dot"><div class="bar"></div><span data-en="Contact">Contact</span></div>
           </div>
 
-          <!-- STEP 1 -->
+          <!-- STEP 1 : OFFERS (multi) -->
           <fieldset class="form-step active">
-            <legend class="eyebrow" data-en="Step 1">Étape 1</legend>
-            <h2 style="margin:.5rem 0 .4rem" data-en="What kind of experience?">Quel type d'expérience ?</h2>
-            <p class="lead" style="margin-bottom:1.5rem" data-en="Pick the closest match, we can combine several.">Choisissez ce qui s'en rapproche le plus, nous pouvons en combiner plusieurs.</p>
+            <legend class="eyebrow" data-en="Step 1 of 5">Étape 1 sur 5</legend>
+            <h2 style="margin:.5rem 0 .4rem" data-en="What are you interested in?">Qu'est-ce qui vous intéresse ?</h2>
+            <p class="lead" style="margin-bottom:1.5rem" data-en="Select everything that applies, you can pick several.">Sélectionnez tout ce qui vous intéresse, plusieurs choix sont possibles.</p>
             <div class="choice-grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))">
-              <label class="choice"><input type="radio" name="program" value="Séjour FLE (présentiel)" required /><span class="ck round"></span><span class="c-txt"><strong data-en="French stay (on-site)">Séjour FLE (présentiel)</strong><span data-en="Courses in Sète / Montpellier">Cours à Sète / Montpellier</span></span></label>
-              <label class="choice"><input type="radio" name="program" value="Plateforme FLE en ligne" /><span class="ck round"></span><span class="c-txt"><strong data-en="Online FLE platform">Plateforme FLE en ligne</strong><span data-en="Self-paced or guided">Autonomie ou accompagné</span></span></label>
-              <label class="choice"><input type="radio" name="program" value="Au Pair" /><span class="ck round"></span><span class="c-txt"><strong>Au Pair</strong><span data-en="Placement & support">Placement & suivi</span></span></label>
-              <label class="choice"><input type="radio" name="program" value="Job Shadowing" /><span class="ck round"></span><span class="c-txt"><strong>Job Shadowing</strong><span data-en="Professional immersion">Immersion professionnelle</span></span></label>
-              <label class="choice"><input type="radio" name="program" value="Erasmus+ (établissement)" /><span class="ck round"></span><span class="c-txt"><strong>Erasmus+</strong><span data-en="For institutions (B2B)">Pour établissement (B2B)</span></span></label>
-              <label class="choice"><input type="radio" name="program" value="Voyage éducatif / culturel" /><span class="ck round"></span><span class="c-txt"><strong data-en="Educational / cultural trip">Voyage éducatif / culturel</strong><span data-en="Group discovery">Découverte de groupe</span></span></label>
-              <label class="choice"><input type="radio" name="program" value="Sur mesure" /><span class="ck round"></span><span class="c-txt"><strong data-en="Tailor-made">Sur mesure</strong><span data-en="A blank page">Une page blanche</span></span></label>
+              <label class="choice"><input type="checkbox" name="program" value="Séjour FLE (présentiel)" required /><span class="ck"></span><span class="c-txt"><strong data-en="French stay (on-site)">Séjour FLE (présentiel)</strong><span data-en="Courses in Sète / Montpellier">Cours à Sète / Montpellier</span></span></label>
+              <label class="choice"><input type="checkbox" name="program" value="Plateforme FLE en ligne" /><span class="ck"></span><span class="c-txt"><strong data-en="Online FLE platform">Plateforme FLE en ligne</strong><span data-en="Self-paced or guided">Autonomie ou accompagné</span></span></label>
+              <label class="choice"><input type="checkbox" name="program" value="Au Pair" /><span class="ck"></span><span class="c-txt"><strong>Au Pair</strong><span data-en="Placement & support">Placement & suivi</span></span></label>
+              <label class="choice"><input type="checkbox" name="program" value="Job Shadowing" /><span class="ck"></span><span class="c-txt"><strong>Job Shadowing</strong><span data-en="Professional immersion">Immersion professionnelle</span></span></label>
+              <label class="choice"><input type="checkbox" name="program" value="Erasmus+ (établissement)" /><span class="ck"></span><span class="c-txt"><strong>Erasmus+</strong><span data-en="For institutions (B2B)">Pour établissement (B2B)</span></span></label>
+              <label class="choice"><input type="checkbox" name="program" value="Voyage éducatif / culturel" /><span class="ck"></span><span class="c-txt"><strong data-en="Educational / cultural trip">Voyage éducatif / culturel</strong><span data-en="Group discovery">Découverte de groupe</span></span></label>
+              <label class="choice"><input type="checkbox" name="program" value="Sur mesure" /><span class="ck"></span><span class="c-txt"><strong data-en="Tailor-made">Sur mesure</strong><span data-en="A blank page">Une page blanche</span></span></label>
+              <label class="choice"><input type="checkbox" name="program" value="Je ne sais pas encore" /><span class="ck"></span><span class="c-txt"><strong data-en="Not sure yet">Je ne sais pas encore</strong><span data-en="Help me choose">Aidez-moi à choisir</span></span></label>
             </div>
-            <h4 style="margin:1.8rem 0 .8rem" data-en="For French (FLE): which rhythm?">Pour le français (FLE) : quel rythme ?</h4>
-            <div class="choice-grid">
-              <label class="choice"><input type="checkbox" name="fle_format" value="Standard (20 leçons/sem)" /><span class="ck"></span><span class="c-txt"><strong data-en="Standard (20/wk)">Standard (20 leçons/sem)</strong></span></label>
-              <label class="choice"><input type="checkbox" name="fle_format" value="Intensif (30 leçons/sem)" /><span class="ck"></span><span class="c-txt"><strong data-en="Intensive (30/wk)">Intensif (30 leçons/sem)</strong></span></label>
-              <label class="choice"><input type="checkbox" name="fle_format" value="Business" /><span class="ck"></span><span class="c-txt"><strong>Business</strong></span></label>
-              <label class="choice"><input type="checkbox" name="fle_format" value="Club 30+" /><span class="ck"></span><span class="c-txt"><strong>Club 30+</strong></span></label>
-              <label class="choice"><input type="checkbox" name="fle_format" value="Cours particuliers" /><span class="ck"></span><span class="c-txt"><strong data-en="One-to-one">Cours particuliers</strong></span></label>
-              <label class="choice"><input type="checkbox" name="fle_format" value="Je ne sais pas encore" /><span class="ck"></span><span class="c-txt"><strong data-en="Not sure yet">Je ne sais pas encore</strong></span></label>
-            </div>
-            <h4 style="margin:1.8rem 0 .8rem" data-en="Destinations of interest (optional)">Destinations qui vous intéressent (optionnel)</h4>
-            <div class="choice-grid">
-              <label class="choice"><input type="checkbox" name="destination" value="Sète" /><span class="ck"></span><span class="c-txt"><strong>Sète</strong></span></label>
-              <label class="choice"><input type="checkbox" name="destination" value="Montpellier" /><span class="ck"></span><span class="c-txt"><strong>Montpellier</strong></span></label>
-              <label class="choice"><input type="checkbox" name="destination" value="Paris" /><span class="ck"></span><span class="c-txt"><strong>Paris</strong></span></label>
-              <label class="choice"><input type="checkbox" name="destination" value="Nice" /><span class="ck"></span><span class="c-txt"><strong>Nice</strong></span></label>
-              <label class="choice"><input type="checkbox" name="destination" value="Europe" /><span class="ck"></span><span class="c-txt"><strong>Europe</strong></span></label>
-              <label class="choice"><input type="checkbox" name="destination" value="Autre / à définir" /><span class="ck"></span><span class="c-txt"><strong data-en="Other / undecided">Autre / à définir</strong></span></label>
-            </div>
-            <p class="step-error" hidden style="color:var(--coral);margin-top:1rem;font-weight:600" data-en="Please choose a program type to continue.">Veuillez choisir un type de programme pour continuer.</p>
+            <p class="step-error" hidden style="color:var(--coral);margin-top:1rem;font-weight:600" data-en="Please choose at least one option to continue.">Veuillez choisir au moins une option pour continuer.</p>
             <div class="form-nav"><span></span><button type="button" class="btn" data-next data-en="Continue">Continuer <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
           </fieldset>
 
-          <!-- STEP 2 -->
+          <!-- STEP 2 : FRENCH -->
           <fieldset class="form-step">
-            <legend class="eyebrow" data-en="Step 2">Étape 2</legend>
-            <h2 style="margin:.5rem 0 .4rem" data-en="Your group & timing">Votre groupe & la période</h2>
+            <legend class="eyebrow" data-en="Step 2 of 5">Étape 2 sur 5</legend>
+            <h2 style="margin:.5rem 0 .4rem" data-en="About French (if relevant)">À propos du français (si concerné)</h2>
+            <p class="lead" style="margin-bottom:1.5rem" data-en="Only for language learning. If it doesn't apply, just continue.">Uniquement pour l'apprentissage de la langue. Si ce n'est pas concerné, continuez simplement.</p>
+            <div class="grid g-2" style="gap:1rem">
+              <div class="field"><label for="level" data-en="Current level">Niveau actuel</label>
+                <select id="level" name="level">
+                  <option value="" data-en="Select a level">Choisir un niveau</option>
+                  <option data-en="Complete beginner (A1)">Grand débutant (A1)</option>
+                  <option data-en="Elementary (A2)">Élémentaire (A2)</option>
+                  <option data-en="Intermediate (B1)">Intermédiaire (B1)</option>
+                  <option data-en="Upper-intermediate (B2)">Intermédiaire supérieur (B2)</option>
+                  <option data-en="Advanced (C1)">Avancé (C1)</option>
+                  <option data-en="I don't know yet">Je ne sais pas encore</option>
+                </select>
+              </div>
+              <div class="field"><label for="ages" data-en="Age(s) of participants">Âge(s) des participants</label><input id="ages" name="ages" placeholder="ex. 16-18 ans, adultes" data-en="e.g. 16-18, adults" data-attr="placeholder" /></div>
+            </div>
+            <h4 style="margin:1.2rem 0 .8rem" data-en="Which rhythm?">Quel rythme ?</h4>
+            <div class="choice-grid">
+              <label class="choice"><input type="checkbox" name="fle_format" value="Standard (20/sem)" /><span class="ck"></span><span class="c-txt"><strong data-en="Standard (20/wk)">Standard (20/sem)</strong></span></label>
+              <label class="choice"><input type="checkbox" name="fle_format" value="Intensif (30/sem)" /><span class="ck"></span><span class="c-txt"><strong data-en="Intensive (30/wk)">Intensif (30/sem)</strong></span></label>
+              <label class="choice"><input type="checkbox" name="fle_format" value="Business" /><span class="ck"></span><span class="c-txt"><strong>Business</strong></span></label>
+              <label class="choice"><input type="checkbox" name="fle_format" value="Club 30+" /><span class="ck"></span><span class="c-txt"><strong>Club 30+</strong></span></label>
+              <label class="choice"><input type="checkbox" name="fle_format" value="Cours particuliers" /><span class="ck"></span><span class="c-txt"><strong data-en="One-to-one">Cours particuliers</strong></span></label>
+              <label class="choice"><input type="checkbox" name="fle_format" value="Peu importe" /><span class="ck"></span><span class="c-txt"><strong data-en="No preference">Peu importe</strong></span></label>
+            </div>
+            <h4 style="margin:1.4rem 0 .8rem" data-en="Your goals (optional)">Vos objectifs (optionnel)</h4>
+            <div class="choice-grid">
+              <label class="choice"><input type="checkbox" name="goals" value="Progresser à l'oral" /><span class="ck"></span><span class="c-txt"><strong data-en="Speaking">Progresser à l'oral</strong></span></label>
+              <label class="choice"><input type="checkbox" name="goals" value="Préparer un examen / certification" /><span class="ck"></span><span class="c-txt"><strong data-en="Exam / certification">Examen / certification</strong></span></label>
+              <label class="choice"><input type="checkbox" name="goals" value="Français professionnel" /><span class="ck"></span><span class="c-txt"><strong data-en="Professional French">Français professionnel</strong></span></label>
+              <label class="choice"><input type="checkbox" name="goals" value="Découverte culturelle" /><span class="ck"></span><span class="c-txt"><strong data-en="Cultural discovery">Découverte culturelle</strong></span></label>
+            </div>
+            <div class="form-nav"><button type="button" class="btn btn--ghost" data-prev data-en="Back">Retour</button><button type="button" class="btn" data-next data-en="Continue">Continuer <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+          </fieldset>
+
+          <!-- STEP 3 : PROFILE & LOGISTICS -->
+          <fieldset class="form-step">
+            <legend class="eyebrow" data-en="Step 3 of 5">Étape 3 sur 5</legend>
+            <h2 style="margin:.5rem 0 .4rem" data-en="Your profile & logistics">Votre profil & la logistique</h2>
             <p class="lead" style="margin-bottom:1.5rem" data-en="Approximate is perfectly fine, nothing is locked in.">Une estimation suffit, rien n'est figé.</p>
             <div class="grid g-2" style="gap:1rem">
-              <div class="field"><label for="travelers" data-en="Number of participants">Nombre de participants</label><input id="travelers" name="travelers" type="number" min="1" placeholder="ex. 24" required /></div>
-              <div class="field"><label for="audience" data-en="Who is travelling?">Qui voyage ?</label>
+              <div class="field"><label for="audience" data-en="Who is it for?">Pour qui ?</label>
                 <select id="audience" name="audience">
+                  <option data-en="An individual">Un particulier</option>
+                  <option data-en="A family">Une famille</option>
                   <option data-en="School / college group">Groupe scolaire / collège</option>
                   <option data-en="University students">Étudiants (université)</option>
-                  <option data-en="Adult learners / professionals">Adultes en formation / professionnels</option>
-                  <option data-en="Juniors (supervised)">Juniors (encadrés)</option>
+                  <option data-en="Adults / professionals">Adultes / professionnels</option>
+                  <option data-en="An institution">Un établissement</option>
                   <option data-en="Mixed / other">Mixte / autre</option>
                 </select>
               </div>
+              <div class="field"><label for="travelers" data-en="Number of participants">Nombre de participants</label><input id="travelers" name="travelers" type="number" min="1" placeholder="ex. 1, 12, 30" data-en="e.g. 1, 12, 30" data-attr="placeholder" /></div>
             </div>
             <div class="grid g-2" style="gap:1rem">
-              <div class="field"><label for="period" data-en="Preferred period">Période souhaitée</label><input id="period" name="period" placeholder="ex. avril 2026 / flexible" required /></div>
+              <div class="field"><label for="period" data-en="Preferred period">Période souhaitée</label><input id="period" name="period" placeholder="ex. avril 2026 / flexible" data-en="e.g. April 2026 / flexible" data-attr="placeholder" /></div>
               <div class="field"><label for="duration" data-en="Approx. duration">Durée approximative</label>
                 <select id="duration" name="duration">
-                  <option data-en="Weekend (2–3 days)">Week-end (2–3 jours)</option>
-                  <option data-en="Short trip (4–7 days)">Court séjour (4–7 jours)</option>
-                  <option data-en="1–2 weeks">1–2 semaines</option>
-                  <option data-en="3–4 weeks">3–4 semaines</option>
+                  <option value="" data-en="Select">Choisir</option>
+                  <option data-en="A few days">Quelques jours</option>
+                  <option data-en="1–2 weeks">1 à 2 semaines</option>
+                  <option data-en="3–4 weeks">3 à 4 semaines</option>
+                  <option data-en="1–3 months">1 à 3 mois</option>
+                  <option data-en="Several months">Plusieurs mois</option>
                   <option data-en="Flexible">Flexible</option>
                 </select>
               </div>
             </div>
-            <p class="step-error" hidden style="color:var(--coral);margin-top:.5rem;font-weight:600" data-en="Please fill in participants and period.">Merci d'indiquer le nombre de participants et la période.</p>
-            <div class="form-nav"><button type="button" class="btn btn--ghost" data-prev data-en="Back">Retour</button><button type="button" class="btn" data-next data-en="Continue">Continuer <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
-          </fieldset>
-
-          <!-- STEP 3 -->
-          <fieldset class="form-step">
-            <legend class="eyebrow" data-en="Step 3">Étape 3</legend>
-            <h2 style="margin:.5rem 0 .4rem" data-en="Preferences & requirements">Préférences & exigences</h2>
-            <p class="lead" style="margin-bottom:1.5rem" data-en="Flexible by design, share whatever matters to you.">Flexible par nature, partagez ce qui compte pour vous.</p>
-            <h4 style="margin-bottom:.8rem" data-en="Accommodation preference">Préférence d'hébergement</h4>
+            <h4 style="margin:1.2rem 0 .8rem" data-en="Accommodation preference">Préférence d'hébergement</h4>
             <div class="choice-grid">
               <label class="choice"><input type="radio" name="accommodation" value="Famille d'accueil" /><span class="ck round"></span><span class="c-txt"><strong data-en="Host family">Famille d'accueil</strong></span></label>
               <label class="choice"><input type="radio" name="accommodation" value="Résidence" /><span class="ck round"></span><span class="c-txt"><strong data-en="Residence">Résidence</strong></span></label>
               <label class="choice"><input type="radio" name="accommodation" value="Hôtel" /><span class="ck round"></span><span class="c-txt"><strong data-en="Hotel">Hôtel</strong></span></label>
+              <label class="choice"><input type="radio" name="accommodation" value="Sans hébergement" /><span class="ck round"></span><span class="c-txt"><strong data-en="No accommodation">Sans hébergement</strong></span></label>
               <label class="choice"><input type="radio" name="accommodation" value="À conseiller" /><span class="ck round"></span><span class="c-txt"><strong data-en="Advise me">À conseiller</strong></span></label>
             </div>
-            <h4 style="margin:1.5rem 0 .8rem" data-en="What are your objectives? (optional)">Quels sont vos objectifs ? (optionnel)</h4>
-            <div class="choice-grid">
-              <label class="choice"><input type="checkbox" name="goals" value="Progrès linguistiques" /><span class="ck"></span><span class="c-txt"><strong data-en="Language progress">Progrès linguistiques</strong></span></label>
-              <label class="choice"><input type="checkbox" name="goals" value="Objectifs pédagogiques" /><span class="ck"></span><span class="c-txt"><strong data-en="Curriculum goals">Objectifs pédagogiques</strong></span></label>
-              <label class="choice"><input type="checkbox" name="goals" value="Cohésion de groupe" /><span class="ck"></span><span class="c-txt"><strong data-en="Group cohesion">Cohésion de groupe</strong></span></label>
-              <label class="choice"><input type="checkbox" name="goals" value="Découverte culturelle" /><span class="ck"></span><span class="c-txt"><strong data-en="Cultural discovery">Découverte culturelle</strong></span></label>
-            </div>
-            <div class="field" style="margin-top:1.5rem"><label for="notes" data-en="Anything else we should know?">Autre chose à nous dire ?</label><textarea id="notes" name="notes" placeholder="Budget indicatif, besoins particuliers, accessibilité, etc."></textarea></div>
             <div class="form-nav"><button type="button" class="btn btn--ghost" data-prev data-en="Back">Retour</button><button type="button" class="btn" data-next data-en="Continue">Continuer <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
           </fieldset>
 
-          <!-- STEP 4 -->
+          <!-- STEP 4 : CONTEXT -->
           <fieldset class="form-step">
-            <legend class="eyebrow" data-en="Step 4">Étape 4</legend>
+            <legend class="eyebrow" data-en="Step 4 of 5">Étape 4 sur 5</legend>
+            <h2 style="margin:.5rem 0 .4rem" data-en="A little more context">Un peu plus de contexte</h2>
+            <p class="lead" style="margin-bottom:1.5rem" data-en="All optional, but it helps us tailor the proposal.">Tout est optionnel, mais cela nous aide à personnaliser la proposition.</p>
+            <div class="grid g-2" style="gap:1rem">
+              <div class="field"><label for="budget" data-en="Indicative budget / person">Budget indicatif / personne</label>
+                <select id="budget" name="budget">
+                  <option value="" data-en="Prefer to discuss">Je préfère en discuter</option>
+                  <option>&lt; 500 €</option>
+                  <option>500 - 1000 €</option>
+                  <option>1000 - 2000 €</option>
+                  <option>2000 - 3500 €</option>
+                  <option>&gt; 3500 €</option>
+                </select>
+              </div>
+              <div class="field"><label for="hear" data-en="How did you hear about us?">Comment nous avez-vous connus ?</label>
+                <select id="hear" name="hear">
+                  <option value="" data-en="Select">Choisir</option>
+                  <option>Google</option>
+                  <option data-en="Social media">Réseaux sociaux</option>
+                  <option data-en="Word of mouth">Bouche-à-oreille</option>
+                  <option data-en="Formaskills (formaskills.fr)">Formaskills (formaskills.fr)</option>
+                  <option data-en="A partner / institution">Un partenaire / établissement</option>
+                  <option data-en="Other">Autre</option>
+                </select>
+              </div>
+            </div>
+            <div class="field"><label for="notes" data-en="Anything else we should know?">Autre chose à nous dire ?</label><textarea id="notes" name="notes" placeholder="Besoins particuliers, accessibilité, dates précises, nombre d'accompagnateurs…" data-en="Special needs, accessibility, exact dates, number of chaperones…" data-attr="placeholder"></textarea></div>
+            <div class="form-nav"><button type="button" class="btn btn--ghost" data-prev data-en="Back">Retour</button><button type="button" class="btn" data-next data-en="Continue">Continuer <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+          </fieldset>
+
+          <!-- STEP 5 : CONTACT -->
+          <fieldset class="form-step">
+            <legend class="eyebrow" data-en="Step 5 of 5">Étape 5 sur 5</legend>
             <h2 style="margin:.5rem 0 .4rem" data-en="Where should we send your proposal?">Où envoyer votre proposition ?</h2>
             <p class="lead" style="margin-bottom:1.5rem" data-en="A dedicated advisor replies personally, usually within one business day.">Un conseiller dédié vous répond personnellement, généralement sous un jour ouvré.</p>
             <div class="grid g-2" style="gap:1rem">
@@ -176,9 +217,10 @@
             </div>
             <div class="grid g-2" style="gap:1rem">
               <div class="field"><label for="phone" data-en="Phone (optional)">Téléphone (optionnel)</label><input id="phone" name="phone" type="tel" /></div>
-              <div class="field"><label for="org" data-en="Organization (optional)">Organisation (optionnel)</label><input id="org" name="org" /></div>
+              <div class="field"><label for="country" data-en="Country (optional)">Pays (optionnel)</label><input id="country" name="country" placeholder="ex. France, Espagne…" data-en="e.g. France, Spain…" data-attr="placeholder" /></div>
             </div>
-            <label class="choice" style="margin-top:.5rem"><input type="checkbox" name="consent" required /><span class="ck"></span><span class="c-txt"><strong data-en="I agree to be contacted about my request.">J'accepte d'être contacté(e) au sujet de ma demande.</strong><span data-en="We never share your data. See our privacy policy.">Nous ne partageons jamais vos données. Voir notre politique de confidentialité.</span></span></label>
+            <div class="field"><label for="org" data-en="Organization (optional)">Organisation (optionnel)</label><input id="org" name="org" /></div>
+            <label class="choice" style="margin-top:.3rem"><input type="checkbox" name="consent" required /><span class="ck"></span><span class="c-txt"><strong data-en="I agree to be contacted about my request.">J'accepte d'être contacté(e) au sujet de ma demande.</strong><span data-en="We never share your data. See our privacy policy.">Nous ne partageons jamais vos données. Voir notre politique de confidentialité.</span></span></label>
             <p class="step-error" hidden style="color:var(--coral);margin-top:.5rem;font-weight:600" data-en="Please add your name, a valid email and your consent.">Merci d'indiquer votre nom, un e-mail valide et votre accord.</p>
             <div class="form-nav"><button type="button" class="btn btn--ghost" data-prev data-en="Back">Retour</button><button type="submit" class="btn" data-en="Send my request">Envoyer ma demande <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button></div>
           </fieldset>
@@ -188,8 +230,8 @@
             <div class="big-check">✓</div>
             <h2 data-en="Thank you, your request is ready">Merci, votre demande est prête</h2>
             <p class="lead" style="margin:.5rem auto 1.5rem" data-en="Here's a summary of what you told us. A dedicated advisor will build your tailor-made proposal.">Voici un récapitulatif de ce que vous nous avez indiqué. Un conseiller dédié construira votre proposition sur mesure.</p>
-            <ul class="ticks" data-summary style="max-width:460px;margin:0 auto;text-align:left"></ul>
-            <p class="placeholder-note" style="max-width:520px;margin:1.5rem auto 0" data-en="⚑ Developer note: this is a front-end demo. Connect the form to your backend / CRM / email service to actually receive and store requests.">⚑ Note développeur : ceci est une démo front-end. Connectez le formulaire à votre backend / CRM / service e-mail pour recevoir et stocker réellement les demandes.</p>
+            <ul class="ticks" data-summary style="max-width:520px;margin:0 auto;text-align:left"></ul>
+            <p class="placeholder-note" style="max-width:520px;margin:1.5rem auto 0" data-en="⚑ Developer note: this is a front-end demo. Connect the form to your backend / CRM / email service to actually receive requests.">⚑ Note développeur : ceci est une démo front-end. Connectez le formulaire à votre backend / CRM / service e-mail pour recevoir réellement les demandes.</p>
             <a class="btn btn--sea" href="index.html" style="margin-top:1.5rem" data-en="Back to home">Retour à l'accueil</a>
           </div>
         </form>

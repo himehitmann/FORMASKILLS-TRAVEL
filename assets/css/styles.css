@@ -28,8 +28,9 @@
   --focus:      #0fb5c4;
 
   /* Typography */
-  --font-serif: "Playfair Display", Georgia, "Times New Roman", serif;
-  --font-sans:  "DM Sans", "Helvetica Neue", Arial, system-ui, sans-serif;
+  /* Universal, highly legible pairing (works across languages) */
+  --font-serif: "Poppins", "Segoe UI", system-ui, Arial, sans-serif;   /* display / headings */
+  --font-sans:  "Inter", "Segoe UI", system-ui, Arial, sans-serif;     /* body */
 
   /* Scale (fluid) */
   --h1: clamp(2.6rem, 1.6rem + 4.4vw, 5rem);
@@ -361,15 +362,17 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .footer-bottom { border-top: 1px solid var(--line); padding-block: 1.6rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; font-size: .85rem; }
 .footer-bottom .fb-links { display: flex; gap: 1.4rem; flex-wrap: wrap; }
 
-/* ---------- 13. Page hero (sub pages) ---------- */
-.page-hero { position: relative; color: #fff; padding-block: clamp(4rem,3rem+6vw,8rem) clamp(3rem,2rem+4vw,5rem); overflow: hidden; background: linear-gradient(130deg, var(--sea-900), var(--lagoon)); }
-.page-hero::after { content:""; position:absolute; inset:0; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M0 59h60M59 0v60' stroke='%23ffffff' stroke-opacity='.05'/%3E%3C/svg%3E"); z-index: 0; }
+/* ---------- 13. Page hero (sub pages) — light & airy ---------- */
+.page-hero { position: relative; color: var(--ink); padding-block: clamp(3rem,2rem+5vw,6rem) clamp(2.5rem,1.5rem+3vw,4rem); overflow: hidden; background:
+   radial-gradient(900px 480px at 90% -20%, rgba(255,182,74,.14), transparent 60%),
+   linear-gradient(160deg, var(--mist) 0%, #ffffff 70%); border-bottom: 1px solid var(--line); }
+.page-hero::after { content:""; position:absolute; inset:0; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M0 59h60M59 0v60' stroke='%230fb5c4' stroke-opacity='.06'/%3E%3C/svg%3E"); z-index: 0; }
 .page-hero .container { position: relative; z-index: 1; }
-.page-hero h1 { color: #fff; margin: .8rem 0 1rem; max-width: 18ch; }
-.page-hero .lead { color: rgba(255,255,255,.88); max-width: 60ch; }
-.breadcrumb { display: flex; gap: .5rem; font-size: .85rem; color: rgba(255,255,255,.7); flex-wrap: wrap; }
-.breadcrumb a:hover { color: #fff; }
-.breadcrumb span { color: var(--gold); }
+.page-hero h1 { color: var(--ink); margin: .8rem 0 1rem; max-width: 20ch; }
+.page-hero .lead { color: var(--ink-soft); max-width: 62ch; }
+.breadcrumb { display: flex; gap: .5rem; font-size: .85rem; color: var(--ink-soft); flex-wrap: wrap; }
+.breadcrumb a:hover { color: var(--sea-700); }
+.breadcrumb span { color: var(--sea); }
 
 /* filters bar */
 .filters { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 2.5rem; }
@@ -535,3 +538,16 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .card-body h3 a:hover { color: var(--sea-700); }
 .offer .o-level { background: var(--mist); color: var(--sea-700); }
 .pill { background: var(--mist); color: var(--sea-700); }
+
+/* ---------- 17. Type & rhythm polish (Inter + Poppins) ---------- */
+body { font-size: 1.0625rem; line-height: 1.7; letter-spacing: .002em; }
+h1,h2,h3,h4 { letter-spacing: -.015em; line-height: 1.14; }
+h1 { line-height: 1.08; }
+.lead { line-height: 1.6; }
+.eyebrow { letter-spacing: .16em; font-size: .76rem; }
+.btn { letter-spacing: .005em; }
+.section-head p { margin-top: .9rem; }
+/* a touch more air between major sections on large screens */
+@media (min-width: 1100px){ section { padding-block: clamp(4.5rem, 3rem + 5vw, 7.5rem); } }
+/* keep body copy to a comfortable measure */
+.split p, .section-head p, .feature p, .step p { max-width: 60ch; }

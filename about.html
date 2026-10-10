@@ -9,7 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230c3d49'/%3E%3Ctext x='50%25' y='56%25' font-family='Georgia' font-size='22' fill='white' text-anchor='middle' dominant-baseline='middle'%3EF%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400\&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500\&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/styles.css" />
 </head>
 <body>
@@ -56,9 +56,17 @@
     <section class="page-hero">
       <div class="container">
         <nav class="breadcrumb" aria-label="Fil d'Ariane"><a href="index.html" data-en="Home">Accueil</a><span>›</span><span data-en="About">À propos</span></nav>
-        <span class="eyebrow" style="color:var(--gold)" data-en="About us">À propos</span>
+        <span class="eyebrow" data-en="About us">À propos</span>
         <h1 data-en="We teach French the way you'd want to learn it">Nous enseignons le français comme vous aimeriez l'apprendre</h1>
         <p class="lead" data-en="Based in sunny Sète, Formaskills Travel is the mobility branch of Formaskills. We believe a language is learned best where it is lived, at a café table, a market, by the sea, with someone who truly follows your progress.">Basés à Sète, au soleil, nous sommes la branche mobilité de Formaskills. Nous croyons qu'une langue s'apprend mieux là où elle se vit : à la terrasse d'un café, au marché, au bord de la mer, avec quelqu'un qui suit vraiment vos progrès.</p>
+      </div>
+    </section>
+
+    <!-- MISSION -->
+    <section style="padding-bottom:0">
+      <div class="container container-narrow" style="text-align:center">
+        <span class="eyebrow center" data-en="Our mission">Notre mission</span>
+        <p style="font-family:var(--font-serif);font-weight:600;font-size:clamp(1.3rem,1.05rem+1.3vw,2rem);line-height:1.35;color:var(--ink);margin-top:1.1rem" data-en="Make learning French and international mobility accessible, human and unforgettable, for everyone, wherever they come from.">Rendre l'apprentissage du français et la mobilité internationale accessibles, humains et inoubliables, pour chacun, d'où qu'il vienne.</p>
       </div>
     </section>
 
@@ -90,6 +98,25 @@
       </div>
     </section>
 
+    <!-- WHY SÈTE -->
+    <section>
+      <div class="container split">
+        <div data-reveal>
+          <span class="eyebrow" data-en="Why Sète">Pourquoi Sète</span>
+          <h2 style="margin:.6rem 0 1rem" data-en="Learn where life is good">Apprendre là où il fait bon vivre</h2>
+          <p class="lead" data-en="Sète, the 'Venice of Languedoc', offers an authentic Mediterranean setting: canals, a lively market, a fishing port, beaches and sunshine. A perfect place to practise French every day, far from tourist clichés.">Sète, « la Venise du Languedoc », offre un cadre méditerranéen authentique : canaux, marché vivant, port de pêche, plages et soleil. Un endroit parfait pour pratiquer le français au quotidien, loin des clichés touristiques.</p>
+          <a class="btn" style="margin-top:1.5rem" href="destinations.html" data-en="See our destinations">Voir nos destinations</a>
+        </div>
+        <ul class="ticks" data-reveal data-delay="1" style="align-content:center">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg><span data-en="Seaside and southern light">Bord de mer et lumière du Sud</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg><span data-en="30 min from Montpellier, a student city">À 30 min de Montpellier, ville étudiante</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg><span data-en="Airports and high-speed train nearby">Aéroports et gares TGV à proximité</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg><span data-en="Safe, human and welcoming">Cadre sûr, humain et convivial</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg><span data-en="Real immersion in local life">Vraie immersion dans la vie locale</span></li>
+        </ul>
+      </div>
+    </section>
+
     <section class="bg-sea">
       <div class="container">
         <div class="grid g-4 stat-grid">
@@ -112,6 +139,12 @@
           <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="What levels do you teach?">Quels niveaux enseignez-vous ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="From complete beginner (A1) to advanced (C1), with standard and intensive rhythms, in group or one-to-one.">Du grand débutant (A1) à l'avancé (C1), avec des rythmes standard et intensifs, en groupe ou en cours particuliers.</div></div></div>
           <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="How much does it cost?">Combien ça coûte ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="Pricing depends on the formula, duration and accommodation. Ask for a free consultation and we send a clear, itemized proposal, with no obligation.">Le tarif dépend de la formule, de la durée et de l'hébergement. Demandez une consultation gratuite et nous envoyons une proposition claire et détaillée, sans engagement.</div></div></div>
           <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="Can you organize an Erasmus+ mobility for our institution?">Pouvez-vous organiser une mobilité Erasmus+ pour notre établissement ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="Yes. We support institutions end to end: diagnosis and roadmap, mobility file engineering, and local hosting of incoming groups (5 days and more).">Oui. Nous accompagnons les établissements de bout en bout : diagnostic et feuille de route, ingénierie de dossier de mobilité, et accueil local des groupes (5 jours et plus).</div></div></div>
+          <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="Can I combine several offers?">Peut-on combiner plusieurs offres ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="Absolutely, and it's often the best option: for example the online platform before an on-site stay, or French lessons combined with a cultural programme.">Tout à fait, et c'est souvent la meilleure option : par exemple la plateforme en ligne avant un séjour en présentiel, ou des cours de français combinés à un programme culturel.</div></div></div>
+          <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="How long are the stays?">Quelle est la durée des séjours ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="On-site French stays run from one to several weeks; the online platform has no limit; Au Pair placements are followed over 3 to 12 months. We adapt to your calendar.">Les séjours FLE en présentiel vont d'une à plusieurs semaines ; la plateforme en ligne n'a pas de limite ; l'Au Pair est suivi sur 3 à 12 mois. Nous nous adaptons à votre calendrier.</div></div></div>
+          <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="What accommodation do you offer?">Quels hébergements proposez-vous ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="Host families for maximum immersion, student residences or hotels. We advise the best fit for the age, budget and objectives of each participant.">Familles d'accueil pour une immersion maximale, résidences étudiantes ou hôtels. Nous conseillons la meilleure option selon l'âge, le budget et les objectifs de chacun.</div></div></div>
+          <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="How does the Au Pair programme work?">Comment fonctionne le programme Au Pair ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="You choose a level of support, from profile matching to full coaching, mediation and rematch, with follow-up over 3 to 12 months and an optional language package.">Vous choisissez un niveau d'accompagnement, de la mise en relation au coaching complet, médiation et rematch, avec un suivi sur 3 à 12 mois et un forfait langue en option.</div></div></div>
+          <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="What about safety and supervision?">Qu'en est-il de la sécurité et de l'encadrement ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="Vetted partners and accommodation, clear protocols, a dedicated advisor and a contact reachable throughout the stay. Supervised formats are available for younger participants.">Partenaires et hébergements vérifiés, protocoles clairs, un conseiller dédié et un contact joignable pendant tout le séjour. Des formats encadrés existent pour les plus jeunes.</div></div></div>
+          <div class="acc-item"><button class="acc-q" aria-expanded="false"><span data-en="How do we get started?">Comment se passe l'inscription ?</span><span class="pm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg></span></button><div class="acc-a"><div class="inner" data-en="Start with a free consultation. We send a clear proposal, adjust it with you, and only then confirm. No commitment until everything suits you.">Commencez par une consultation gratuite. Nous envoyons une proposition claire, l'ajustons avec vous, puis seulement nous confirmons. Aucun engagement tant que tout ne vous convient pas.</div></div></div>
         </div>
       </div>
     </section>

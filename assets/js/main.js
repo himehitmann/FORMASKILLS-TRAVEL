@@ -133,11 +133,10 @@
       const step = steps[i];
       let ok = true;
       step.querySelectorAll("[required]").forEach((input) => {
-        if (input.type === "radio") {
+        if (input.type === "radio" || input.type === "checkbox") {
+          // At least one in the name group must be selected (consent = group of one)
           const group = step.querySelectorAll('[name="' + input.name + '"]');
           if (![...group].some((g) => g.checked)) ok = false;
-        } else if (input.type === "checkbox") {
-          if (!input.checked) ok = false;
         } else if (!input.value.trim()) {
           ok = false;
           input.style.borderColor = "var(--coral)";
@@ -168,13 +167,19 @@
       const data = new FormData(form);
       const summary = form.querySelector("[data-summary]");
       if (summary) {
-        const pick = (k) => (data.getAll(k).filter(Boolean).join(", ") || "Non précisé");
-        summary.innerHTML =
-          "<li><strong>Programme :</strong> " + pick("program") + "</li>" +
-          "<li><strong>Destination :</strong> " + pick("destination") + "</li>" +
-          "<li><strong>Participants :</strong> " + (data.get("travelers") || "Non précisé") + "</li>" +
-          "<li><strong>Période :</strong> " + (data.get("period") || "Non précisé") + "</li>" +
-          "<li><strong>Contact :</strong> " + (data.get("name") || "Non précisé") + ", " + (data.get("email") || "Non précisé") + "</li>";
+        const esc = (v) => String(v).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+        const pick = (k) => esc(data.getAll(k).filter(Boolean).join(", ") || "Non précisé");
+        const one = (k) => esc(data.get(k) || "Non précisé");
+        const row = (label, val) => "<li><strong>" + label + " :</strong> " + val + "</li>";
+        let html = row("Offres", pick("program"));
+        if (data.get("level")) html += row("Niveau", one("level"));
+        if (data.getAll("fle_format").length) html += row("Rythme", pick("fle_format"));
+        html += row("Pour qui", one("audience"));
+        if (data.get("travelers")) html += row("Participants", one("travelers"));
+        if (data.get("period")) html += row("Période", one("period"));
+        if (data.get("budget")) html += row("Budget", one("budget"));
+        html += row("Contact", one("name") + ", " + one("email"));
+        summary.innerHTML = html;
       }
       steps.forEach((s) => s.classList.remove("active"));
       form.querySelector(".stepper").style.display = "none";
