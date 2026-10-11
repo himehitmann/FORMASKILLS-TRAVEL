@@ -6,30 +6,30 @@
 
 /* ---------- 1. Design Tokens ---------- */
 :root {
-  /* Brand palette — minimalist monochrome on white (charcoal · warm grey)
-     NOTE: one accent only. To add a colour later, change --accent and the
-     three lines that reference it (--sea, --coral stay charcoal otherwise). */
-  --accent:     #1f1f1d;   /* single accent = charcoal (swap to a colour later) */
-  --ink:        #1b1b19;   /* near-black, text */
-  --ink-soft:   #6a675f;   /* warm grey, secondary text */
-  --sea:        #2a2a27;   /* primary (charcoal) — links, icons, dark UI */
-  --sea-700:    #1f1f1d;   /* deeper charcoal for text/contrast */
-  --sea-900:    #141412;   /* darkest (dark bands) */
-  --lagoon:     #8f8b81;   /* mid warm grey */
-  --coral:      #1f1f1d;   /* CTA = charcoal */
-  --coral-600:  #000000;
-  --gold:       #9a958a;   /* quiet warm grey — hairlines & ornaments */
-  --star:       #f0b400;   /* review stars only (reads as rating gold) */
-  --sand:       #f5f3ef;   /* light warm grey surface */
+  /* Brand palette — "paradise ocean" on white (bright lagoon blue + aqua).
+     Airy and summery: white dominates, ocean blue carries buttons, links
+     and accents. --accent is the single signature colour that ties it all. */
+  --accent:     #0fb6c6;   /* paradise lagoon — the signature accent */
+  --ink:        #15303a;   /* deep teal-navy, body text */
+  --ink-soft:   #5a6e74;   /* cool slate grey, secondary text */
+  --sea:        #0a90a6;   /* ocean blue — links, icons */
+  --sea-700:    #097585;   /* deeper ocean — contrast text & solid buttons */
+  --sea-900:    #063842;   /* deep teal-navy — dark bands */
+  --lagoon:     #73d3dd;   /* light aqua — gradients & soft fills */
+  --coral:      #097585;   /* main CTA = deep ocean (no orange) */
+  --coral-600:  #07606e;   /* CTA hover */
+  --gold:       #58bfca;   /* soft aqua — eyebrow bars & ornaments */
+  --star:       #f0b400;   /* review stars only (rating gold) */
+  --sand:       #eef9fb;   /* very light aqua surface */
   --cream:      #ffffff;   /* page background (white) */
   --paper:      #ffffff;
-  --line:       #e8e5de;   /* hairline borders */
-  --line-soft:  rgba(27,27,25,.10);
-  --mist:       #f3f1ec;   /* light warm grey surface */
+  --line:       #d8ecef;   /* cool hairline borders */
+  --line-soft:  rgba(21,48,58,.10);
+  --mist:       #e9f7f9;   /* light aqua surface */
 
   /* Functional */
-  --ok:         #3a3a35;
-  --focus:      #2a2a27;
+  --ok:         #0a8a7f;
+  --focus:      #0a90a6;
 
   /* Typography */
   /* Universal, highly legible pairing (works across languages) */
@@ -205,12 +205,12 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 /* ---------- 7. Hero (light & sunny) ---------- */
 .hero { position: relative; min-height: min(88vh, 820px); display: flex; align-items: center; color: var(--ink); overflow: hidden; }
 .hero-media { position: absolute; inset: 0; z-index: -2; background:
-   radial-gradient(1000px 680px at 86% -10%, rgba(27,27,25,.05), transparent 60%),
-   radial-gradient(820px 560px at 6% 110%, rgba(27,27,25,.05), transparent 60%),
+   radial-gradient(1000px 680px at 86% -10%, rgba(15,182,198,.12), transparent 60%),
+   radial-gradient(820px 560px at 6% 110%, rgba(115,211,221,.16), transparent 60%),
    #ffffff; }
 .hero-media::before { content:""; position:absolute; inset:0;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='560' height='560'%3E%3Cg fill='none' stroke='%231b1b19' stroke-opacity='0.5' stroke-width='1'%3E%3Cpath d='M-20 120 C120 70 240 170 380 120 S620 70 760 130'/%3E%3Cpath d='M-20 230 C120 180 240 280 380 230 S620 180 760 240'/%3E%3Cpath d='M-20 340 C120 290 240 390 380 340 S620 290 760 350'/%3E%3Cpath d='M-20 450 C120 400 240 500 380 450 S620 400 760 460'/%3E%3C/g%3E%3C/svg%3E");
-  background-size:560px 560px; opacity:.07; }
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='560' height='560'%3E%3Cg fill='none' stroke='%230a90a6' stroke-opacity='0.5' stroke-width='1'%3E%3Cpath d='M-20 120 C120 70 240 170 380 120 S620 70 760 130'/%3E%3Cpath d='M-20 230 C120 180 240 280 380 230 S620 180 760 240'/%3E%3Cpath d='M-20 340 C120 290 240 390 380 340 S620 290 760 350'/%3E%3Cpath d='M-20 450 C120 400 240 500 380 450 S620 400 760 460'/%3E%3C/g%3E%3C/svg%3E");
+  background-size:560px 560px; opacity:.09; }
 .hero-media img { display: none; }
 .hero::after { display: none; }
 .hero-inner { padding-block: clamp(3rem, 2rem + 6vw, 6rem); max-width: 760px; }
@@ -295,12 +295,12 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .quote-card .who span { font-size: .85rem; color: var(--ink-soft); }
 
 /* editorial placeholder note */
-.placeholder-note { border: 1px dashed var(--gold); background: rgba(201,155,91,.08); border-radius: var(--radius-sm); padding: 1rem 1.2rem; font-size: .9rem; color: var(--ink-soft); }
+.placeholder-note { border: 1px dashed var(--sea); background: rgba(10,144,166,.06); border-radius: var(--radius-sm); padding: 1rem 1.2rem; font-size: .9rem; color: var(--ink-soft); }
 .placeholder-note strong { color: var(--coral-600); }
 
 /* ---------- 9. CTA band ---------- */
-.cta-band { position: relative; overflow: hidden; color: #fff; border-radius: var(--radius-lg); background: linear-gradient(130deg, var(--sea-900), var(--lagoon)); padding: clamp(2.5rem,1.5rem+4vw,4.5rem); }
-.cta-band::before { content:""; position:absolute; right:-10%; top:-30%; width: 420px; height: 420px; background: radial-gradient(circle, rgba(201,155,91,.35), transparent 70%); }
+.cta-band { position: relative; overflow: hidden; color: #fff; border-radius: var(--radius-lg); background: linear-gradient(130deg, var(--sea-900), var(--sea-700)); padding: clamp(2.5rem,1.5rem+4vw,4.5rem); }
+.cta-band::before { content:""; position:absolute; right:-10%; top:-30%; width: 420px; height: 420px; background: radial-gradient(circle, rgba(115,211,221,.45), transparent 70%); }
 .cta-band h2 { color: #fff; max-width: 20ch; }
 .cta-band .lead { color: rgba(255,255,255,.85); }
 
@@ -367,9 +367,9 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 
 /* ---------- 13. Page hero (sub pages) — light & airy ---------- */
 .page-hero { position: relative; color: var(--ink); padding-block: clamp(3rem,2rem+5vw,6rem) clamp(2.5rem,1.5rem+3vw,4rem); overflow: hidden; background:
-   radial-gradient(900px 480px at 90% -20%, rgba(255,182,74,.14), transparent 60%),
+   radial-gradient(900px 480px at 90% -20%, rgba(15,182,198,.14), transparent 60%),
    linear-gradient(160deg, var(--mist) 0%, #ffffff 70%); border-bottom: 1px solid var(--line); }
-.page-hero::after { content:""; position:absolute; inset:0; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M0 59h60M59 0v60' stroke='%231b1b19' stroke-opacity='.06'/%3E%3C/svg%3E"); z-index: 0; }
+.page-hero::after { content:""; position:absolute; inset:0; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M0 59h60M59 0v60' stroke='%230a90a6' stroke-opacity='.06'/%3E%3C/svg%3E"); z-index: 0; }
 .page-hero .container { position: relative; z-index: 1; }
 .page-hero h1 { color: var(--ink); margin: .8rem 0 1rem; max-width: 20ch; }
 .page-hero .lead { color: var(--ink-soft); max-width: 62ch; }
@@ -503,7 +503,7 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .review p { font-size: .96rem; color: var(--ink-soft); }
 
 /* --- Newsletter band --- */
-.newsletter { background: linear-gradient(135deg, var(--mist), #fff6ef); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.newsletter { background: linear-gradient(135deg, var(--mist), #eafbfc); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .newsletter .container { display: grid; grid-template-columns: 1.1fr .9fr; gap: 2rem; align-items: center; padding-block: clamp(2.5rem,1.5rem+3vw,3.5rem); }
 .newsletter h3 { font-size: clamp(1.4rem,1.1rem+1vw,1.9rem); }
 .newsletter p { color: var(--ink-soft); margin-top: .4rem; }
@@ -599,8 +599,8 @@ h1 { line-height: 1.08; }
 /* ---------- 20. Bespoke scene illustrations ---------- */
 .cat-tile svg.scene, .dest-card svg.scene { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -2; display: block; }
 /* soften the scrim a touch since scenes are lighter than photos */
-.cat-tile::after { background: linear-gradient(180deg, rgba(26,26,24,.05) 0%, rgba(26,26,24,.74) 100%); }
-.dest-card::after { background: linear-gradient(180deg, transparent 30%, rgba(26,26,24,.8)); }
+.cat-tile::after { background: linear-gradient(180deg, rgba(6,56,66,.05) 0%, rgba(6,56,66,.74) 100%); }
+.dest-card::after { background: linear-gradient(180deg, transparent 30%, rgba(6,56,66,.8)); }
 .cat-tile svg.scene, .dest-card svg.scene { transition: transform .6s var(--ease); }
 .cat-tile:hover svg.scene, .dest-card:hover svg.scene { transform: scale(1.05); }
 .card-media svg.scene { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; transition: transform .6s var(--ease); }
@@ -623,17 +623,14 @@ h1 { line-height: 1.08; }
   .cta-band .split > div:last-child { align-items: stretch; }
   .nav-actions .btn { padding: .55rem 1rem; font-size: .88rem; }
 }
+/* on phones the header keeps brand + menu only; the sticky bottom bar
+   carries the consultation CTA, so the top one is hidden to avoid crowding */
+@media (max-width: 560px) { .nav-actions .btn--sea { display: none; } }
 
-/* ---------- 23. Monochrome illustrations (neutral on white) ---------- */
-.scene, .gscene, .imgart, .ph-art svg, .hero-art svg,
-.cat-tile svg.scene, .dest-card svg.scene, .card-media svg.scene,
-.about-scene, .notfound svg {
-  /* warm sand duotone: unifies every illustration into one calm, premium
-     tone (no blue, no orange). Soften or remove to restore full colour. */
-  filter: grayscale(1) sepia(.4) saturate(1.15) brightness(1.04) contrast(.95);
-}
-/* tiles sit on a warm stone gradient behind the toned art */
-.cat-tile, .dest-card { background: linear-gradient(135deg, #5f574b, #b3a692); }
-.card-media { background: linear-gradient(145deg, #5f574b, #b3a692); }
-/* the "sur mesure" / special tiles that used coral->gold become warm stone */
-[style*="linear-gradient(135deg,var(--coral),var(--gold))"] { background: linear-gradient(135deg, #6b6253, #b3a692) !important; }
+/* ---------- 23. Illustration backdrops (paradise-ocean) ---------- */
+/* Illustrations keep their own bright colours (aqua seas, sunny sky).
+   Category/destination tiles sit on an ocean-blue gradient behind them. */
+.cat-tile, .dest-card { background: linear-gradient(135deg, #0a90a6, #73d3dd); }
+.card-media { background: linear-gradient(145deg, #0a90a6, #73d3dd); }
+/* the "sur mesure" / special tiles that used coral->gold become ocean blue */
+[style*="linear-gradient(135deg,var(--coral),var(--gold))"] { background: linear-gradient(135deg, #097585, #17b6c2) !important; }
