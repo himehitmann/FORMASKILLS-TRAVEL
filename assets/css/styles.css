@@ -602,3 +602,9 @@ h1 { line-height: 1.08; }
 .cat-tile:hover svg.scene, .dest-card:hover svg.scene { transform: scale(1.05); }
 .card-media svg.scene { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; transition: transform .6s var(--ease); }
 .card:hover .card-media svg.scene { transform: scale(1.05); }
+
+/* ---------- 21. Offer page hero with illustration ---------- */
+.page-hero--art .container { display: grid; grid-template-columns: 1.08fr .92fr; gap: clamp(1.5rem,1rem+3vw,3rem); align-items: center; }
+.ph-art { max-width: 440px; margin-inline: auto; width: 100%; }
+.ph-art svg { width: 100%; height: auto; display: block; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--line); }
+@media (max-width: 860px) { .page-hero--art .container { grid-template-columns: 1fr; } .ph-art { display: none; } }
