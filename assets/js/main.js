@@ -300,12 +300,14 @@
       });
       if (!ok) return;
       const d = new FormData(cform);
-      const subject = "Contact site — " + (d.get("subject") || "") + (d.get("name") ? " — " + d.get("name") : "");
-      const body = "Bonjour,\n\n" + (d.get("message") || "") +
-        "\n\n---\nNom : " + (d.get("name") || "") +
-        "\nE-mail : " + (d.get("email") || "") +
-        "\nOrganisation : " + (d.get("org") || "") +
-        "\nObjet : " + (d.get("subject") || "");
+      const kind = cform.getAttribute("data-kind") || "Contact site";
+      const subject = kind + (d.get("subject") ? " — " + d.get("subject") : "") + (d.get("name") ? " — " + d.get("name") : "");
+      let body = "Bonjour,\n\n" + (d.get("message") || "") + "\n\n---";
+      [["Nom", "name"], ["E-mail", "email"], ["Organisation", "org"], ["Type", "subject"],
+       ["Téléphone", "phone"], ["Pays", "country"], ["Site web", "website"]].forEach(function (p) {
+        const v = d.get(p[1]);
+        if (v) body += "\n" + p[0] + " : " + v;
+      });
       const mb = cform.querySelector("[data-mailto]");
       if (mb) mb.setAttribute("href", "mailto:contact@formaskills-travel.fr?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body));
       cform.querySelectorAll(".field, button[type=submit]").forEach((el) => (el.style.display = "none"));
