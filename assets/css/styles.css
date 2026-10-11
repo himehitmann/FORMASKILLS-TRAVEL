@@ -6,26 +6,30 @@
 
 /* ---------- 1. Design Tokens ---------- */
 :root {
-  /* Brand palette — summery & happy on white (turquoise · coral · sunshine) */
-  --ink:        #123b45;   /* deep teal-navy, text (readable on white) */
-  --ink-soft:   #5a7883;   /* muted teal-grey, secondary text */
-  --sea:        #0fb5c4;   /* bright happy turquoise — primary accent */
-  --sea-700:    #0a95a2;   /* deeper turquoise for text/contrast */
-  --sea-900:    #0b6b74;   /* deep teal (readable accent on white) */
-  --lagoon:     #4fd1d9;   /* light aqua */
-  --coral:      #ff6f5e;   /* warm summer coral — CTA / accent */
-  --coral-600:  #f0543f;
-  --gold:       #ffb64a;   /* sunshine yellow — highlights & stars */
-  --sand:       #fff3ea;   /* soft peach surface */
+  /* Brand palette — minimalist monochrome on white (charcoal · warm grey)
+     NOTE: one accent only. To add a colour later, change --accent and the
+     three lines that reference it (--sea, --coral stay charcoal otherwise). */
+  --accent:     #1f1f1d;   /* single accent = charcoal (swap to a colour later) */
+  --ink:        #1b1b19;   /* near-black, text */
+  --ink-soft:   #6a675f;   /* warm grey, secondary text */
+  --sea:        #2a2a27;   /* primary (charcoal) — links, icons, dark UI */
+  --sea-700:    #1f1f1d;   /* deeper charcoal for text/contrast */
+  --sea-900:    #141412;   /* darkest (dark bands) */
+  --lagoon:     #8f8b81;   /* mid warm grey */
+  --coral:      #1f1f1d;   /* CTA = charcoal */
+  --coral-600:  #000000;
+  --gold:       #9a958a;   /* quiet warm grey — hairlines & ornaments */
+  --star:       #f0b400;   /* review stars only (reads as rating gold) */
+  --sand:       #f5f3ef;   /* light warm grey surface */
   --cream:      #ffffff;   /* page background (white) */
   --paper:      #ffffff;
-  --line:       #ede6de;   /* hairline borders */
-  --line-soft:  rgba(18,59,69,.10);
-  --mist:       #e8fbfb;   /* pale aqua surface */
+  --line:       #e8e5de;   /* hairline borders */
+  --line-soft:  rgba(27,27,25,.10);
+  --mist:       #f3f1ec;   /* light warm grey surface */
 
   /* Functional */
-  --ok:         #2fae73;
-  --focus:      #0fb5c4;
+  --ok:         #3a3a35;
+  --focus:      #2a2a27;
 
   /* Typography */
   /* Universal, highly legible pairing (works across languages) */
@@ -201,12 +205,11 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 /* ---------- 7. Hero (light & sunny) ---------- */
 .hero { position: relative; min-height: min(88vh, 820px); display: flex; align-items: center; color: var(--ink); overflow: hidden; }
 .hero-media { position: absolute; inset: 0; z-index: -2; background:
-   radial-gradient(1000px 680px at 86% -10%, rgba(15,181,196,.14), transparent 60%),
-   radial-gradient(820px 560px at 6% 110%, rgba(79,209,217,.18), transparent 60%),
-   radial-gradient(640px 440px at 64% 120%, rgba(255,182,74,.10), transparent 62%),
+   radial-gradient(1000px 680px at 86% -10%, rgba(27,27,25,.05), transparent 60%),
+   radial-gradient(820px 560px at 6% 110%, rgba(27,27,25,.05), transparent 60%),
    #ffffff; }
 .hero-media::before { content:""; position:absolute; inset:0;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='560' height='560'%3E%3Cg fill='none' stroke='%230fb5c4' stroke-opacity='0.5' stroke-width='1'%3E%3Cpath d='M-20 120 C120 70 240 170 380 120 S620 70 760 130'/%3E%3Cpath d='M-20 230 C120 180 240 280 380 230 S620 180 760 240'/%3E%3Cpath d='M-20 340 C120 290 240 390 380 340 S620 290 760 350'/%3E%3Cpath d='M-20 450 C120 400 240 500 380 450 S620 400 760 460'/%3E%3C/g%3E%3C/svg%3E");
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='560' height='560'%3E%3Cg fill='none' stroke='%231b1b19' stroke-opacity='0.5' stroke-width='1'%3E%3Cpath d='M-20 120 C120 70 240 170 380 120 S620 70 760 130'/%3E%3Cpath d='M-20 230 C120 180 240 280 380 230 S620 180 760 240'/%3E%3Cpath d='M-20 340 C120 290 240 390 380 340 S620 290 760 350'/%3E%3Cpath d='M-20 450 C120 400 240 500 380 450 S620 400 760 460'/%3E%3C/g%3E%3C/svg%3E");
   background-size:560px 560px; opacity:.07; }
 .hero-media img { display: none; }
 .hero::after { display: none; }
@@ -227,7 +230,7 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .trustbar .container { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1.2rem; padding-block: 1.1rem; }
 .trustbar .tb-item { display: inline-flex; align-items: center; gap: .6rem; font-size: .92rem; font-weight: 500; }
 .trustbar svg { color: var(--sea); width: 1.2em; height: 1.2em; flex: none; }
-.stars { color: var(--gold); letter-spacing: .1em; }
+.stars { color: var(--star); letter-spacing: .1em; }
 
 /* ---------- 8. Cards ---------- */
 .card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; transition: transform .35s var(--ease), box-shadow .35s var(--ease); display: flex; flex-direction: column; }
@@ -366,7 +369,7 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .page-hero { position: relative; color: var(--ink); padding-block: clamp(3rem,2rem+5vw,6rem) clamp(2.5rem,1.5rem+3vw,4rem); overflow: hidden; background:
    radial-gradient(900px 480px at 90% -20%, rgba(255,182,74,.14), transparent 60%),
    linear-gradient(160deg, var(--mist) 0%, #ffffff 70%); border-bottom: 1px solid var(--line); }
-.page-hero::after { content:""; position:absolute; inset:0; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M0 59h60M59 0v60' stroke='%230fb5c4' stroke-opacity='.06'/%3E%3C/svg%3E"); z-index: 0; }
+.page-hero::after { content:""; position:absolute; inset:0; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M0 59h60M59 0v60' stroke='%231b1b19' stroke-opacity='.06'/%3E%3C/svg%3E"); z-index: 0; }
 .page-hero .container { position: relative; z-index: 1; }
 .page-hero h1 { color: var(--ink); margin: .8rem 0 1rem; max-width: 20ch; }
 .page-hero .lead { color: var(--ink-soft); max-width: 62ch; }
@@ -467,7 +470,7 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .topbar .tb-left { display: flex; gap: 1.3rem; flex-wrap: wrap; align-items: center; }
 .topbar .tb-right { display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap; }
 .topbar svg { width: 1em; height: 1em; }
-.topbar .stars { color: var(--gold); }
+.topbar .stars { color: var(--star); }
 @media (max-width: 860px) { .topbar { display: none; } }
 
 /* --- Hero two-column + illustration --- */
@@ -496,7 +499,7 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .review .r-av { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; flex: none; }
 .review .r-name { font-weight: 600; color: var(--ink); }
 .review .r-sub { font-size: .8rem; color: var(--ink-soft); }
-.review .stars { color: var(--gold); letter-spacing: .08em; }
+.review .stars { color: var(--star); letter-spacing: .08em; }
 .review p { font-size: .96rem; color: var(--ink-soft); }
 
 /* --- Newsletter band --- */
@@ -596,8 +599,8 @@ h1 { line-height: 1.08; }
 /* ---------- 20. Bespoke scene illustrations ---------- */
 .cat-tile svg.scene, .dest-card svg.scene { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -2; display: block; }
 /* soften the scrim a touch since scenes are lighter than photos */
-.cat-tile::after { background: linear-gradient(180deg, rgba(11,66,74,.05) 0%, rgba(11,66,74,.72) 100%); }
-.dest-card::after { background: linear-gradient(180deg, transparent 30%, rgba(11,66,74,.78)); }
+.cat-tile::after { background: linear-gradient(180deg, rgba(26,26,24,.05) 0%, rgba(26,26,24,.74) 100%); }
+.dest-card::after { background: linear-gradient(180deg, transparent 30%, rgba(26,26,24,.8)); }
 .cat-tile svg.scene, .dest-card svg.scene { transition: transform .6s var(--ease); }
 .cat-tile:hover svg.scene, .dest-card:hover svg.scene { transform: scale(1.05); }
 .card-media svg.scene { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; transition: transform .6s var(--ease); }
@@ -608,3 +611,29 @@ h1 { line-height: 1.08; }
 .ph-art { max-width: 440px; margin-inline: auto; width: 100%; }
 .ph-art svg { width: 100%; height: auto; display: block; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--line); }
 @media (max-width: 860px) { .page-hero--art .container { grid-template-columns: 1fr; } .ph-art { display: none; } }
+
+/* ---------- 22. Button & alignment fixes ---------- */
+.btn { white-space: nowrap; }
+/* nav CTA: compact so it never wraps or overflows */
+.nav-actions .btn { padding: .6rem 1.15rem; font-size: .9rem; }
+/* CTA band action column: don't stretch buttons to full width */
+.cta-band .split > div:last-child { align-items: flex-start; }
+.cta-band .split > div:last-child .btn { width: auto; }
+@media (max-width: 860px) {
+  .cta-band .split > div:last-child { align-items: stretch; }
+  .nav-actions .btn { padding: .55rem 1rem; font-size: .88rem; }
+}
+
+/* ---------- 23. Monochrome illustrations (neutral on white) ---------- */
+.scene, .gscene, .imgart, .ph-art svg, .hero-art svg,
+.cat-tile svg.scene, .dest-card svg.scene, .card-media svg.scene,
+.about-scene, .notfound svg {
+  /* warm sand duotone: unifies every illustration into one calm, premium
+     tone (no blue, no orange). Soften or remove to restore full colour. */
+  filter: grayscale(1) sepia(.4) saturate(1.15) brightness(1.04) contrast(.95);
+}
+/* tiles sit on a warm stone gradient behind the toned art */
+.cat-tile, .dest-card { background: linear-gradient(135deg, #5f574b, #b3a692); }
+.card-media { background: linear-gradient(145deg, #5f574b, #b3a692); }
+/* the "sur mesure" / special tiles that used coral->gold become warm stone */
+[style*="linear-gradient(135deg,var(--coral),var(--gold))"] { background: linear-gradient(135deg, #6b6253, #b3a692) !important; }

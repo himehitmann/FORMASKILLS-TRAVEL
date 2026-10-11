@@ -195,7 +195,7 @@
           const vals = data.getAll(k).filter(Boolean);
           if (vals.length) lines.push(L[k] + " : " + vals.join(", "));
         });
-        const subject = "Demande de consultation" + (data.get("name") ? " — " + data.get("name") : "");
+        const subject = "Demande de consultation" + (data.get("name") ? " - " + data.get("name") : "");
         const body = "Bonjour,\n\nVoici ma demande via le site Formaskills Travel :\n\n" + lines.join("\n") + "\n\nMerci !";
         mailBtn.setAttribute("href", "mailto:contact@formaskills-travel.fr?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body));
       }
@@ -301,7 +301,7 @@
       if (!ok) return;
       const d = new FormData(cform);
       const kind = cform.getAttribute("data-kind") || "Contact site";
-      const subject = kind + (d.get("subject") ? " — " + d.get("subject") : "") + (d.get("name") ? " — " + d.get("name") : "");
+      const subject = kind + (d.get("subject") ? " - " + d.get("subject") : "") + (d.get("name") ? " - " + d.get("name") : "");
       let body = "Bonjour,\n\n" + (d.get("message") || "") + "\n\n---";
       [["Nom", "name"], ["E-mail", "email"], ["Organisation", "org"], ["Type", "subject"],
        ["Téléphone", "phone"], ["Pays", "country"], ["Site web", "website"]].forEach(function (p) {
