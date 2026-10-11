@@ -322,6 +322,10 @@
       const email = nl.querySelector("input");
       if (!email.value.trim() || email.value.indexOf("@") < 0) { email.style.borderColor = "var(--coral)"; return; }
       email.style.borderColor = "";
+      // Functional with no backend: open a prefilled subscribe email
+      const mail = "mailto:contact@formaskills-travel.fr?subject=" + encodeURIComponent("Inscription newsletter") +
+        "&body=" + encodeURIComponent("Bonjour, merci de m'inscrire à la newsletter.\nE-mail : " + email.value.trim());
+      try { window.location.href = mail; } catch (e) {}
       const ok = nl.querySelector(".nl-ok");
       email.style.display = "none";
       nl.querySelector("button").style.display = "none";
