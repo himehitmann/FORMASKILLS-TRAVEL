@@ -148,7 +148,7 @@ section { padding-block: var(--sp); }
 /* ---------- 6. Header / Nav ---------- */
 .site-header {
   position: sticky; top: 0; z-index: 100;
-  background: rgba(251,247,241,.82); backdrop-filter: saturate(140%) blur(14px);
+  background: rgba(255,255,255,.82); backdrop-filter: saturate(140%) blur(14px);
   border-bottom: 1px solid transparent; transition: border-color .3s, background .3s, box-shadow .3s;
 }
 .site-header.scrolled { border-color: var(--line); box-shadow: var(--shadow-sm); }
@@ -162,8 +162,8 @@ section { padding-block: var(--sp); }
 .brand small { display: block; font-family: var(--font-sans); font-size: .62rem; letter-spacing: .3em; text-transform: uppercase; color: var(--sea-700); font-weight: 700; }
 .nav-links { display: flex; align-items: center; gap: .3rem; }
 .nav-links > li > a, .nav-links > li > .navbtn {
-  display: inline-flex; align-items: center; gap: .35rem; padding: .6rem .85rem; border-radius: 10px;
-  font-weight: 500; font-size: .97rem; color: var(--ink); background: none; border: 0; cursor: pointer; transition: background .2s, color .2s;
+  display: inline-flex; align-items: center; gap: .35rem; padding: .6rem .8rem; border-radius: 10px; white-space: nowrap;
+  font-weight: 500; font-size: .96rem; color: var(--ink); background: none; border: 0; cursor: pointer; transition: background .2s, color .2s;
 }
 .nav-links > li > a:hover, .nav-links > li > .navbtn:hover, .nav-links .has-menu:hover > .navbtn { background: var(--sand); color: var(--sea-900); }
 .nav-links a[aria-current="page"] { color: var(--sea); font-weight: 600; }
@@ -238,7 +238,7 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 .card-media { position: relative; aspect-ratio: 4/3; overflow: hidden; background: linear-gradient(145deg, var(--sea), var(--lagoon)); }
 .card-media img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s var(--ease); }
 .card:hover .card-media img { transform: scale(1.06); }
-.card-media .tag { position: absolute; top: .9rem; left: .9rem; background: rgba(251,247,241,.95); color: var(--sea-900); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: .35rem .7rem; border-radius: 999px; }
+.card-media .tag { position: absolute; top: .9rem; left: .9rem; background: rgba(255,255,255,.95); color: var(--sea-900); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: .35rem .7rem; border-radius: 999px; }
 .card-body { padding: 1.5rem; display: flex; flex-direction: column; gap: .6rem; flex: 1; }
 .card-body h3 { font-size: 1.3rem; }
 .card-meta { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .85rem; color: var(--ink-soft); margin-top: auto; padding-top: .8rem; }
@@ -405,8 +405,11 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 
 /* ---------- 14. Animations ---------- */
 @keyframes fade { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: none; } }
-[data-reveal] { opacity: 0; transform: translateY(26px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
-[data-reveal].in { opacity: 1; transform: none; }
+[data-reveal] { opacity: 0; transform: translateY(32px) scale(.986); filter: blur(5px); transition: opacity .85s var(--ease), transform .85s var(--ease), filter .85s var(--ease); will-change: opacity, transform; }
+[data-reveal].in { opacity: 1; transform: none; filter: none; }
+[data-reveal="left"]  { transform: translateX(-42px); filter: blur(5px); }
+[data-reveal="right"] { transform: translateX(42px); filter: blur(5px); }
+[data-reveal="zoom"]  { transform: scale(.9); filter: blur(5px); }
 [data-reveal][data-delay="1"]{ transition-delay: .08s; }
 [data-reveal][data-delay="2"]{ transition-delay: .16s; }
 [data-reveal][data-delay="3"]{ transition-delay: .24s; }
@@ -454,7 +457,7 @@ body.menu-open .nav-toggle span::after { top: 0; transform: rotate(-45deg); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
-  [data-reveal] { opacity: 1; transform: none; }
+  [data-reveal] { opacity: 1 !important; transform: none !important; filter: none !important; }
 }
 
 /* =============================================================
@@ -634,3 +637,69 @@ h1 { line-height: 1.08; }
 .card-media { background: linear-gradient(145deg, #0a90a6, #73d3dd); }
 /* the "sur mesure" / special tiles that used coral->gold become ocean blue */
 [style*="linear-gradient(135deg,var(--coral),var(--gold))"] { background: linear-gradient(135deg, #097585, #17b6c2) !important; }
+
+/* ============================================================
+   24. Premium motion & depth (floating bubbles, sheen, lift)
+   ============================================================ */
+
+/* Floating gradient "bubbles" — a decorative layer injected by JS
+   into .hero and .cta-band. Purely ornamental, never blocks clicks. */
+.fx-blobs, .fx-bubbles { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.fx-blobs { z-index: 0; }
+.hero .fx-blobs { z-index: -1; }
+.hero .fx-bubbles { z-index: 1; }
+.blob {
+  position: absolute; border-radius: 50%; filter: blur(44px); opacity: .58;
+  background: radial-gradient(circle at 32% 30%, var(--lagoon), transparent 70%);
+  animation: floatBlob var(--d, 18s) var(--ease) infinite alternate;
+  will-change: transform;
+}
+.blob.b-accent { background: radial-gradient(circle at 32% 30%, #9fe6ec, transparent 70%); opacity: .66; }
+.blob.b-deep   { background: radial-gradient(circle at 32% 30%, #2bb3c9, transparent 72%); opacity: .5; }
+/* small crisp floating bubbles — the playful premium touch */
+.bubble {
+  position: absolute; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle at 34% 30%, rgba(255,255,255,.9), rgba(159,230,236,.4));
+  box-shadow: 0 8px 20px -8px rgba(10,110,130,.4), inset 0 0 0 1px rgba(255,255,255,.55);
+  opacity: .85; animation: floatY var(--d, 6s) var(--ease) infinite;
+}
+.cta-band .blob { opacity: .32; mix-blend-mode: screen; }
+.cta-band .split { position: relative; z-index: 1; }  /* keep text above the bubbles */
+@keyframes floatBlob {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(var(--mx, 26px), var(--my, -22px)) scale(1.08); }
+  100% { transform: translate(calc(var(--mx, 26px) * -1), var(--my, 18px)) scale(.95); }
+}
+
+/* Buttons: a soft light sweep on hover + a touch more lift */
+.btn { position: relative; overflow: hidden; }
+.btn::after {
+  content: ""; position: absolute; top: 0; left: -130%; width: 70%; height: 100%;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,.38), transparent);
+  transform: skewX(-18deg); transition: left .6s var(--ease); pointer-events: none;
+}
+.btn:hover::after { left: 160%; }
+.btn--ghost:hover::after, .btn--light:hover::after { background: linear-gradient(120deg, transparent, rgba(10,144,166,.16), transparent); }
+.btn:hover { transform: translateY(-2px); }
+
+/* Cards & tiles: richer hover lift with an ocean-tinted shadow */
+.card { transition: transform .4s var(--ease), box-shadow .4s var(--ease); }
+.card:hover { transform: translateY(-8px); box-shadow: 0 26px 60px -28px rgba(10,110,130,.5); }
+.dest-card, .cat-tile { transition: transform .5s var(--ease), box-shadow .5s var(--ease); }
+.dest-card:hover, .cat-tile:hover { transform: translateY(-6px); box-shadow: 0 30px 62px -30px rgba(7,51,61,.55); }
+.feature.card:hover { transform: translateY(-6px); }
+
+/* Gentle float on the hero illustration & floating badges */
+@keyframes floatY { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+.hero-art svg { animation: floatY 7s var(--ease) infinite; }
+.hero-badge { animation: floatY 5s var(--ease) infinite; }
+.hero-badge.b2 { animation-delay: 1.4s; }
+
+/* Section eyebrows get an animated accent underline when revealed */
+.section-head .eyebrow::before, .section-head .eyebrow.center::after { transition: width .6s var(--ease) .2s; }
+
+/* Respect reduced-motion: stop the ambient animations entirely */
+@media (prefers-reduced-motion: reduce) {
+  .blob, .hero-art svg, .hero-badge { animation: none !important; }
+  .btn::after { display: none !important; }
+}

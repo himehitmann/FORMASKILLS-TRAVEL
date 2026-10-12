@@ -338,4 +338,61 @@
   /* ---- Footer year ---- */
   const yr = document.querySelector("[data-year]");
   if (yr) yr.textContent = new Date().getFullYear();
+
+  /* ---- Premium: floating gradient "bubbles" + soft hero parallax ---- */
+  (function () {
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const makeLayer = (host, cls, specs) => {
+      if (!host) return;
+      const layer = document.createElement("div");
+      layer.className = cls;
+      layer.setAttribute("aria-hidden", "true");
+      specs.forEach((sp) => {
+        const b = document.createElement("span");
+        b.className = (sp.bubble ? "bubble" : "blob") + (sp.cls ? " " + sp.cls : "");
+        b.style.width = sp.size + "px";
+        b.style.height = sp.size + "px";
+        b.style.left = sp.x;
+        b.style.top = sp.y;
+        b.style.setProperty("--d", sp.d + "s");
+        if (sp.mx != null) b.style.setProperty("--mx", sp.mx + "px");
+        if (sp.my != null) b.style.setProperty("--my", sp.my + "px");
+        if (sp.delay) b.style.animationDelay = sp.delay + "s";
+        layer.appendChild(b);
+      });
+      host.prepend(layer);
+    };
+    const hero = document.querySelector(".hero");
+    makeLayer(hero, "fx-blobs", [
+      { size: 470, x: "60%", y: "-14%", d: 19, mx: 30, my: 26, cls: "b-accent" },
+      { size: 320, x: "-7%", y: "36%", d: 23, mx: -26, my: 30, delay: 2 },
+      { size: 240, x: "76%", y: "60%", d: 16, mx: 22, my: -20, cls: "b-deep", delay: 1 },
+    ]);
+    makeLayer(hero, "fx-bubbles", [
+      { size: 22, x: "57%", y: "30%", d: 6.5, bubble: true, delay: 0 },
+      { size: 12, x: "90%", y: "24%", d: 5, bubble: true, delay: 1 },
+      { size: 30, x: "52%", y: "64%", d: 7.5, bubble: true, delay: 0.5 },
+      { size: 9, x: "70%", y: "13%", d: 6, bubble: true, delay: 1.6 },
+    ]);
+    document.querySelectorAll(".cta-band").forEach((band) =>
+      makeLayer(band, "fx-blobs", [
+        { size: 300, x: "70%", y: "-28%", d: 20, mx: 24, my: 22, cls: "b-accent" },
+        { size: 210, x: "3%", y: "48%", d: 17, mx: -18, my: 18, delay: 1.5 },
+      ])
+    );
+    if (!reduce) {
+      let ticking = false;
+      window.addEventListener("scroll", () => {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => {
+          const y = window.scrollY;
+          document.querySelectorAll(".hero .blob").forEach((b, i) => {
+            b.style.marginTop = (y * (0.04 + (i % 3) * 0.02) * (i % 2 ? -1 : 1)).toFixed(1) + "px";
+          });
+          ticking = false;
+        });
+      }, { passive: true });
+    }
+  })();
 })();
